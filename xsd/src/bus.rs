@@ -1,3 +1,4 @@
+use crate::sys::{XsdMessageHeader, XSD_ERROR};
 use std::error::Error;
 use std::ffi::{CString, FromVecWithNulError, NulError};
 use std::fs::metadata;
@@ -7,17 +8,14 @@ use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
-use crate::sys::{XSD_ERROR, XsdMessageHeader};
 
-const XEN_BUS_PATHS: &'static [&'static str] = &[
-    "/var/run/xenstored/socket"
-];
+const XEN_BUS_PATHS: &[&str] = &["/var/run/xenstored/socket"];
 
 fn find_bus_path() -> Option<String> {
     for path in XEN_BUS_PATHS {
         match metadata(path) {
             Ok(_) => return Some(String::from(*path)),
-            Err(_) => continue
+            Err(_) => continue,
         }
     }
     None
@@ -25,18 +23,20 @@ fn find_bus_path() -> Option<String> {
 
 #[derive(Debug)]
 pub struct XsdBusError {
-    message: String
+    message: String,
 }
 
 impl XsdBusError {
     pub fn new(msg: &str) -> XsdBusError {
-        return XsdBusError {message: msg.to_string()};
+        XsdBusError {
+            message: msg.to_string(),
+        }
     }
 }
 
 impl std::fmt::Display for XsdBusError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f,"{}", self.message)
+        write!(f, "{}", self.message)
     }
 }
 
@@ -77,13 +77,13 @@ impl From<FromUtf8Error> for XsdBusError {
 }
 
 pub struct XsdSocket {
-    handle: UnixStream
+    handle: UnixStream,
 }
 
 #[derive(Debug)]
 pub struct XsdResponse {
     pub header: XsdMessageHeader,
-    pub payload: Vec<u8>
+    pub payload: Vec<u8>,
 }
 
 impl XsdResponse {
@@ -97,9 +97,17 @@ impl XsdResponse {
                 buffer.clear();
                 continue;
             }
-            buffer.push(b.clone());
+            buffer.push(*b);
         }
         Ok(strings)
+    }
+
+    pub fn parse_bool(&self) -> Result<bool, XsdBusError> {
+        if self.payload.len() != 1 {
+            Err(XsdBusError::new("Expected payload to be a single byte."))
+        } else {
+            Ok(self.payload[0] == 0)
+        }
     }
 }
 
@@ -107,7 +115,7 @@ impl XsdSocket {
     pub fn dial() -> Result<XsdSocket, XsdBusError> {
         let path = match find_bus_path() {
             Some(path) => path,
-            None => return Err(XsdBusError::new("Failed to find valid bus path."))
+            None => return Err(XsdBusError::new("Failed to find valid bus path.")),
         };
         let stream = UnixStream::connect(path)?;
         Ok(XsdSocket { handle: stream })
@@ -118,12 +126,12 @@ impl XsdSocket {
             typ,
             req: 0,
             tx,
-            len: buf.len() as u32
+            len: buf.len() as u32,
         };
         self.handle.write_all(bytemuck::bytes_of(&header))?;
         self.handle.write_all(buf)?;
         let mut result_buf = vec![0u8; size_of::<XsdMessageHeader>()];
-        self.handle.read(result_buf.as_mut_slice())?;
+        self.handle.read_exact(result_buf.as_mut_slice())?;
         let result_header = bytemuck::from_bytes::<XsdMessageHeader>(&result_buf);
         let mut payload = vec![0u8; result_header.len as usize];
         self.handle.read_exact(payload.as_mut_slice())?;
@@ -131,14 +139,22 @@ impl XsdSocket {
             let error = CString::from_vec_with_nul(payload)?;
             return Err(XsdBusError::new(error.to_str()?));
         }
-        let response = XsdResponse { header: header.clone(), payload };
+        let response = XsdResponse {
+            header,
+            payload,
+        };
         Ok(response)
     }
 
-    pub fn send_single(&mut self, tx: u32, typ: u32, string: &str) -> Result<XsdResponse, XsdBusError> {
+    pub fn send_single(
+        &mut self,
+        tx: u32,
+        typ: u32,
+        string: &str,
+    ) -> Result<XsdResponse, XsdBusError> {
         let path = CString::new(string)?;
         let buf = path.as_bytes_with_nul();
-        Ok(self.send(tx, typ, buf)?)
+        self.send(tx, typ, buf)
     }
 }
 
