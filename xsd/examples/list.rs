@@ -1,5 +1,5 @@
 use xsd::bus::XsdBusError;
-use xsd::client::XsdClient;
+use xsd::client::{XsdClient, XsdInterface};
 use xsd::sys::XSD_ERROR_EINVAL;
 
 fn list_recursive(client: &mut XsdClient, level: usize, path: &str) -> Result<(), XsdBusError> {

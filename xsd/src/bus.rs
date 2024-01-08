@@ -5,6 +5,7 @@ use std::fs::metadata;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::net::Shutdown;
+use std::num::ParseIntError;
 use std::os::unix::net::UnixStream;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
@@ -76,6 +77,12 @@ impl From<FromUtf8Error> for XsdBusError {
     }
 }
 
+impl From<ParseIntError> for XsdBusError {
+    fn from(_: ParseIntError) -> Self {
+        XsdBusError::new("Unable to coerce data into an integer.")
+    }
+}
+
 pub struct XsdSocket {
     handle: UnixStream,
 }
@@ -87,6 +94,10 @@ pub struct XsdResponse {
 }
 
 impl XsdResponse {
+    pub fn parse_string(&self) -> Result<String, XsdBusError> {
+        Ok(String::from_utf8(self.payload.clone())?)
+    }
+
     pub fn parse_string_vec(&self) -> Result<Vec<String>, XsdBusError> {
         let mut strings: Vec<String> = Vec::new();
         let mut buffer: Vec<u8> = Vec::new();
