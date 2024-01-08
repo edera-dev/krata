@@ -1,11 +1,12 @@
 use xsd::bus::XsdBusError;
 use xsd::client::XsdClient;
+use xsd::sys::XSD_ERROR_EINVAL;
 
 fn list_recursive(client: &mut XsdClient, level: usize, path: &str) -> Result<(), XsdBusError> {
     let children = match client.list(path) {
         Ok(children) => children,
         Err(error) => {
-            return if error.to_string() == "EINVAL" {
+            return if error.to_string() == XSD_ERROR_EINVAL.error {
                 Ok(())
             } else {
                 Err(error)

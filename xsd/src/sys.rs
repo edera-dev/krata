@@ -42,72 +42,72 @@ pub const XSD_WRITE_CREATE: &str = "CREATE";
 pub const XSD_WRITE_CREATE_EXCL: &str = "CREATE|EXCL";
 
 #[repr(C)]
-pub struct XsError<'a> {
-    num: i32,
-    error: &'a str,
+pub struct XsdError<'a> {
+    pub num: i32,
+    pub error: &'a str,
 }
 
-pub const XSD_ERROR_EINVAL: XsError = XsError {
+pub const XSD_ERROR_EINVAL: XsdError = XsdError {
     num: libc::EINVAL,
     error: "EINVAL",
 };
-pub const XSD_ERROR_EACCES: XsError = XsError {
+pub const XSD_ERROR_EACCES: XsdError = XsdError {
     num: libc::EACCES,
     error: "EACCES",
 };
-pub const XSD_ERROR_EEXIST: XsError = XsError {
+pub const XSD_ERROR_EEXIST: XsdError = XsdError {
     num: libc::EEXIST,
     error: "EEXIST",
 };
-pub const XSD_ERROR_EISDIR: XsError = XsError {
+pub const XSD_ERROR_EISDIR: XsdError = XsdError {
     num: libc::EISDIR,
     error: "EISDIR",
 };
-pub const XSD_ERROR_ENOENT: XsError = XsError {
+pub const XSD_ERROR_ENOENT: XsdError = XsdError {
     num: libc::ENOENT,
     error: "ENOENT",
 };
-pub const XSD_ERROR_ENOMEM: XsError = XsError {
+pub const XSD_ERROR_ENOMEM: XsdError = XsdError {
     num: libc::ENOMEM,
     error: "ENOMEM",
 };
-pub const XSD_ERROR_ENOSPC: XsError = XsError {
+pub const XSD_ERROR_ENOSPC: XsdError = XsdError {
     num: libc::ENOSPC,
     error: "ENOSPC",
 };
-pub const XSD_ERROR_EIO: XsError = XsError {
+pub const XSD_ERROR_EIO: XsdError = XsdError {
     num: libc::EIO,
     error: "EIO",
 };
-pub const XSD_ERROR_ENOTEMPTY: XsError = XsError {
+pub const XSD_ERROR_ENOTEMPTY: XsdError = XsdError {
     num: libc::ENOTEMPTY,
     error: "ENOTEMPTY",
 };
-pub const XSD_ERROR_ENOSYS: XsError = XsError {
+pub const XSD_ERROR_ENOSYS: XsdError = XsdError {
     num: libc::ENOSYS,
     error: "ENOSYS",
 };
-pub const XSD_ERROR_EROFS: XsError = XsError {
+pub const XSD_ERROR_EROFS: XsdError = XsdError {
     num: libc::EROFS,
     error: "EROFS",
 };
-pub const XSD_ERROR_EBUSY: XsError = XsError {
+pub const XSD_ERROR_EBUSY: XsdError = XsdError {
     num: libc::EBUSY,
     error: "EBUSY",
 };
-pub const XSD_ERROR_EAGAIN: XsError = XsError {
+pub const XSD_ERROR_EAGAIN: XsdError = XsdError {
     num: libc::EAGAIN,
     error: "EAGAIN",
 };
-pub const XSD_ERROR_EISCONN: XsError = XsError {
+pub const XSD_ERROR_EISCONN: XsdError = XsdError {
     num: libc::EISCONN,
     error: "EISCONN",
 };
-pub const XSD_ERROR_E2BIG: XsError = XsError {
+pub const XSD_ERROR_E2BIG: XsdError = XsdError {
     num: libc::E2BIG,
     error: "E2BIG",
 };
-pub const XSD_ERROR_EPERM: XsError = XsError {
+pub const XSD_ERROR_EPERM: XsdError = XsdError {
     num: libc::EPERM,
     error: "EPERM",
 };

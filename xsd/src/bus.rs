@@ -139,10 +139,7 @@ impl XsdSocket {
             let error = CString::from_vec_with_nul(payload)?;
             return Err(XsdBusError::new(error.to_str()?));
         }
-        let response = XsdResponse {
-            header,
-            payload,
-        };
+        let response = XsdResponse { header, payload };
         Ok(response)
     }
 
