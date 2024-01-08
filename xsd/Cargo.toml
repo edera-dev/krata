@@ -1,0 +1,19 @@
+[package]
+name = "xsd"
+version = "0.0.1"
+edition = "2021"
+resolver = "2"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+libc = "0.2"
+
+[dependencies.bytemuck]
+version = "1.14.0"
+features = ["derive"]
+
+[[example]]
+name = "xsd-list"
+path = "examples/list.rs"
