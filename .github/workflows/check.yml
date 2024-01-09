@@ -1,0 +1,28 @@
+name: check
+on: [push, pull_request]
+jobs:
+  build:
+    name: cargo build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - run: cargo build --all-features
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+    - run: cargo clippy --all-features
+  rustfmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt
+    - run: cargo fmt
