@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "xenstore",
-    "xenevtchn"
+    "xenevtchn",
+    "xencall"
 ]
 resolver = "2"

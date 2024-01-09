@@ -1,0 +1,16 @@
+[package]
+name = "xencall"
+version = "0.0.1"
+edition = "2021"
+resolver = "2"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies.nix]
+version = "0.27.1"
+features = ["ioctl"]
+
+[[example]]
+name = "xencall-simple"
+path = "examples/simple.rs"
