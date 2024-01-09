@@ -1,7 +1,7 @@
 use crate::bus::{XsdBusError, XsdSocket};
 use crate::sys::{
-    XSD_DIRECTORY, XSD_MKDIR, XSD_READ, XSD_RM, XSD_TRANSACTION_END, XSD_TRANSACTION_START,
-    XSD_WRITE,
+    XSD_DIRECTORY, XSD_GET_DOMAIN_PATH, XSD_MKDIR, XSD_READ, XSD_RM, XSD_TRANSACTION_END,
+    XSD_TRANSACTION_START, XSD_WRITE,
 };
 use std::ffi::CString;
 
@@ -18,7 +18,7 @@ pub trait XsdInterface {
 }
 
 impl XsdClient {
-    pub fn new() -> Result<XsdClient, XsdBusError> {
+    pub fn open() -> Result<XsdClient, XsdBusError> {
         let socket = XsdSocket::dial()?;
         Ok(XsdClient { socket })
     }
@@ -54,6 +54,13 @@ impl XsdClient {
         let response = self.socket.send(0, XSD_TRANSACTION_START, &[])?;
         let tx = response.parse_string()?.parse::<u32>()?;
         Ok(XsdTransaction { client: self, tx })
+    }
+
+    pub fn get_domain_path(&mut self, domid: u32) -> Result<String, XsdBusError> {
+        let response =
+            self.socket
+                .send_single(0, XSD_GET_DOMAIN_PATH, domid.to_string().as_str())?;
+        response.parse_string()
     }
 }
 

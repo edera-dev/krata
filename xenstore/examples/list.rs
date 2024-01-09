@@ -29,7 +29,7 @@ fn list_recursive(client: &mut XsdClient, level: usize, path: &str) -> Result<()
 }
 
 fn main() -> Result<(), XsdBusError> {
-    let mut client = XsdClient::new()?;
+    let mut client = XsdClient::open()?;
     list_recursive(&mut client, 0, "/")?;
     Ok(())
 }

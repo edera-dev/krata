@@ -2,6 +2,7 @@
 members = [
     "xenstore",
     "xenevtchn",
-    "xencall"
+    "xencall",
+    "xencl"
 ]
 resolver = "2"

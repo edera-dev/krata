@@ -1,0 +1,15 @@
+[package]
+name = "xencl"
+version = "0.0.1"
+edition = "2021"
+resolver = "2"
+
+[dependencies.xenstore]
+path = "../xenstore"
+
+[lib]
+path = "src/lib.rs"
+
+[[example]]
+name = "xencl-simple"
+path = "examples/simple.rs"
