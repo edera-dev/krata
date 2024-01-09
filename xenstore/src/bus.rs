@@ -160,9 +160,23 @@ impl XsdSocket {
         typ: u32,
         string: &str,
     ) -> Result<XsdResponse, XsdBusError> {
-        let path = CString::new(string)?;
-        let buf = path.as_bytes_with_nul();
+        let text = CString::new(string)?;
+        let buf = text.as_bytes_with_nul();
         self.send(tx, typ, buf)
+    }
+
+    pub fn send_multiple(
+        &mut self,
+        tx: u32,
+        typ: u32,
+        array: &[&str],
+    ) -> Result<XsdResponse, XsdBusError> {
+        let mut buf: Vec<u8> = Vec::new();
+        for item in array {
+            buf.extend_from_slice(item.as_bytes());
+            buf.push(0);
+        }
+        self.send(tx, typ, buf.as_slice())
     }
 }
 

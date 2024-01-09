@@ -1,4 +1,5 @@
-mod sys;
+pub mod domctl;
+pub mod sys;
 
 use crate::sys::Hypercall;
 use nix::errno::Errno;
@@ -60,9 +61,9 @@ impl XenCall {
 
     pub fn hypercall(&mut self, op: c_ulong, arg: [c_ulong; 5]) -> Result<c_long, XenCallError> {
         unsafe {
-            let mut call = Hypercall { op, arg, retval: 0 };
-            sys::hypercall(self.handle.as_raw_fd(), &mut call)?;
-            Ok(call.retval)
+            let mut call = Hypercall { op, arg };
+            let result = sys::hypercall(self.handle.as_raw_fd(), &mut call)?;
+            Ok(result as c_long)
         }
     }
 

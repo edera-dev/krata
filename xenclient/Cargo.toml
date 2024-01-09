@@ -1,15 +1,22 @@
 [package]
-name = "xencl"
+name = "xenclient"
 version = "0.0.1"
 edition = "2021"
 resolver = "2"
 
+[dependencies.xencall]
+path = "../xencall"
+
 [dependencies.xenstore]
 path = "../xenstore"
+
+[dependencies.uuid]
+version = "1.6.1"
+features = ["v4"]
 
 [lib]
 path = "src/lib.rs"
 
 [[example]]
-name = "xencl-simple"
+name = "xenclient-simple"
 path = "examples/simple.rs"
