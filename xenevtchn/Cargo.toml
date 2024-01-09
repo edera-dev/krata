@@ -1,0 +1,16 @@
+[package]
+name = "xenevtchn"
+version = "0.0.1"
+edition = "2021"
+resolver = "2"
+
+[dependencies.nix]
+version = "0.27.1"
+features = ["ioctl"]
+
+[lib]
+path = "src/lib.rs"
+
+[[example]]
+name = "xenevtchn-simple"
+path = "examples/simple.rs"

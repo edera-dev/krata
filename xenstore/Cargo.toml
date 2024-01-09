@@ -1,5 +1,5 @@
 [package]
-name = "xsd"
+name = "xenstore"
 version = "0.0.1"
 edition = "2021"
 resolver = "2"
@@ -15,5 +15,5 @@ version = "1.14.0"
 features = ["derive"]
 
 [[example]]
-name = "xsd-list"
+name = "xenstore-ls"
 path = "examples/list.rs"

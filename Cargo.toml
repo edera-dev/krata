@@ -1,5 +1,6 @@
 [workspace]
 members = [
-    "xsd"
+    "xenstore",
+    "xenevtchn"
 ]
 resolver = "2"
