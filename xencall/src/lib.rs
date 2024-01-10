@@ -62,7 +62,7 @@ impl XenCall {
         Ok(XenCall { handle: file })
     }
 
-    pub fn hypercall(&mut self, op: c_ulong, arg: [c_ulong; 5]) -> Result<c_long, XenCallError> {
+    pub fn hypercall(&self, op: c_ulong, arg: [c_ulong; 5]) -> Result<c_long, XenCallError> {
         unsafe {
             let mut call = Hypercall { op, arg };
             let result = sys::hypercall(self.handle.as_raw_fd(), &mut call)?;
@@ -70,16 +70,16 @@ impl XenCall {
         }
     }
 
-    pub fn hypercall0(&mut self, op: c_ulong) -> Result<c_long, XenCallError> {
+    pub fn hypercall0(&self, op: c_ulong) -> Result<c_long, XenCallError> {
         self.hypercall(op, [0, 0, 0, 0, 0])
     }
 
-    pub fn hypercall1(&mut self, op: c_ulong, arg1: c_ulong) -> Result<c_long, XenCallError> {
+    pub fn hypercall1(&self, op: c_ulong, arg1: c_ulong) -> Result<c_long, XenCallError> {
         self.hypercall(op, [arg1, 0, 0, 0, 0])
     }
 
     pub fn hypercall2(
-        &mut self,
+        &self,
         op: c_ulong,
         arg1: c_ulong,
         arg2: c_ulong,
@@ -88,7 +88,7 @@ impl XenCall {
     }
 
     pub fn hypercall3(
-        &mut self,
+        &self,
         op: c_ulong,
         arg1: c_ulong,
         arg2: c_ulong,
@@ -98,7 +98,7 @@ impl XenCall {
     }
 
     pub fn hypercall4(
-        &mut self,
+        &self,
         op: c_ulong,
         arg1: c_ulong,
         arg2: c_ulong,
@@ -109,7 +109,7 @@ impl XenCall {
     }
 
     pub fn hypercall5(
-        &mut self,
+        &self,
         op: c_ulong,
         arg1: c_ulong,
         arg2: c_ulong,
@@ -120,7 +120,7 @@ impl XenCall {
         self.hypercall(op, [arg1, arg2, arg3, arg4, arg5])
     }
 
-    pub fn mmap(&mut self, mmap: Mmap) -> Result<c_long, XenCallError> {
+    pub fn mmap(&self, mmap: Mmap) -> Result<c_long, XenCallError> {
         unsafe {
             let mut mmap = mmap.clone();
             let result = sys::mmap(self.handle.as_raw_fd(), &mut mmap)?;
@@ -128,7 +128,7 @@ impl XenCall {
         }
     }
 
-    pub fn get_version_capabilities(&mut self) -> Result<XenCapabilitiesInfo, XenCallError> {
+    pub fn get_version_capabilities(&self) -> Result<XenCapabilitiesInfo, XenCallError> {
         let info = XenCapabilitiesInfo {
             capabilities: [0; 1024],
         };

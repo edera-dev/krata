@@ -1,5 +1,6 @@
 pub mod boot;
 pub mod create;
+pub mod elfloader;
 pub mod sys;
 
 use crate::create::DomainConfig;
@@ -74,7 +75,7 @@ impl XenClient {
     }
 
     pub fn create(&mut self, config: DomainConfig) -> Result<(), XenClientError> {
-        let mut domctl = DomainControl::new(&mut self.call);
+        let domctl = DomainControl::new(&self.call);
         let created = domctl.create_domain(CreateDomain::default())?;
         let domain = self.store.get_domain_path(created.domid)?;
         let vm = self.store.read_string(format!("{}/vm", domain).as_str())?;

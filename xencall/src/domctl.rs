@@ -8,7 +8,7 @@ use std::ffi::c_ulong;
 use std::ptr::addr_of;
 
 pub struct DomainControl<'a> {
-    call: &'a mut XenCall,
+    call: &'a XenCall,
 }
 
 pub struct CreatedDomain {
@@ -16,11 +16,11 @@ pub struct CreatedDomain {
 }
 
 impl DomainControl<'_> {
-    pub fn new(call: &mut XenCall) -> DomainControl {
+    pub fn new(call: &XenCall) -> DomainControl {
         DomainControl { call }
     }
 
-    pub fn get_domain_info(&mut self, domid: u32) -> Result<GetDomainInfo, XenCallError> {
+    pub fn get_domain_info(&self, domid: u32) -> Result<GetDomainInfo, XenCallError> {
         let domctl = DomCtl {
             cmd: XEN_DOMCTL_GETDOMAININFO,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
@@ -56,7 +56,7 @@ impl DomainControl<'_> {
     }
 
     pub fn create_domain(
-        &mut self,
+        &self,
         create_domain: CreateDomain,
     ) -> Result<CreatedDomain, XenCallError> {
         let domctl = DomCtl {
