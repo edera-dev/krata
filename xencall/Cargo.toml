@@ -22,3 +22,7 @@ path = "examples/domain_info.rs"
 [[example]]
 name = "xencall-domain-create"
 path = "examples/domain_create.rs"
+
+[[example]]
+name = "xencall-version-capabilities"
+path = "examples/version_capabilities.rs"

@@ -1,13 +1,16 @@
 pub mod domctl;
 pub mod sys;
 
-use crate::sys::Hypercall;
+use crate::sys::{
+    Hypercall, Mmap, XenCapabilitiesInfo, HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES,
+};
 use nix::errno::Errno;
 use std::error::Error;
 use std::ffi::{c_long, c_ulong};
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
+use std::ptr::addr_of;
 
 pub struct XenCall {
     pub handle: File,
@@ -115,5 +118,25 @@ impl XenCall {
         arg5: c_ulong,
     ) -> Result<c_long, XenCallError> {
         self.hypercall(op, [arg1, arg2, arg3, arg4, arg5])
+    }
+
+    pub fn mmap(&mut self, mmap: Mmap) -> Result<c_long, XenCallError> {
+        unsafe {
+            let mut mmap = mmap.clone();
+            let result = sys::mmap(self.handle.as_raw_fd(), &mut mmap)?;
+            Ok(result as c_long)
+        }
+    }
+
+    pub fn get_version_capabilities(&mut self) -> Result<XenCapabilitiesInfo, XenCallError> {
+        let info = XenCapabilitiesInfo {
+            capabilities: [0; 1024],
+        };
+        self.hypercall2(
+            HYPERVISOR_XEN_VERSION,
+            XENVER_CAPABILITIES,
+            addr_of!(info) as c_ulong,
+        )?;
+        Ok(info)
     }
 }

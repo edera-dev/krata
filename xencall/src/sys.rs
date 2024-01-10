@@ -1,6 +1,6 @@
 /// Handwritten hypercall bindings.
 use nix::ioctl_readwrite_bad;
-use std::ffi::c_ulong;
+use std::ffi::{c_char, c_int, c_ulong};
 use uuid::Uuid;
 
 #[repr(C)]
@@ -10,9 +10,27 @@ pub struct Hypercall {
     pub arg: [c_ulong; 5],
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MmapEntry {
+    pub va: u64,
+    pub mfn: u64,
+    pub npages: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub struct Mmap {
+    pub num: c_int,
+    pub dom: u16,
+    pub entry: *mut MmapEntry,
+}
+
 const IOCTL_PRIVCMD_HYPERCALL: u64 = 0x305000;
+const IOCTL_PRIVCMD_MMAP: u64 = 0x105002;
 
 ioctl_readwrite_bad!(hypercall, IOCTL_PRIVCMD_HYPERCALL, Hypercall);
+ioctl_readwrite_bad!(mmap, IOCTL_PRIVCMD_MMAP, Mmap);
 
 pub const HYPERVISOR_SET_TRAP_TABLE: c_ulong = 0;
 pub const HYPERVISOR_MMU_UPDATE: c_ulong = 1;
@@ -175,6 +193,8 @@ pub struct DomCtl {
 pub union DomCtlValue {
     pub create_domain: CreateDomain,
     pub get_domain_info: GetDomainInfo,
+    pub max_mem: MaxMem,
+    pub max_cpus: MaxVcpus,
 }
 
 #[repr(C)]
@@ -192,6 +212,28 @@ pub struct CreateDomain {
     pub vmtrace_size: u32,
     pub cpupool_id: u32,
     pub arch_domain_config: ArchDomainConfig,
+}
+
+impl Default for CreateDomain {
+    fn default() -> Self {
+        CreateDomain {
+            ssidref: SECINITSID_DOMU,
+            handle: Uuid::new_v4().into_bytes(),
+            flags: 0,
+            iommu_opts: 0,
+            max_vcpus: 1,
+            max_evtchn_port: 1023,
+            max_grant_frames: -1,
+            max_maptrack_frames: -1,
+            grant_opts: 2,
+            vmtrace_size: 0,
+            cpupool_id: 0,
+            arch_domain_config: ArchDomainConfig {
+                emulation_flags: 0,
+                misc_flags: 0,
+            },
+        }
+    }
 }
 
 #[repr(C)]
@@ -223,27 +265,25 @@ pub struct ArchDomainConfig {
     pub misc_flags: u32,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MaxMem {
+    pub max_memkb: u64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MaxVcpus {
+    pub max_vcpus: u32,
+}
+
 pub const XEN_DOMCTL_INTERFACE_VERSION: u32 = 0x00000015;
 pub const SECINITSID_DOMU: u32 = 13;
 
-impl Default for CreateDomain {
-    fn default() -> Self {
-        CreateDomain {
-            ssidref: SECINITSID_DOMU,
-            handle: Uuid::new_v4().into_bytes(),
-            flags: 0,
-            iommu_opts: 0,
-            max_vcpus: 1,
-            max_evtchn_port: 1023,
-            max_grant_frames: -1,
-            max_maptrack_frames: -1,
-            grant_opts: 2,
-            vmtrace_size: 0,
-            cpupool_id: 0,
-            arch_domain_config: ArchDomainConfig {
-                emulation_flags: 0,
-                misc_flags: 0,
-            },
-        }
-    }
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct XenCapabilitiesInfo {
+    pub capabilities: [c_char; 1024],
 }
+
+pub const XENVER_CAPABILITIES: u64 = 3;

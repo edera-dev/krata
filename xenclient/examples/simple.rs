@@ -11,6 +11,6 @@ fn main() -> Result<(), XenClientError> {
         None,
         None,
     ));
-    client.create(2, config)?;
+    client.create(config)?;
     Ok(())
 }

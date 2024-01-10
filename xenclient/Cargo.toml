@@ -4,6 +4,12 @@ version = "0.0.1"
 edition = "2021"
 resolver = "2"
 
+[dependencies]
+elf = "0.7.4"
+flate2 = "1.0"
+xz2 = "0.1"
+memchr = "2"
+
 [dependencies.xencall]
 path = "../xencall"
 
@@ -20,3 +26,7 @@ path = "src/lib.rs"
 [[example]]
 name = "xenclient-simple"
 path = "examples/simple.rs"
+
+[[example]]
+name = "xenclient-boot"
+path = "examples/boot.rs"

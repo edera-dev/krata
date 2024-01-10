@@ -1,6 +1,7 @@
 use crate::sys::{
-    ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, GetDomainInfo, HYPERVISOR_DOMCTL,
-    XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_INTERFACE_VERSION,
+    ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, GetDomainInfo, MaxMem, MaxVcpus,
+    HYPERVISOR_DOMCTL, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_GETDOMAININFO,
+    XEN_DOMCTL_INTERFACE_VERSION, XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS,
 };
 use crate::{XenCall, XenCallError};
 use std::ffi::c_ulong;
@@ -69,5 +70,33 @@ impl DomainControl<'_> {
         Ok(CreatedDomain {
             domid: domctl.domid,
         })
+    }
+
+    pub fn set_max_mem(&mut self, domid: u32, memkb: u64) -> Result<(), XenCallError> {
+        let domctl = DomCtl {
+            cmd: XEN_DOMCTL_MAX_MEM,
+            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            domid,
+            value: DomCtlValue {
+                max_mem: MaxMem { max_memkb: memkb },
+            },
+        };
+        self.call
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
+        Ok(())
+    }
+
+    pub fn set_max_vcpus(&mut self, domid: u32, max_vcpus: u32) -> Result<(), XenCallError> {
+        let domctl = DomCtl {
+            cmd: XEN_DOMCTL_MAX_VCPUS,
+            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            domid,
+            value: DomCtlValue {
+                max_cpus: MaxVcpus { max_vcpus },
+            },
+        };
+        self.call
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
+        Ok(())
     }
 }
