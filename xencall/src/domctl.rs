@@ -1,7 +1,8 @@
 use crate::sys::{
-    ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, GetDomainInfo, MaxMem, MaxVcpus,
-    HYPERVISOR_DOMCTL, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_GETDOMAININFO,
-    XEN_DOMCTL_INTERFACE_VERSION, XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS,
+    ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, GetDomainInfo, HypercallInit, MaxMem,
+    MaxVcpus, HYPERVISOR_DOMCTL, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN,
+    XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION,
+    XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS,
 };
 use crate::{XenCall, XenCallError};
 use std::ffi::c_ulong;
@@ -9,10 +10,6 @@ use std::ptr::addr_of;
 
 pub struct DomainControl<'a> {
     call: &'a XenCall,
-}
-
-pub struct CreatedDomain {
-    pub domid: u32,
 }
 
 impl DomainControl<'_> {
@@ -55,10 +52,7 @@ impl DomainControl<'_> {
         Ok(unsafe { domctl.value.get_domain_info })
     }
 
-    pub fn create_domain(
-        &self,
-        create_domain: CreateDomain,
-    ) -> Result<CreatedDomain, XenCallError> {
+    pub fn create_domain(&self, create_domain: CreateDomain) -> Result<u32, XenCallError> {
         let domctl = DomCtl {
             cmd: XEN_DOMCTL_CREATEDOMAIN,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
@@ -67,9 +61,7 @@ impl DomainControl<'_> {
         };
         self.call
             .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
-        Ok(CreatedDomain {
-            domid: domctl.domid,
-        })
+        Ok(domctl.domid)
     }
 
     pub fn set_max_mem(&mut self, domid: u32, memkb: u64) -> Result<(), XenCallError> {
@@ -94,6 +86,32 @@ impl DomainControl<'_> {
             value: DomCtlValue {
                 max_cpus: MaxVcpus { max_vcpus },
             },
+        };
+        self.call
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
+        Ok(())
+    }
+
+    pub fn hypercall_init(&self, domid: u32, gmfn: u64) -> Result<(), XenCallError> {
+        let domctl = DomCtl {
+            cmd: XEN_DOMCTL_HYPERCALL_INIT,
+            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            domid,
+            value: DomCtlValue {
+                hypercall_init: HypercallInit { gmfn },
+            },
+        };
+        self.call
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
+        Ok(())
+    }
+
+    pub fn destroy_domain(&self, domid: u32) -> Result<(), XenCallError> {
+        let domctl = DomCtl {
+            cmd: XEN_DOMCTL_DESTROYDOMAIN,
+            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            domid,
+            value: DomCtlValue { pad: [0; 128] },
         };
         self.call
             .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;

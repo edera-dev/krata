@@ -1,5 +1,7 @@
-use crate::boot::{BootImageInfo, BootImageLoader};
-use crate::sys::{XEN_ELFNOTE_ENTRY, XEN_ELFNOTE_HV_START_LOW, XEN_ELFNOTE_VIRT_BASE};
+use crate::boot::{BootImageInfo, BootImageLoader, XEN_UNSET_ADDR};
+use crate::sys::{
+    XEN_ELFNOTE_ENTRY, XEN_ELFNOTE_HV_START_LOW, XEN_ELFNOTE_HYPERCALL_PAGE, XEN_ELFNOTE_VIRT_BASE,
+};
 use crate::XenClientError;
 use elf::abi::{PF_R, PF_W, PF_X, PT_LOAD, SHT_NOTE};
 use elf::endian::AnyEndian;
@@ -22,17 +24,43 @@ pub struct ElfImageLoader {
     data: Vec<u8>,
 }
 
-fn xen_note_value_u64(endian: AnyEndian, notes: &HashMap<u64, Vec<u8>>, key: u64) -> Option<u64> {
-    let value = notes.get(&key);
-    value?;
-    let value = value.unwrap();
-    let bytes: Option<[u8; size_of::<u64>()]> = value.clone().try_into().ok();
-    bytes?;
-
-    Some(match endian {
-        AnyEndian::Little => u64::from_le_bytes(bytes.unwrap()),
-        AnyEndian::Big => u64::from_be_bytes(bytes.unwrap()),
-    })
+fn xen_note_value_as_u64(
+    endian: AnyEndian,
+    notes: &HashMap<u64, Vec<u8>>,
+    key: u64,
+) -> Option<u64> {
+    let value = notes.get(&key)?;
+    match value.len() {
+        1 => {
+            let bytes: Option<[u8; size_of::<u8>()]> = value.clone().try_into().ok();
+            Some(match endian {
+                AnyEndian::Little => u8::from_le_bytes(bytes?),
+                AnyEndian::Big => u8::from_be_bytes(bytes?),
+            } as u64)
+        }
+        2 => {
+            let bytes: Option<[u8; size_of::<u16>()]> = value.clone().try_into().ok();
+            Some(match endian {
+                AnyEndian::Little => u16::from_le_bytes(bytes?),
+                AnyEndian::Big => u16::from_be_bytes(bytes?),
+            } as u64)
+        }
+        4 => {
+            let bytes: Option<[u8; size_of::<u32>()]> = value.clone().try_into().ok();
+            Some(match endian {
+                AnyEndian::Little => u32::from_le_bytes(bytes?),
+                AnyEndian::Big => u32::from_be_bytes(bytes?),
+            } as u64)
+        }
+        8 => {
+            let bytes: Option<[u8; size_of::<u64>()]> = value.clone().try_into().ok();
+            Some(match endian {
+                AnyEndian::Little => u64::from_le_bytes(bytes?),
+                AnyEndian::Big => u64::from_be_bytes(bytes?),
+            })
+        }
+        _ => None,
+    }
 }
 
 impl ElfImageLoader {
@@ -100,11 +128,8 @@ impl ElfImageLoader {
         }
 
         for start in find_iter(file.as_slice(), &[0xfd, 0x37, 0x7a, 0x58]) {
-            match ElfImageLoader::load_xz(&file[start..]) {
-                Ok(elf) => return Ok(elf),
-                Err(error) => {
-                    println!("{}", error);
-                }
+            if let Ok(elf) = ElfImageLoader::load_xz(&file[start..]) {
+                return Ok(elf);
             }
         }
 
@@ -155,16 +180,23 @@ impl BootImageLoader for ElfImageLoader {
             ));
         }
 
-        let virt_base = xen_note_value_u64(elf.ehdr.endianness, &xen_notes, XEN_ELFNOTE_VIRT_BASE)
-            .ok_or(XenClientError::new(
-                "Unable to find virt_base note in kernel.",
-            ))?;
-        let entry = xen_note_value_u64(elf.ehdr.endianness, &xen_notes, XEN_ELFNOTE_ENTRY)
+        let virt_base =
+            xen_note_value_as_u64(elf.ehdr.endianness, &xen_notes, XEN_ELFNOTE_VIRT_BASE).ok_or(
+                XenClientError::new("Unable to find virt_base note in kernel."),
+            )?;
+        let entry = xen_note_value_as_u64(elf.ehdr.endianness, &xen_notes, XEN_ELFNOTE_ENTRY)
             .ok_or(XenClientError::new("Unable to find entry note in kernel."))?;
         let hv_start_low =
-            xen_note_value_u64(elf.ehdr.endianness, &xen_notes, XEN_ELFNOTE_HV_START_LOW).ok_or(
-                XenClientError::new("Unable to find hv_start_low note in kernel."),
-            )?;
+            xen_note_value_as_u64(elf.ehdr.endianness, &xen_notes, XEN_ELFNOTE_HV_START_LOW)
+                .ok_or(XenClientError::new(
+                    "Unable to find hv_start_low note in kernel.",
+                ))?;
+
+        let hypercall_page =
+            xen_note_value_as_u64(elf.ehdr.endianness, &xen_notes, XEN_ELFNOTE_HYPERCALL_PAGE)
+                .ok_or(XenClientError::new(
+                    "Unable to find hypercall_page note in kernel.",
+                ))?;
 
         let mut start: u64 = u64::MAX;
         let mut end: u64 = 0;
@@ -200,15 +232,19 @@ impl BootImageLoader for ElfImageLoader {
                 std::ptr::write_bytes((dest + filesz) as *mut u8, 0, (memsz - filesz) as usize);
             }
         }
-
-        let virt_base = if virt_base == u64::MAX { 0 } else { virt_base };
-
-        let virt_kstart = start + virt_base;
-        let virt_kend = end + virt_base;
+        let virt_base = if virt_base == XEN_UNSET_ADDR {
+            0
+        } else {
+            virt_base
+        };
+        let virt_kstart = start.wrapping_add(virt_base);
+        let virt_kend = end.wrapping_add(virt_base);
+        let virt_hypercall = hypercall_page.wrapping_add(virt_base);
 
         Ok(BootImageInfo {
             virt_kstart,
             virt_kend,
+            virt_hypercall,
             entry,
             hv_start_low,
         })

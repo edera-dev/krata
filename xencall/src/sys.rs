@@ -195,6 +195,8 @@ pub union DomCtlValue {
     pub get_domain_info: GetDomainInfo,
     pub max_mem: MaxMem,
     pub max_cpus: MaxVcpus,
+    pub hypercall_init: HypercallInit,
+    pub pad: [u8; 128],
 }
 
 #[repr(C)]
@@ -275,6 +277,12 @@ pub struct MaxMem {
 #[derive(Copy, Clone, Debug)]
 pub struct MaxVcpus {
     pub max_vcpus: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct HypercallInit {
+    pub gmfn: u64,
 }
 
 pub const XEN_DOMCTL_INTERFACE_VERSION: u32 = 0x00000015;

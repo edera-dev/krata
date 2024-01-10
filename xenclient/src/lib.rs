@@ -76,8 +76,8 @@ impl XenClient {
 
     pub fn create(&mut self, config: DomainConfig) -> Result<(), XenClientError> {
         let domctl = DomainControl::new(&self.call);
-        let created = domctl.create_domain(CreateDomain::default())?;
-        let domain = self.store.get_domain_path(created.domid)?;
+        let domid = domctl.create_domain(CreateDomain::default())?;
+        let domain = self.store.get_domain_path(domid)?;
         let vm = self.store.read_string(format!("{}/vm", domain).as_str())?;
 
         let mut tx = self.store.transaction()?;
@@ -88,7 +88,7 @@ impl XenClient {
         }
 
         let domid_path = format!("{}/domid", domain);
-        tx.write(domid_path.as_str(), created.domid.to_string().into_bytes())?;
+        tx.write(domid_path.as_str(), domid.to_string().into_bytes())?;
 
         for (key, value) in config.clone_domain_entries() {
             let path = format!("{}/{}", vm, key);
