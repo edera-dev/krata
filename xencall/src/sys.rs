@@ -1,6 +1,6 @@
 /// Handwritten hypercall bindings.
 use nix::ioctl_readwrite_bad;
-use std::ffi::{c_char, c_int, c_ulong};
+use std::ffi::{c_char, c_int, c_uint, c_ulong};
 use uuid::Uuid;
 
 #[repr(C)]
@@ -11,11 +11,21 @@ pub struct Hypercall {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct MmapEntry {
     pub va: u64,
     pub mfn: u64,
     pub npages: u64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MmapBatch {
+    pub num: u32,
+    pub domid: u16,
+    pub addr: u64,
+    pub mfns: *mut u64,
+    pub errors: *mut c_int,
 }
 
 #[repr(C)]
@@ -28,9 +38,11 @@ pub struct Mmap {
 
 const IOCTL_PRIVCMD_HYPERCALL: u64 = 0x305000;
 const IOCTL_PRIVCMD_MMAP: u64 = 0x105002;
+const IOCTL_PRIVCMD_MMAPBATCH_V2: u64 = 0x205004;
 
 ioctl_readwrite_bad!(hypercall, IOCTL_PRIVCMD_HYPERCALL, Hypercall);
 ioctl_readwrite_bad!(mmap, IOCTL_PRIVCMD_MMAP, Mmap);
+ioctl_readwrite_bad!(mmapbatch, IOCTL_PRIVCMD_MMAPBATCH_V2, MmapBatch);
 
 pub const HYPERVISOR_SET_TRAP_TABLE: c_ulong = 0;
 pub const HYPERVISOR_MMU_UPDATE: c_ulong = 1;
@@ -295,3 +307,15 @@ pub struct XenCapabilitiesInfo {
 }
 
 pub const XENVER_CAPABILITIES: u64 = 3;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MemoryReservation {
+    pub extent_start: c_ulong,
+    pub nr_extents: c_ulong,
+    pub extent_order: c_uint,
+    pub mem_flags: c_uint,
+    pub domid: u16,
+}
+
+pub const XEN_MEM_POPULATE_PHYSMAP: u32 = 6;

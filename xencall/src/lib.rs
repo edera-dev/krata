@@ -1,12 +1,14 @@
 pub mod domctl;
+pub mod memory;
 pub mod sys;
 
 use crate::sys::{
-    Hypercall, Mmap, XenCapabilitiesInfo, HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES,
+    Hypercall, MmapBatch, XenCapabilitiesInfo, HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES,
 };
+use libc::{mmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use nix::errno::Errno;
 use std::error::Error;
-use std::ffi::{c_long, c_ulong};
+use std::ffi::{c_long, c_ulong, c_void};
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
@@ -60,6 +62,24 @@ impl XenCall {
             .write(true)
             .open("/dev/xen/privcmd")?;
         Ok(XenCall { handle: file })
+    }
+
+    pub fn mmap(&self, addr: u64, len: u64) -> Option<u64> {
+        unsafe {
+            let ptr = mmap(
+                addr as *mut c_void,
+                len as usize,
+                PROT_READ | PROT_WRITE,
+                MAP_SHARED,
+                self.handle.as_raw_fd(),
+                0,
+            );
+            if ptr == MAP_FAILED {
+                None
+            } else {
+                Some(ptr as u64)
+            }
+        }
     }
 
     pub fn hypercall(&self, op: c_ulong, arg: [c_ulong; 5]) -> Result<c_long, XenCallError> {
@@ -120,10 +140,24 @@ impl XenCall {
         self.hypercall(op, [arg1, arg2, arg3, arg4, arg5])
     }
 
-    pub fn mmap(&self, mmap: Mmap) -> Result<c_long, XenCallError> {
+    pub fn mmap_batch(
+        &self,
+        domid: u32,
+        count: u64,
+        addr: u64,
+        mfns: Vec<u64>,
+    ) -> Result<c_long, XenCallError> {
         unsafe {
-            let mut mmap = mmap.clone();
-            let result = sys::mmap(self.handle.as_raw_fd(), &mut mmap)?;
+            let mut mfns = mfns.clone();
+            let mut errors = vec![0i32; mfns.len()];
+            let mut batch = MmapBatch {
+                num: count as u32,
+                domid: domid as u16,
+                addr,
+                mfns: mfns.as_mut_ptr(),
+                errors: errors.as_mut_ptr(),
+            };
+            let result = sys::mmapbatch(self.handle.as_raw_fd(), &mut batch)?;
             Ok(result as c_long)
         }
     }

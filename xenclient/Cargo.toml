@@ -5,10 +5,12 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
+libc = "0.2"
 elf = "0.7.4"
 flate2 = "1.0"
 xz2 = "0.1"
 memchr = "2"
+slice-copy = "0.3.0"
 
 [dependencies.xencall]
 path = "../xencall"

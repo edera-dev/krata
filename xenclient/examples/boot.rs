@@ -1,9 +1,9 @@
-use std::alloc::Layout;
 use std::{env, process};
 use xencall::domctl::DomainControl;
+use xencall::memory::MemoryControl;
 use xencall::sys::CreateDomain;
 use xencall::XenCall;
-use xenclient::boot::BootImageLoader;
+use xenclient::boot::{BootImageLoader, BootSetup};
 use xenclient::elfloader::ElfImageLoader;
 use xenclient::XenClientError;
 
@@ -19,15 +19,12 @@ fn main() -> Result<(), XenClientError> {
     let domid = domctl.create_domain(CreateDomain::default())?;
     let domain = domctl.get_domain_info(domid)?;
     println!("domain created: {:?}", domain);
-    let boot = ElfImageLoader::load_file_kernel(kernel_image_path.as_str())?;
-    let ptr = unsafe { std::alloc::alloc(Layout::from_size_align(128 * 1024 * 1024, 16).unwrap()) };
-    let info = boot.load(ptr)?;
-    println!("loaded kernel image into memory: {:?}", info);
-    // The address calculations don't make sense here and I am certain something
-    // is wrong up the stack.
-    // if info.virt_hypercall != XEN_UNSET_ADDR {
-    //     domctl.hypercall_init(domid, info.virt_hypercall)?;
-    // }
+    let image_loader = ElfImageLoader::load_file_kernel(kernel_image_path.as_str())?;
+    let image_info = image_loader.parse()?;
+    println!("loaded kernel image into memory: {:?}", image_info);
+    let memctl = MemoryControl::new(&call);
+    let mut boot = BootSetup::new(&call, &domctl, &memctl, domid, 512 * 1024);
+    boot.initialize(image_info)?;
     domctl.destroy_domain(domid)?;
     println!("domain destroyed: {}", domid);
     Ok(())

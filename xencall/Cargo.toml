@@ -7,6 +7,9 @@ resolver = "2"
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+libc = "0.2"
+
 [dependencies.uuid]
 version = "1.6.1"
 features = ["v4"]

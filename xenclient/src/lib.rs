@@ -1,6 +1,7 @@
 pub mod boot;
 pub mod create;
 pub mod elfloader;
+pub mod mem;
 pub mod sys;
 
 use crate::create::DomainConfig;
