@@ -30,7 +30,6 @@ pub struct BootSetup<'a> {
     memctl: &'a MemoryControl<'a>,
     phys: PhysicalPages<'a>,
     domid: u32,
-    memkb: u64,
     virt_alloc_end: u64,
     pfn_alloc_end: u64,
 }
@@ -55,23 +54,20 @@ impl BootSetup<'_> {
         domctl: &'a DomainControl<'a>,
         memctl: &'a MemoryControl<'a>,
         domid: u32,
-        memkb: u64,
     ) -> BootSetup<'a> {
         BootSetup {
             domctl,
             memctl,
             phys: PhysicalPages::new(call, domid),
             domid,
-            memkb,
             virt_alloc_end: 0,
             pfn_alloc_end: 0,
         }
     }
 
-    fn initialize_memory(&mut self) -> Result<(), XenClientError> {
-        let mem_mb: u64 = self.memkb / 1024;
+    fn initialize_memory(&mut self, memkb: u64) -> Result<(), XenClientError> {
+        let mem_mb: u64 = memkb / 1024;
         let page_count: u64 = mem_mb << (20 - XEN_PAGE_SHIFT);
-        let mut pfn_base_idx: u64 = 0;
         let mut vmemranges: Vec<VmemRange> = Vec::new();
         let stub = VmemRange {
             start: 0,
@@ -105,15 +101,20 @@ impl BootSetup<'_> {
             }
 
             let mut super_pages = pages >> SUPERPAGE_2MB_SHIFT;
+            let mut pfn_base_idx: u64 = pfn_base;
             while super_pages > 0 {
                 let count = super_pages.min(SUPERPAGE_BATCH_SIZE);
                 super_pages -= count;
 
-                for (i, pfn) in (pfn_base_idx..(count << SUPERPAGE_2MB_SHIFT))
-                    .step_by(SUPERPAGE_2MB_NR_PFNS as usize)
-                    .enumerate()
-                {
-                    extents[i] = p2m[pfn as usize];
+                let mut j: usize = 0;
+                let mut pfn: u64 = pfn_base_idx;
+                loop {
+                    if pfn >= pfn_base_idx + (count << SUPERPAGE_2MB_SHIFT) {
+                        break;
+                    }
+                    extents[j] = p2m[pfn as usize];
+                    pfn += SUPERPAGE_2MB_NR_PFNS;
+                    j += 1;
                 }
 
                 let starts = self.memctl.populate_physmap(
@@ -124,31 +125,36 @@ impl BootSetup<'_> {
                     extents.as_slice(),
                 )?;
 
-                let pfn = pfn_base;
+                pfn = pfn_base_idx;
                 for mfn in starts {
                     for k in 0..SUPERPAGE_2MB_NR_PFNS {
                         p2m[pfn as usize] = mfn + k;
+                        pfn += 1;
                     }
                 }
                 pfn_base_idx = pfn;
             }
 
             let mut j = pfn_base_idx - pfn_base;
-
             loop {
                 if j >= pages {
                     break;
                 }
 
-                let allocsz = (pages - j).min(1024 * 1024);
-                let result = self.memctl.populate_physmap(
-                    self.domid,
-                    allocsz,
-                    0,
-                    0,
-                    &[p2m[(pfn_base + j) as usize]],
-                )?;
-                p2m[(pfn_base + j) as usize] = result[0];
+                let allocsz = (1024 * 1024).min(pages - j);
+                let p2m_idx = (pfn_base + j) as usize;
+                let extent_start = p2m[p2m_idx];
+                let result =
+                    self.memctl
+                        .populate_physmap(self.domid, allocsz, 0, 0, &[extent_start])?;
+
+                if result.len() != allocsz as usize {
+                    return Err(XenClientError::new(
+                        format!("failed to populate physmap: {:?}", result).as_str(),
+                    ));
+                }
+
+                p2m[p2m_idx] = result[0];
                 j += allocsz;
             }
         }
@@ -165,8 +171,13 @@ impl BootSetup<'_> {
         Ok(())
     }
 
-    pub fn initialize(&mut self, image_info: BootImageInfo) -> Result<(), XenClientError> {
-        self.initialize_memory()?;
+    pub fn initialize(
+        &mut self,
+        image_info: BootImageInfo,
+        memkb: u64,
+    ) -> Result<(), XenClientError> {
+        self.domctl.set_max_mem(self.domid, memkb)?;
+        self.initialize_memory(memkb)?;
         let _kernel_segment = self.alloc_segment(image_info.virt_kend - image_info.virt_kstart)?;
         self.initialize_hypercall(image_info)?;
         Ok(())

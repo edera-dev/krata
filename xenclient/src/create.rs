@@ -41,11 +41,7 @@ impl DomainConfig {
         self.put_domain("memory/videoram", videokb.to_string());
     }
 
-    pub fn configure_cpus(&mut self, maxvcpus: u32) {
-        for i in 0..maxvcpus {
-            println!("{}", i);
-        }
-    }
+    pub fn configure_cpus(&mut self, _maxvcpus: u32) {}
 
     pub fn configure_pv(&mut self, pv: PvDomainConfig) {
         self.put_vm_str("image/ostype", "linux");

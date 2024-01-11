@@ -23,8 +23,8 @@ fn main() -> Result<(), XenClientError> {
     let image_info = image_loader.parse()?;
     println!("loaded kernel image into memory: {:?}", image_info);
     let memctl = MemoryControl::new(&call);
-    let mut boot = BootSetup::new(&call, &domctl, &memctl, domid, 512 * 1024);
-    boot.initialize(image_info)?;
+    let mut boot = BootSetup::new(&call, &domctl, &memctl, domid);
+    boot.initialize(image_info, 512 * 1024)?;
     domctl.destroy_domain(domid)?;
     println!("domain destroyed: {}", domid);
     Ok(())

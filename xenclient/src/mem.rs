@@ -7,7 +7,7 @@ use xencall::XenCall;
 pub struct PhysicalPage {
     pfn: u64,
     ptr: u64,
-    size: u64,
+    count: u64,
 }
 
 pub struct PhysicalPages<'a> {
@@ -33,7 +33,7 @@ impl PhysicalPages<'_> {
 
     pub fn pfn_to_ptr(&mut self, pfn: u64, count: u64) -> Result<u64, XenClientError> {
         for page in &self.pages {
-            if pfn >= page.pfn + page.size {
+            if pfn >= page.pfn + page.count {
                 continue;
             }
 
@@ -42,7 +42,7 @@ impl PhysicalPages<'_> {
                     continue;
                 }
 
-                if pfn < page.pfn || (pfn + count) > page.pfn + page.size {
+                if pfn < page.pfn || (pfn + count) > page.pfn + page.count {
                     return Err(XenClientError::new("request overlaps allocated block"));
                 }
             } else {
@@ -50,7 +50,7 @@ impl PhysicalPages<'_> {
                     continue;
                 }
 
-                if pfn >= page.pfn + page.size {
+                if pfn >= page.pfn + page.count {
                     continue;
                 }
             }
@@ -82,7 +82,7 @@ impl PhysicalPages<'_> {
             }
         }
 
-        let size = (num as u64) << XEN_PAGE_SHIFT;
+        let size = count << XEN_PAGE_SHIFT;
         let addr = self
             .call
             .mmap(0, size)
@@ -91,7 +91,7 @@ impl PhysicalPages<'_> {
         let page = PhysicalPage {
             pfn,
             ptr: addr,
-            size,
+            count,
         };
         self.pages.push(page);
         Ok(addr)

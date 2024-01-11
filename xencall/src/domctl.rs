@@ -6,7 +6,7 @@ use crate::sys::{
 };
 use crate::{XenCall, XenCallError};
 use std::ffi::c_ulong;
-use std::ptr::addr_of;
+use std::ptr::addr_of_mut;
 
 pub struct DomainControl<'a> {
     call: &'a XenCall,
@@ -18,7 +18,7 @@ impl DomainControl<'_> {
     }
 
     pub fn get_domain_info(&self, domid: u32) -> Result<GetDomainInfo, XenCallError> {
-        let domctl = DomCtl {
+        let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_GETDOMAININFO,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
             domid,
@@ -48,24 +48,24 @@ impl DomainControl<'_> {
             },
         };
         self.call
-            .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
         Ok(unsafe { domctl.value.get_domain_info })
     }
 
     pub fn create_domain(&self, create_domain: CreateDomain) -> Result<u32, XenCallError> {
-        let domctl = DomCtl {
+        let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_CREATEDOMAIN,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
             domid: 0,
             value: DomCtlValue { create_domain },
         };
         self.call
-            .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
         Ok(domctl.domid)
     }
 
-    pub fn set_max_mem(&mut self, domid: u32, memkb: u64) -> Result<(), XenCallError> {
-        let domctl = DomCtl {
+    pub fn set_max_mem(&self, domid: u32, memkb: u64) -> Result<(), XenCallError> {
+        let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_MAX_MEM,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
             domid,
@@ -74,12 +74,12 @@ impl DomainControl<'_> {
             },
         };
         self.call
-            .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
         Ok(())
     }
 
-    pub fn set_max_vcpus(&mut self, domid: u32, max_vcpus: u32) -> Result<(), XenCallError> {
-        let domctl = DomCtl {
+    pub fn set_max_vcpus(&self, domid: u32, max_vcpus: u32) -> Result<(), XenCallError> {
+        let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_MAX_VCPUS,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
             domid,
@@ -88,12 +88,12 @@ impl DomainControl<'_> {
             },
         };
         self.call
-            .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
         Ok(())
     }
 
     pub fn hypercall_init(&self, domid: u32, gmfn: u64) -> Result<(), XenCallError> {
-        let domctl = DomCtl {
+        let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_HYPERCALL_INIT,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
             domid,
@@ -102,19 +102,19 @@ impl DomainControl<'_> {
             },
         };
         self.call
-            .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
         Ok(())
     }
 
     pub fn destroy_domain(&self, domid: u32) -> Result<(), XenCallError> {
-        let domctl = DomCtl {
+        let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_DESTROYDOMAIN,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
             domid,
             value: DomCtlValue { pad: [0; 128] },
         };
         self.call
-            .hypercall1(HYPERVISOR_DOMCTL, addr_of!(domctl) as c_ulong)?;
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
         Ok(())
     }
 }

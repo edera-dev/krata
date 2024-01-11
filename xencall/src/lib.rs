@@ -12,7 +12,7 @@ use std::ffi::{c_long, c_ulong, c_void};
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
-use std::ptr::addr_of;
+use std::ptr::addr_of_mut;
 
 pub struct XenCall {
     pub handle: File,
@@ -143,7 +143,7 @@ impl XenCall {
     pub fn mmap_batch(
         &self,
         domid: u32,
-        count: u64,
+        num: u64,
         addr: u64,
         mfns: Vec<u64>,
     ) -> Result<c_long, XenCallError> {
@@ -151,7 +151,7 @@ impl XenCall {
             let mut mfns = mfns.clone();
             let mut errors = vec![0i32; mfns.len()];
             let mut batch = MmapBatch {
-                num: count as u32,
+                num: num as u32,
                 domid: domid as u16,
                 addr,
                 mfns: mfns.as_mut_ptr(),
@@ -163,13 +163,13 @@ impl XenCall {
     }
 
     pub fn get_version_capabilities(&self) -> Result<XenCapabilitiesInfo, XenCallError> {
-        let info = XenCapabilitiesInfo {
+        let mut info = XenCapabilitiesInfo {
             capabilities: [0; 1024],
         };
         self.hypercall2(
             HYPERVISOR_XEN_VERSION,
             XENVER_CAPABILITIES,
-            addr_of!(info) as c_ulong,
+            addr_of_mut!(info) as c_ulong,
         )?;
         Ok(info)
     }
