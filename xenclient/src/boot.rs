@@ -5,6 +5,7 @@ use crate::sys::{
 use crate::XenClientError;
 use libc::memset;
 use std::ffi::c_void;
+use std::slice;
 use xencall::domctl::DomainControl;
 use xencall::memory::MemoryControl;
 use xencall::XenCall;
@@ -39,6 +40,8 @@ struct DomainSegment {
     _vstart: u64,
     _vend: u64,
     pfn: u64,
+    addr: u64,
+    size: u64,
     _pages: u64,
 }
 
@@ -178,13 +181,17 @@ impl BootSetup<'_> {
 
     pub fn initialize(
         &mut self,
-        image_info: BootImageInfo,
+        image_loader: &dyn BootImageLoader,
         memkb: u64,
     ) -> Result<(), XenClientError> {
+        let image_info = image_loader.parse()?;
         self.domctl.set_max_mem(self.domid, memkb)?;
         self.initialize_memory(memkb)?;
         let kernel_segment = self.alloc_segment(image_info.virt_kend - image_info.virt_kstart)?;
-        println!("kernel_segment: {:?}", kernel_segment);
+        let kernel_segment_ptr = kernel_segment.addr as *mut u8;
+        let slice =
+            unsafe { slice::from_raw_parts_mut(kernel_segment_ptr, kernel_segment.size as usize) };
+        image_loader.load(image_info, slice)?;
         Ok(())
     }
 
@@ -196,9 +203,12 @@ impl BootSetup<'_> {
             _vstart: start,
             _vend: 0,
             pfn: self.pfn_alloc_end,
+            addr: 0,
+            size,
             _pages: pages,
         };
         let ptr = self.phys.pfn_to_ptr(segment.pfn, pages)?;
+        segment.addr = ptr;
         unsafe {
             memset(ptr as *mut c_void, 0, (pages * page_size) as usize);
         }

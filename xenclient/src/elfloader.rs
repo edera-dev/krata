@@ -264,19 +264,19 @@ impl BootImageLoader for ElfImageLoader {
             ));
         }
 
-        let virt_base = if virt_base == XEN_UNSET_ADDR {
+        let _virt_base = if virt_base == XEN_UNSET_ADDR {
             0
         } else {
             virt_base
         };
 
-        let paddr_offset = if paddr_offset == XEN_UNSET_ADDR {
+        let _paddr_offset = if paddr_offset == XEN_UNSET_ADDR {
             0
         } else {
             paddr_offset
         };
 
-        let virt_offset = virt_base - paddr_offset;
+        let virt_offset = 0;
         let virt_kstart = start + virt_offset;
         let virt_kend = end + virt_offset;
         let virt_entry = if entry == XEN_UNSET_ADDR {
