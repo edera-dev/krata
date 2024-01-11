@@ -3,7 +3,8 @@ pub mod memory;
 pub mod sys;
 
 use crate::sys::{
-    Hypercall, MmapBatch, XenCapabilitiesInfo, HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES,
+    Hypercall, MmapBatch, MultiCallEntry, XenCapabilitiesInfo, HYPERVISOR_MULTICALL,
+    HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES,
 };
 use libc::{mmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use nix::errno::Errno;
@@ -126,6 +127,15 @@ impl XenCall {
         arg4: c_ulong,
     ) -> Result<c_long, XenCallError> {
         self.hypercall(op, [arg1, arg2, arg3, arg4, 0])
+    }
+
+    pub fn multicall(&self, calls: &mut [MultiCallEntry]) -> Result<(), XenCallError> {
+        self.hypercall2(
+            HYPERVISOR_MULTICALL,
+            calls.as_mut_ptr() as c_ulong,
+            calls.len() as c_ulong,
+        )?;
+        Ok(())
     }
 
     pub fn hypercall5(

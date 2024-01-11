@@ -318,4 +318,12 @@ pub struct MemoryReservation {
     pub domid: u16,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MultiCallEntry {
+    pub op: c_ulong,
+    pub result: c_ulong,
+    pub args: [c_ulong; 6],
+}
+
 pub const XEN_MEM_POPULATE_PHYSMAP: u32 = 6;

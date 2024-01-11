@@ -34,6 +34,7 @@ pub struct BootSetup<'a> {
     pfn_alloc_end: u64,
 }
 
+#[derive(Debug)]
 struct DomainSegment {
     _vstart: u64,
     _vend: u64,
@@ -143,10 +144,14 @@ impl BootSetup<'_> {
 
                 let allocsz = (1024 * 1024).min(pages - j);
                 let p2m_idx = (pfn_base + j) as usize;
-                let extent_start = p2m[p2m_idx];
-                let result =
-                    self.memctl
-                        .populate_physmap(self.domid, allocsz, 0, 0, &[extent_start])?;
+                let p2m_end_idx = p2m_idx + allocsz as usize;
+                let result = self.memctl.populate_physmap(
+                    self.domid,
+                    allocsz,
+                    0,
+                    0,
+                    &p2m[p2m_idx..p2m_end_idx],
+                )?;
 
                 if result.len() != allocsz as usize {
                     return Err(XenClientError::new(
@@ -163,7 +168,7 @@ impl BootSetup<'_> {
         Ok(())
     }
 
-    fn initialize_hypercall(&mut self, image_info: BootImageInfo) -> Result<(), XenClientError> {
+    fn _initialize_hypercall(&mut self, image_info: BootImageInfo) -> Result<(), XenClientError> {
         if image_info.virt_hypercall != XEN_UNSET_ADDR {
             self.domctl
                 .hypercall_init(self.domid, image_info.virt_hypercall)?;
@@ -178,8 +183,8 @@ impl BootSetup<'_> {
     ) -> Result<(), XenClientError> {
         self.domctl.set_max_mem(self.domid, memkb)?;
         self.initialize_memory(memkb)?;
-        let _kernel_segment = self.alloc_segment(image_info.virt_kend - image_info.virt_kstart)?;
-        self.initialize_hypercall(image_info)?;
+        let kernel_segment = self.alloc_segment(image_info.virt_kend - image_info.virt_kstart)?;
+        println!("kernel_segment: {:?}", kernel_segment);
         Ok(())
     }
 

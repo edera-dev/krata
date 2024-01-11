@@ -1,8 +1,11 @@
-use crate::sys::{MemoryReservation, HYPERVISOR_MEMORY_OP, XEN_MEM_POPULATE_PHYSMAP};
+use crate::sys::{
+    MemoryReservation, MultiCallEntry, HYPERVISOR_MEMORY_OP, XEN_MEM_POPULATE_PHYSMAP,
+};
 use crate::{XenCall, XenCallError};
 
 use std::ffi::c_ulong;
 
+use libc::c_long;
 use std::ptr::addr_of_mut;
 
 pub struct MemoryControl<'a> {
@@ -30,12 +33,21 @@ impl MemoryControl<'_> {
             mem_flags,
             domid: domid as u16,
         };
-        let code = self.call.hypercall2(
-            HYPERVISOR_MEMORY_OP,
-            XEN_MEM_POPULATE_PHYSMAP as c_ulong,
-            addr_of_mut!(reservation) as c_ulong,
-        )?;
 
+        let calls = &mut [MultiCallEntry {
+            op: HYPERVISOR_MEMORY_OP,
+            result: 0,
+            args: [
+                XEN_MEM_POPULATE_PHYSMAP as c_ulong,
+                addr_of_mut!(reservation) as c_ulong,
+                0,
+                0,
+                0,
+                0,
+            ],
+        }];
+        self.call.multicall(calls)?;
+        let code = calls[0].result as c_long;
         if code < 0 {
             return Err(XenCallError::new("failed to populate physmap"));
         }
