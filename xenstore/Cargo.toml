@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 libc = "0.2"
+log = "0.4.20"
 
 [dependencies.bytemuck]
 version = "1.14.0"

@@ -4,6 +4,7 @@ use crate::sys::{
 };
 use crate::XenClientError;
 use libc::memset;
+use log::debug;
 use std::ffi::c_void;
 use std::slice;
 use xencall::domctl::DomainControl;
@@ -184,11 +185,17 @@ impl BootSetup<'_> {
         image_loader: &dyn BootImageLoader,
         memkb: u64,
     ) -> Result<(), XenClientError> {
+        debug!("BootSetup initialize memkb={:?}", memkb);
         let image_info = image_loader.parse()?;
+        debug!("BootSetup initialize image_info={:?}", image_info);
         self.domctl.set_max_mem(self.domid, memkb)?;
         self.initialize_memory(memkb)?;
         let kernel_segment = self.alloc_segment(image_info.virt_kend - image_info.virt_kstart)?;
         let kernel_segment_ptr = kernel_segment.addr as *mut u8;
+        debug!(
+            "BootSetup initialize kernel_segment ptr={:#x}",
+            kernel_segment_ptr as u64
+        );
         let slice =
             unsafe { slice::from_raw_parts_mut(kernel_segment_ptr, kernel_segment.size as usize) };
         image_loader.load(image_info, slice)?;
@@ -215,6 +222,7 @@ impl BootSetup<'_> {
         self.virt_alloc_end += pages * page_size;
         segment._vend = self.virt_alloc_end;
         self.pfn_alloc_end += 1;
+        debug!("BootSetup alloc_segment size={} ptr={:#x}", size, ptr);
         Ok(segment)
     }
 }

@@ -5,7 +5,9 @@ use crate::sys::{
     XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS,
 };
 use crate::{XenCall, XenCallError};
+use log::trace;
 use std::ffi::c_ulong;
+use std::os::fd::AsRawFd;
 use std::ptr::addr_of_mut;
 
 pub struct DomainControl<'a> {
@@ -18,6 +20,11 @@ impl DomainControl<'_> {
     }
 
     pub fn get_domain_info(&self, domid: u32) -> Result<GetDomainInfo, XenCallError> {
+        trace!(
+            "domctl fd={} get_domain_info domid={}",
+            self.call.handle.as_raw_fd(),
+            domid
+        );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_GETDOMAININFO,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
@@ -53,6 +60,11 @@ impl DomainControl<'_> {
     }
 
     pub fn create_domain(&self, create_domain: CreateDomain) -> Result<u32, XenCallError> {
+        trace!(
+            "domctl fd={} create_domain create_domain={:?}",
+            self.call.handle.as_raw_fd(),
+            create_domain
+        );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_CREATEDOMAIN,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
@@ -65,6 +77,12 @@ impl DomainControl<'_> {
     }
 
     pub fn set_max_mem(&self, domid: u32, memkb: u64) -> Result<(), XenCallError> {
+        trace!(
+            "domctl fd={} set_max_mem domid={} memkb={}",
+            self.call.handle.as_raw_fd(),
+            domid,
+            memkb
+        );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_MAX_MEM,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
@@ -79,6 +97,12 @@ impl DomainControl<'_> {
     }
 
     pub fn set_max_vcpus(&self, domid: u32, max_vcpus: u32) -> Result<(), XenCallError> {
+        trace!(
+            "domctl fd={} set_max_vcpus domid={} max_vcpus={}",
+            self.call.handle.as_raw_fd(),
+            domid,
+            max_vcpus
+        );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_MAX_VCPUS,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
@@ -93,6 +117,12 @@ impl DomainControl<'_> {
     }
 
     pub fn hypercall_init(&self, domid: u32, gmfn: u64) -> Result<(), XenCallError> {
+        trace!(
+            "domctl fd={} hypercall_init domid={} max_vcpus={}",
+            self.call.handle.as_raw_fd(),
+            domid,
+            gmfn
+        );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_HYPERCALL_INIT,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
@@ -107,6 +137,11 @@ impl DomainControl<'_> {
     }
 
     pub fn destroy_domain(&self, domid: u32) -> Result<(), XenCallError> {
+        trace!(
+            "domctl fd={} destroy_domain domid={}",
+            self.call.handle.as_raw_fd(),
+            domid
+        );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_DESTROYDOMAIN,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,

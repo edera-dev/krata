@@ -9,6 +9,7 @@ use elf::endian::AnyEndian;
 use elf::note::Note;
 use elf::{ElfBytes, ParseError};
 use flate2::bufread::GzDecoder;
+use log::debug;
 use memchr::memmem::find_iter;
 use slice_copy::copy;
 use std::collections::HashMap;
@@ -300,6 +301,11 @@ impl BootImageLoader for ElfImageLoader {
             "Unable to parse kernel image: segments not found.",
         ))?;
 
+        debug!(
+            "ElfImageLoader load dst={:#x} segments={}",
+            dst.as_ptr() as u64,
+            segments.len()
+        );
         for header in segments {
             let paddr = header.p_paddr;
             let filesz = header.p_filesz;
@@ -307,9 +313,22 @@ impl BootImageLoader for ElfImageLoader {
             let base_offset = paddr - image_info.virt_kstart;
             let data = elf.segment_data(&header)?;
             let segment_dst = &mut dst[base_offset as usize..];
-            copy(segment_dst, &data[0..filesz as usize]);
+            let copy_slice = &data[0..filesz as usize];
+            debug!(
+                "ElfImageLoader load copy hdr={:?} dst={:#x} len={}",
+                header,
+                copy_slice.as_ptr() as u64,
+                copy_slice.len()
+            );
+            copy(segment_dst, copy_slice);
             if memsz - filesz > 0 {
                 let remaining = &mut segment_dst[filesz as usize..(memsz - filesz) as usize];
+                debug!(
+                    "ElfImageLoader load fill_zero hdr={:?} dst={:#x} len={}",
+                    header.p_offset,
+                    remaining.as_ptr() as u64,
+                    remaining.len()
+                );
                 remaining.fill(0);
             }
         }

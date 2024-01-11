@@ -11,6 +11,7 @@ flate2 = "1.0"
 xz2 = "0.1"
 memchr = "2"
 slice-copy = "0.3.0"
+log = "0.4.20"
 
 [dependencies.xencall]
 path = "../xencall"
@@ -21,6 +22,9 @@ path = "../xenstore"
 [dependencies.uuid]
 version = "1.6.1"
 features = ["v4"]
+
+[dev-dependencies]
+env_logger = "0.10.1"
 
 [lib]
 path = "src/lib.rs"

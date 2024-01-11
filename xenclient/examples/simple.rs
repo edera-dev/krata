@@ -2,6 +2,8 @@ use xenclient::create::{DomainConfig, PvDomainConfig};
 use xenclient::{XenClient, XenClientError};
 
 fn main() -> Result<(), XenClientError> {
+    env_logger::init();
+
     let mut client = XenClient::open()?;
     let mut config = DomainConfig::new();
     config.configure_cpus(1);

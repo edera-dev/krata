@@ -7,6 +7,7 @@ use crate::sys::{
     HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES,
 };
 use libc::{mmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
+use log::trace;
 use nix::errno::Errno;
 use std::error::Error;
 use std::ffi::{c_long, c_ulong, c_void};
@@ -66,6 +67,12 @@ impl XenCall {
     }
 
     pub fn mmap(&self, addr: u64, len: u64) -> Option<u64> {
+        trace!(
+            "call fd={} mmap addr={:#x} len={}",
+            self.handle.as_raw_fd(),
+            addr,
+            len
+        );
         unsafe {
             let ptr = mmap(
                 addr as *mut c_void,
@@ -84,6 +91,12 @@ impl XenCall {
     }
 
     pub fn hypercall(&self, op: c_ulong, arg: [c_ulong; 5]) -> Result<c_long, XenCallError> {
+        trace!(
+            "call fd={} hypercall op={:#x}, arg={:?}",
+            self.handle.as_raw_fd(),
+            op,
+            arg
+        );
         unsafe {
             let mut call = Hypercall { op, arg };
             let result = sys::hypercall(self.handle.as_raw_fd(), &mut call)?;
@@ -129,15 +142,6 @@ impl XenCall {
         self.hypercall(op, [arg1, arg2, arg3, arg4, 0])
     }
 
-    pub fn multicall(&self, calls: &mut [MultiCallEntry]) -> Result<(), XenCallError> {
-        self.hypercall2(
-            HYPERVISOR_MULTICALL,
-            calls.as_mut_ptr() as c_ulong,
-            calls.len() as c_ulong,
-        )?;
-        Ok(())
-    }
-
     pub fn hypercall5(
         &self,
         op: c_ulong,
@@ -150,6 +154,20 @@ impl XenCall {
         self.hypercall(op, [arg1, arg2, arg3, arg4, arg5])
     }
 
+    pub fn multicall(&self, calls: &mut [MultiCallEntry]) -> Result<(), XenCallError> {
+        trace!(
+            "call fd={} multicall calls={:?}",
+            self.handle.as_raw_fd(),
+            calls
+        );
+        self.hypercall2(
+            HYPERVISOR_MULTICALL,
+            calls.as_mut_ptr() as c_ulong,
+            calls.len() as c_ulong,
+        )?;
+        Ok(())
+    }
+
     pub fn mmap_batch(
         &self,
         domid: u32,
@@ -157,6 +175,14 @@ impl XenCall {
         addr: u64,
         mfns: Vec<u64>,
     ) -> Result<c_long, XenCallError> {
+        trace!(
+            "call fd={} mmap_batch domid={} num={} addr={:#x} mfns={:?}",
+            self.handle.as_raw_fd(),
+            domid,
+            num,
+            addr,
+            mfns
+        );
         unsafe {
             let mut mfns = mfns.clone();
             let mut errors = vec![0i32; mfns.len()];
@@ -173,6 +199,10 @@ impl XenCall {
     }
 
     pub fn get_version_capabilities(&self) -> Result<XenCapabilitiesInfo, XenCallError> {
+        trace!(
+            "call fd={} get_version_capabilities",
+            self.handle.as_raw_fd()
+        );
         let mut info = XenCapabilitiesInfo {
             capabilities: [0; 1024],
         };

@@ -4,8 +4,10 @@ use crate::sys::{
 use crate::{XenCall, XenCallError};
 
 use std::ffi::c_ulong;
+use std::os::fd::AsRawFd;
 
 use libc::c_long;
+use log::trace;
 use std::ptr::addr_of_mut;
 
 pub struct MemoryControl<'a> {
@@ -25,6 +27,7 @@ impl MemoryControl<'_> {
         mem_flags: u32,
         extent_starts: &[u64],
     ) -> Result<Vec<u64>, XenCallError> {
+        trace!("memory fd={} populate_physmap domid={} nr_extents={} extent_order={} mem_flags={} extent_starts={:?}", self.call.handle.as_raw_fd(), domid, nr_extents, extent_order, mem_flags, extent_starts);
         let mut extent_starts = extent_starts.to_vec();
         let mut reservation = MemoryReservation {
             extent_start: extent_starts.as_mut_ptr() as c_ulong,
