@@ -265,24 +265,13 @@ impl BootImageLoader for ElfImageLoader {
             ));
         }
 
-        let virt_base = 0;
-
-        let _paddr_offset = if paddr_offset == XEN_UNSET_ADDR {
-            0
-        } else {
-            paddr_offset
-        };
-
-        let virt_offset = 0;
+        let virt_offset = virt_base - paddr_offset;
         let virt_kstart = start + virt_offset;
         let virt_kend = end + virt_offset;
-        let virt_entry = if entry == XEN_UNSET_ADDR {
-            elf.ehdr.e_entry
-        } else {
-            entry
-        };
+        let virt_entry = entry;
 
         Ok(BootImageInfo {
+            start,
             virt_base,
             virt_kstart,
             virt_kend,
@@ -307,7 +296,7 @@ impl BootImageLoader for ElfImageLoader {
             let paddr = header.p_paddr;
             let filesz = header.p_filesz;
             let memsz = header.p_memsz;
-            let base_offset = paddr - image_info.virt_kstart;
+            let base_offset = paddr - image_info.start;
             let data = elf.segment_data(&header)?;
             let segment_dst = &mut dst[base_offset as usize..];
             let copy_slice = &data[0..filesz as usize];

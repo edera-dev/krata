@@ -1,8 +1,9 @@
 use crate::sys::{
-    ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, GetDomainInfo, HypercallInit, MaxMem,
-    MaxVcpus, HYPERVISOR_DOMCTL, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN,
-    XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION,
-    XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS,
+    ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext, GetDomainInfo,
+    HypercallInit, MaxMem, MaxVcpus, VcpuGuestContext, VcpuGuestContextAny, HYPERVISOR_DOMCTL,
+    XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO,
+    XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION, XEN_DOMCTL_MAX_MEM,
+    XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_SETVCPUCONTEXT,
 };
 use crate::{XenCall, XenCallError};
 use log::trace;
@@ -109,6 +110,39 @@ impl DomainControl<'_> {
             domid,
             value: DomCtlValue {
                 max_cpus: MaxVcpus { max_vcpus },
+            },
+        };
+        self.call
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
+        Ok(())
+    }
+
+    pub fn set_vcpu_context(
+        &self,
+        domid: u32,
+        vcpu: u32,
+        context: Option<&VcpuGuestContext>,
+    ) -> Result<(), XenCallError> {
+        trace!(
+            "domctl fd={} set_vcpu_context domid={} context={:?}",
+            self.call.handle.as_raw_fd(),
+            domid,
+            context,
+        );
+        let mut wrapper = context.map(|ctx| VcpuGuestContextAny { value: *ctx });
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_SETVCPUCONTEXT,
+            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            domid,
+            value: DomCtlValue {
+                vcpu_context: DomCtlVcpuContext {
+                    vcpu,
+                    ctx: if wrapper.is_some() {
+                        addr_of_mut!(wrapper) as c_ulong
+                    } else {
+                        0
+                    },
+                },
             },
         };
         self.call

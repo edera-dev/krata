@@ -15,6 +15,7 @@ use std::ffi::c_void;
 use std::slice;
 use xencall::domctl::DomainControl;
 use xencall::memory::MemoryControl;
+use xencall::sys::VcpuGuestContext;
 use xencall::XenCall;
 
 pub trait BootImageLoader {
@@ -26,6 +27,7 @@ pub const XEN_UNSET_ADDR: u64 = -1i64 as u64;
 
 #[derive(Debug)]
 pub struct BootImageInfo {
+    pub start: u64,
     pub virt_base: u64,
     pub virt_kstart: u64,
     pub virt_kend: u64,
@@ -70,6 +72,7 @@ pub struct BootState {
     pub boot_stack_segment: DomainSegment,
     pub page_table_segment: DomainSegment,
     pub page_table: PageTable,
+    pub image_info: BootImageInfo,
 }
 
 impl BootSetup<'_> {
@@ -195,11 +198,14 @@ impl BootSetup<'_> {
         Ok(())
     }
 
-    fn _initialize_hypercall(&mut self, image_info: BootImageInfo) -> Result<(), XenClientError> {
-        if image_info.virt_hypercall != XEN_UNSET_ADDR {
-            self.domctl
-                .hypercall_init(self.domid, image_info.virt_hypercall)?;
+    fn setup_hypercall_page(&mut self, image_info: &BootImageInfo) -> Result<(), XenClientError> {
+        if image_info.virt_hypercall == XEN_UNSET_ADDR {
+            return Ok(());
         }
+
+        let pfn = (image_info.virt_hypercall - image_info.virt_base) >> X86_PAGE_SHIFT;
+        let mfn = self.phys.p2m[pfn as usize];
+        self.domctl.hypercall_init(self.domid, mfn)?;
         Ok(())
     }
 
@@ -213,6 +219,7 @@ impl BootSetup<'_> {
         self.initialize_memory(memkb)?;
 
         let image_info = image_loader.parse()?;
+        self.virt_alloc_end = image_info.virt_base;
         let kernel_segment = self.load_kernel_segment(image_loader, &image_info)?;
         let start_info_segment = self.alloc_page()?;
         let xenstore_segment = self.alloc_page()?;
@@ -227,12 +234,37 @@ impl BootSetup<'_> {
             boot_stack_segment,
             page_table_segment,
             page_table,
+            image_info,
         })
     }
 
     pub fn boot(&mut self, state: &mut BootState, cmdline: &str) -> Result<(), XenClientError> {
         self.setup_page_tables(state)?;
         self.setup_start_info(state, cmdline);
+        self.setup_hypercall_page(&state.image_info)?;
+
+        let mut vcpu = VcpuGuestContext::default();
+        vcpu.user_regs.rip = state.image_info.virt_entry;
+        vcpu.user_regs.rsp =
+            state.image_info.virt_base + (state.boot_stack_segment.pfn + 1) * X86_PAGE_SIZE;
+        vcpu.user_regs.rsi =
+            state.image_info.virt_base + (state.start_info_segment.pfn) * X86_PAGE_SIZE;
+        vcpu.user_regs.rflags = 1 << 9;
+        vcpu.debugreg[6] = 0xffff0ff0;
+        vcpu.debugreg[7] = 0x00000400;
+        vcpu.flags = (1 << 2) | (1 << 5);
+        let cr3_pfn = self.phys.p2m[state.page_table_segment.pfn as usize];
+        vcpu.ctrlreg[3] = cr3_pfn << 12;
+        vcpu.user_regs.ds = 0xe021;
+        vcpu.user_regs.es = 0xe021;
+        vcpu.user_regs.fs = 0xe021;
+        vcpu.user_regs.gs = 0xe021;
+        vcpu.user_regs.ss = 0xe02b;
+        vcpu.user_regs.cs = 0xe019;
+        vcpu.kernel_ss = vcpu.user_regs.ss as u64;
+        vcpu.kernel_sp = vcpu.user_regs.rsp;
+        let _vcpu = vcpu;
+        self.domctl.set_vcpu_context(self.domid, 0, None)?;
         Ok(())
     }
 
@@ -263,7 +295,8 @@ impl BootSetup<'_> {
                         >> (X86_PAGE_SHIFT + lvl_idx as u64 * X86_PGTABLE_LEVEL_SHIFT);
                     let p_e = (min(to, lvl.to) - from)
                         >> (X86_PAGE_SHIFT + lvl_idx as u64 * X86_PGTABLE_LEVEL_SHIFT);
-                    let mut pfn = (max(from, lvl.from) - from) >> ((X86_PAGE_SHIFT + lvl_idx as u64 * X86_PGTABLE_LEVEL_SHIFT) + lvl.pfn);
+                    let mut pfn = (max(from, lvl.from) - from)
+                        >> ((X86_PAGE_SHIFT + lvl_idx as u64 * X86_PGTABLE_LEVEL_SHIFT) + lvl.pfn);
 
                     for p in p_s..p_e + 1 {
                         unsafe {

@@ -19,13 +19,24 @@ fn main() -> Result<(), XenClientError> {
     let call = XenCall::open()?;
     let domctl = DomainControl::new(&call);
     let domid = domctl.create_domain(CreateDomain::default())?;
+    let result = boot(domid, kernel_image_path.as_str(), &call, &domctl);
+    domctl.destroy_domain(domid)?;
+    result?;
+    println!("domain destroyed: {}", domid);
+    Ok(())
+}
+
+fn boot(
+    domid: u32,
+    kernel_image_path: &str,
+    call: &XenCall,
+    domctl: &DomainControl,
+) -> Result<(), XenClientError> {
     println!("domain created: {:?}", domid);
-    let image_loader = ElfImageLoader::load_file_kernel(kernel_image_path.as_str())?;
-    let memctl = MemoryControl::new(&call);
-    let mut boot = BootSetup::new(&call, &domctl, &memctl, domid);
+    let image_loader = ElfImageLoader::load_file_kernel(kernel_image_path)?;
+    let memctl = MemoryControl::new(call);
+    let mut boot = BootSetup::new(call, domctl, &memctl, domid);
     let mut state = boot.initialize(&image_loader, 512 * 1024)?;
     boot.boot(&mut state, "debug")?;
-    domctl.destroy_domain(domid)?;
-    println!("domain destroyed: {}", domid);
     Ok(())
 }

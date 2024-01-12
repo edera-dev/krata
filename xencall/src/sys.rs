@@ -202,6 +202,13 @@ pub struct DomCtl {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+pub struct DomCtlVcpuContext {
+    pub vcpu: u32,
+    pub ctx: u64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
 pub union DomCtlValue {
     pub create_domain: CreateDomain,
     pub get_domain_info: GetDomainInfo,
@@ -209,6 +216,7 @@ pub union DomCtlValue {
     pub max_cpus: MaxVcpus,
     pub hypercall_init: HypercallInit,
     pub pad: [u8; 128],
+    pub vcpu_context: DomCtlVcpuContext,
 }
 
 #[repr(C)]
@@ -327,3 +335,113 @@ pub struct MultiCallEntry {
 }
 
 pub const XEN_MEM_POPULATE_PHYSMAP: u32 = 6;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct VcpuGuestContextFpuCtx {
+    pub x: [c_char; 512],
+}
+
+impl Default for VcpuGuestContextFpuCtx {
+    fn default() -> Self {
+        VcpuGuestContextFpuCtx { x: [0; 512] }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct CpuUserRegs {
+    pub r15: u64,
+    pub r14: u64,
+    pub r13: u64,
+    pub r12: u64,
+    pub rbp: u64,
+    pub rbx: u64,
+    pub r11: u64,
+    pub r10: u64,
+    pub r9: u64,
+    pub r8: u64,
+    pub rax: u64,
+    pub rcx: u64,
+    pub rdx: u64,
+    pub rsi: u64,
+    pub rdi: u64,
+    pub error_code: u32,
+    pub entry_vector: u32,
+    pub rip: u64,
+    pub cs: u16,
+    _pad0: [u16; 1],
+    pub saved_upcall_mask: u8,
+    _pad1: [u8; 3],
+    pub rflags: u64,
+    pub rsp: u64,
+    pub ss: u16,
+    _pad2: [u16; 3],
+    pub es: u16,
+    _pad3: [u16; 3],
+    pub ds: u16,
+    _pad4: [u16; 3],
+    pub fs: u16,
+    _pad5: [u16; 3],
+    pub gs: u16,
+    _pad6: [u16; 3],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct TrapInfo {
+    pub vector: u8,
+    pub flags: u8,
+    pub cs: u16,
+    pub address: u64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct VcpuGuestContext {
+    pub fpu_ctx: VcpuGuestContextFpuCtx,
+    pub flags: c_ulong,
+    pub user_regs: CpuUserRegs,
+    pub trap_ctx: [TrapInfo; 256],
+    pub ldt_base: u64,
+    pub ldt_ents: u64,
+    pub gdt_frames: [u64; 16],
+    pub gdt_ents: u64,
+    pub kernel_ss: u64,
+    pub kernel_sp: u64,
+    pub ctrlreg: [u64; 8],
+    pub debugreg: [u64; 8],
+    pub syscall_callback_eip: u64,
+    pub vm_assist: u64,
+    pub fs_base: u64,
+    pub gs_base_kernel: u64,
+    pub gs_base_user: u64,
+}
+
+impl Default for VcpuGuestContext {
+    fn default() -> Self {
+        VcpuGuestContext {
+            fpu_ctx: Default::default(),
+            flags: 0,
+            user_regs: Default::default(),
+            trap_ctx: [TrapInfo::default(); 256],
+            ldt_base: 0,
+            ldt_ents: 0,
+            gdt_frames: [0; 16],
+            gdt_ents: 0,
+            kernel_ss: 0,
+            kernel_sp: 0,
+            ctrlreg: [0; 8],
+            debugreg: [0; 8],
+            syscall_callback_eip: 0,
+            vm_assist: 0,
+            fs_base: 0,
+            gs_base_kernel: 0,
+            gs_base_user: 0,
+        }
+    }
+}
+
+pub union VcpuGuestContextAny {
+    pub value: VcpuGuestContext,
+}

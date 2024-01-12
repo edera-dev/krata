@@ -8,8 +8,7 @@ pub const X86_PGTABLE_LEVELS: u64 = 4;
 pub const X86_PGTABLE_LEVEL_SHIFT: u64 = 9;
 
 #[repr(C)]
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct PageTableMappingLevel {
     pub from: u64,
     pub to: u64,
@@ -18,8 +17,7 @@ pub struct PageTableMappingLevel {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct PageTableMapping {
     pub area: PageTableMappingLevel,
     pub levels: [PageTableMappingLevel; X86_PGTABLE_LEVELS as usize],
@@ -28,18 +26,11 @@ pub struct PageTableMapping {
 pub const X86_PAGE_TABLE_MAX_MAPPINGS: usize = 2;
 
 #[repr(C)]
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct PageTable {
     pub mappings_count: usize,
     pub mappings: [PageTableMapping; X86_PAGE_TABLE_MAX_MAPPINGS],
 }
-
-
-
-
-
-
 
 #[repr(C)]
 #[derive(Debug)]
