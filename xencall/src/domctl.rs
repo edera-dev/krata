@@ -1,9 +1,9 @@
 use crate::sys::{
-    ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext, GetDomainInfo,
-    HypercallInit, MaxMem, MaxVcpus, VcpuGuestContext, VcpuGuestContextAny, HYPERVISOR_DOMCTL,
-    XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO,
+    AddressSize, ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
+    GetDomainInfo, HypercallInit, MaxMem, MaxVcpus, VcpuGuestContext, VcpuGuestContextAny,
+    HYPERVISOR_DOMCTL, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO,
     XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION, XEN_DOMCTL_MAX_MEM,
-    XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_SETVCPUCONTEXT,
+    XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE,
 };
 use crate::{XenCall, XenCallError};
 use log::trace;
@@ -117,6 +117,26 @@ impl DomainControl<'_> {
         Ok(())
     }
 
+    pub fn set_address_size(&self, domid: u32, size: u32) -> Result<(), XenCallError> {
+        trace!(
+            "domctl fd={} set_address_size domid={} size={}",
+            self.call.handle.as_raw_fd(),
+            domid,
+            size,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_SET_ADDRESS_SIZE,
+            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            domid,
+            value: DomCtlValue {
+                address_size: AddressSize { size },
+            },
+        };
+        self.call
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
+        Ok(())
+    }
+
     pub fn set_vcpu_context(
         &self,
         domid: u32,
@@ -152,7 +172,7 @@ impl DomainControl<'_> {
 
     pub fn hypercall_init(&self, domid: u32, gmfn: u64) -> Result<(), XenCallError> {
         trace!(
-            "domctl fd={} hypercall_init domid={} max_vcpus={}",
+            "domctl fd={} hypercall_init domid={} gmfn={}",
             self.call.handle.as_raw_fd(),
             domid,
             gmfn

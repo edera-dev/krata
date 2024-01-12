@@ -209,14 +209,21 @@ pub struct DomCtlVcpuContext {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+pub struct AddressSize {
+    pub size: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
 pub union DomCtlValue {
     pub create_domain: CreateDomain,
     pub get_domain_info: GetDomainInfo,
     pub max_mem: MaxMem,
     pub max_cpus: MaxVcpus,
     pub hypercall_init: HypercallInit,
-    pub pad: [u8; 128],
     pub vcpu_context: DomCtlVcpuContext,
+    pub address_size: AddressSize,
+    pub pad: [u8; 128],
 }
 
 #[repr(C)]
@@ -400,7 +407,7 @@ pub struct TrapInfo {
 #[derive(Copy, Clone, Debug)]
 pub struct VcpuGuestContext {
     pub fpu_ctx: VcpuGuestContextFpuCtx,
-    pub flags: c_ulong,
+    pub flags: u64,
     pub user_regs: CpuUserRegs,
     pub trap_ctx: [TrapInfo; 256],
     pub ldt_base: u64,
@@ -411,6 +418,8 @@ pub struct VcpuGuestContext {
     pub kernel_sp: u64,
     pub ctrlreg: [u64; 8],
     pub debugreg: [u64; 8],
+    pub event_callback_eip: u64,
+    pub failsafe_callback_eip: u64,
     pub syscall_callback_eip: u64,
     pub vm_assist: u64,
     pub fs_base: u64,
@@ -433,6 +442,8 @@ impl Default for VcpuGuestContext {
             kernel_sp: 0,
             ctrlreg: [0; 8],
             debugreg: [0; 8],
+            event_callback_eip: 0,
+            failsafe_callback_eip: 0,
             syscall_callback_eip: 0,
             vm_assist: 0,
             fs_base: 0,

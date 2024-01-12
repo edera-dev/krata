@@ -95,6 +95,8 @@ impl BootSetup<'_> {
     }
 
     fn initialize_memory(&mut self, memkb: u64) -> Result<(), XenClientError> {
+        self.domctl.set_address_size(self.domid, 64)?;
+
         let mem_mb: u64 = memkb / 1024;
         let page_count: u64 = mem_mb << (20 - XEN_PAGE_SHIFT);
         let mut vmemranges: Vec<VmemRange> = Vec::new();
@@ -224,8 +226,11 @@ impl BootSetup<'_> {
         let start_info_segment = self.alloc_page()?;
         let xenstore_segment = self.alloc_page()?;
         let console_segment = self.alloc_page()?;
-        let boot_stack_segment = self.alloc_page()?;
         let (page_table_segment, page_table) = self.alloc_page_tables(&image_info)?;
+        let boot_stack_segment = self.alloc_page()?;
+        if self.virt_pgtab_end > 0 {
+            self.alloc_padding_pages(self.virt_pgtab_end)?;
+        }
         Ok(BootState {
             kernel_segment,
             start_info_segment,
@@ -264,7 +269,7 @@ impl BootSetup<'_> {
         vcpu.kernel_ss = vcpu.user_regs.ss as u64;
         vcpu.kernel_sp = vcpu.user_regs.rsp;
         let _vcpu = vcpu;
-        self.domctl.set_vcpu_context(self.domid, 0, None)?;
+        self.domctl.set_vcpu_context(self.domid, 0, Some(&vcpu))?;
         Ok(())
     }
 
@@ -296,7 +301,11 @@ impl BootSetup<'_> {
                     let p_e = (min(to, lvl.to) - from)
                         >> (X86_PAGE_SHIFT + lvl_idx as u64 * X86_PGTABLE_LEVEL_SHIFT);
                     let mut pfn = (max(from, lvl.from) - from)
-                        >> ((X86_PAGE_SHIFT + lvl_idx as u64 * X86_PGTABLE_LEVEL_SHIFT) + lvl.pfn);
+                        .checked_shr(
+                            ((X86_PAGE_SHIFT + lvl_idx as u64 * X86_PGTABLE_LEVEL_SHIFT) + lvl.pfn)
+                                as u32,
+                        )
+                        .unwrap_or(0u64);
 
                     for p in p_s..p_e + 1 {
                         unsafe {
@@ -343,7 +352,10 @@ impl BootSetup<'_> {
         image_loader: &dyn BootImageLoader,
         image_info: &BootImageInfo,
     ) -> Result<DomainSegment, XenClientError> {
-        let kernel_segment = self.alloc_segment(image_info.virt_kend - image_info.virt_kstart)?;
+        let kernel_segment = self.alloc_segment(
+            image_info.virt_kstart,
+            image_info.virt_kend - image_info.virt_kstart,
+        )?;
         let kernel_segment_ptr = kernel_segment.addr as *mut u8;
         debug!(
             "BootSetup initialize kernel_segment ptr={:#x}",
@@ -440,7 +452,7 @@ impl BootSetup<'_> {
 
         let mut try_virt_end: u64;
         loop {
-            try_virt_end = (self.virt_alloc_end + pages * X86_PAGE_SIZE) | (1 << 22);
+            try_virt_end = (self.virt_alloc_end + pages * X86_PAGE_SIZE) | ((1 << 22) - 1);
             self.count_page_tables(&mut table, image_info.virt_base, try_virt_end, 0)?;
             pages = table.mappings[0].area.pgtables as u64 + extra_pages;
             if self.virt_alloc_end + pages * X86_PAGE_SIZE <= try_virt_end + 1 {
@@ -454,7 +466,7 @@ impl BootSetup<'_> {
             map.area.pfn = 0;
             table.mappings_count += 1;
             self.virt_pgtab_end = try_virt_end + 1;
-            segment = self.alloc_segment(map.area.pgtables as u64 * X86_PAGE_SIZE)?;
+            segment = self.alloc_segment(0, map.area.pgtables as u64 * X86_PAGE_SIZE)?;
         }
         debug!(
             "BootSetup alloc_page_tables table={:?} segment={:?}",
@@ -463,10 +475,15 @@ impl BootSetup<'_> {
         Ok((segment, table))
     }
 
-    fn alloc_segment(&mut self, size: u64) -> Result<DomainSegment, XenClientError> {
+    fn alloc_segment(&mut self, start: u64, size: u64) -> Result<DomainSegment, XenClientError> {
+        if start > 0 {
+            self.alloc_padding_pages(start)?;
+        }
+
+        let start = self.virt_alloc_end;
         let page_size = 1u64 << XEN_PAGE_SHIFT;
         let pages = (size + page_size - 1) / page_size;
-        let start = self.virt_alloc_end;
+
         let mut segment = DomainSegment {
             vstart: start,
             _vend: 0,
@@ -475,20 +492,58 @@ impl BootSetup<'_> {
             size,
             _pages: pages,
         };
+
+        self.chk_alloc_pages(pages)?;
+
         let ptr = self.phys.pfn_to_ptr(segment.pfn, pages)?;
         segment.addr = ptr;
         unsafe {
             memset(ptr as *mut c_void, 0, (pages * page_size) as usize);
         }
-        self.virt_alloc_end += pages * page_size;
         segment._vend = self.virt_alloc_end;
-        self.pfn_alloc_end += 1;
-        debug!("BootSetup alloc_segment size={} ptr={:#x}", size, ptr);
+        debug!(
+            "BootSetup alloc_segment start={:#x} size={} ptr={:#x}",
+            start, size, ptr
+        );
         Ok(segment)
     }
 
     fn alloc_page(&mut self) -> Result<DomainSegment, XenClientError> {
         let page_size = 1u64 << XEN_PAGE_SHIFT;
-        self.alloc_segment(page_size)
+        self.alloc_segment(0, page_size)
+    }
+
+    fn alloc_padding_pages(&mut self, boundary: u64) -> Result<(), XenClientError> {
+        if (boundary & (X86_PAGE_SIZE - 1)) != 0 {
+            return Err(XenClientError::new(
+                format!("segment boundary isn't page aligned: {:#x}", boundary).as_str(),
+            ));
+        }
+
+        if boundary < self.virt_alloc_end {
+            return Err(XenClientError::new("segment boundary too low"));
+        }
+        let pages = (boundary - self.virt_alloc_end) / X86_PAGE_SIZE;
+        self.chk_alloc_pages(pages)?;
+        Ok(())
+    }
+
+    fn chk_alloc_pages(&mut self, pages: u64) -> Result<(), XenClientError> {
+        if pages > self.total_pages
+            || self.pfn_alloc_end > self.total_pages
+            || pages > self.total_pages - self.pfn_alloc_end
+        {
+            return Err(XenClientError::new(
+                format!(
+                    "segment too large: pages={} total_pages={} pfn_alloc_end={}",
+                    pages, self.total_pages, self.pfn_alloc_end
+                )
+                .as_str(),
+            ));
+        }
+
+        self.pfn_alloc_end += pages;
+        self.virt_alloc_end += pages * X86_PAGE_SIZE;
+        Ok(())
     }
 }

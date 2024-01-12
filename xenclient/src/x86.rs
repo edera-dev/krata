@@ -3,7 +3,7 @@ use libc::c_char;
 pub const X86_PAGE_SHIFT: u64 = 12;
 pub const X86_PAGE_SIZE: u64 = 1 << X86_PAGE_SHIFT;
 pub const X86_VIRT_BITS: u64 = 48;
-pub const X86_VIRT_MASK: u64 = 1 << X86_VIRT_BITS;
+pub const X86_VIRT_MASK: u64 = (1 << X86_VIRT_BITS) - 1;
 pub const X86_PGTABLE_LEVELS: u64 = 4;
 pub const X86_PGTABLE_LEVEL_SHIFT: u64 = 9;
 

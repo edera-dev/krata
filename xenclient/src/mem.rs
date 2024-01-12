@@ -1,6 +1,7 @@
 use crate::sys::XEN_PAGE_SHIFT;
 use crate::XenClientError;
 
+use crate::x86::X86_PAGE_SHIFT;
 use xencall::sys::MmapEntry;
 use xencall::XenCall;
 
@@ -59,7 +60,7 @@ impl PhysicalPages<'_> {
                 }
             }
 
-            return Ok(page.ptr + ((pfn - page.pfn) << XEN_PAGE_SHIFT));
+            return Ok(page.ptr + ((pfn - page.pfn) << X86_PAGE_SHIFT));
         }
 
         if count == 0 {
