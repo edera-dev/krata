@@ -19,6 +19,8 @@ fn main() -> Result<(), XenClientError> {
     let call = XenCall::open()?;
     let domctl = DomainControl::new(&call);
     let domid = domctl.create_domain(CreateDomain::default())?;
+    domctl.pause_domain(domid)?;
+    domctl.set_max_vcpus(domid, 1)?;
     let result = boot(domid, kernel_image_path.as_str(), &call, &domctl);
     domctl.destroy_domain(domid)?;
     result?;

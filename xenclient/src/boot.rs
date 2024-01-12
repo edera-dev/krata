@@ -10,7 +10,8 @@ use crate::x86::{
 };
 use crate::XenClientError;
 use libc::{c_char, memset};
-use log::debug;
+use log::{debug, trace};
+use slice_copy::copy;
 use std::cmp::{max, min};
 use std::ffi::c_void;
 use std::slice;
@@ -34,7 +35,7 @@ pub struct BootImageInfo {
     pub virt_kend: u64,
     pub virt_hypercall: u64,
     pub virt_entry: u64,
-    pub init_p2m: u64,
+    pub virt_p2m_base: u64,
 }
 
 pub struct BootSetup<'a> {
@@ -72,6 +73,7 @@ pub struct BootState {
     pub xenstore_segment: DomainSegment,
     pub console_segment: DomainSegment,
     pub boot_stack_segment: DomainSegment,
+    pub p2m_segment: DomainSegment,
     pub page_table_segment: DomainSegment,
     pub page_table: PageTable,
     pub image_info: BootImageInfo,
@@ -119,7 +121,7 @@ impl BootSetup<'_> {
 
         if total != page_count {
             return Err(XenClientError::new(
-                "Page count mismatch while calculating pages.",
+                "page count mismatch while calculating pages",
             ));
         }
 
@@ -127,7 +129,7 @@ impl BootSetup<'_> {
 
         let mut p2m = vec![-1i64 as u64; p2m_size as usize];
         for range in &vmemranges {
-            let mut extents = vec![0u64; SUPERPAGE_BATCH_SIZE as usize];
+            let mut extents_init = vec![0u64; SUPERPAGE_BATCH_SIZE as usize];
             let pages = (range.end - range.start) >> XEN_PAGE_SHIFT;
             let pfn_base = range.start >> XEN_PAGE_SHIFT;
 
@@ -147,21 +149,21 @@ impl BootSetup<'_> {
                     if pfn >= pfn_base_idx + (count << SUPERPAGE_2MB_SHIFT) {
                         break;
                     }
-                    extents[j] = p2m[pfn as usize];
+                    extents_init[j] = p2m[pfn as usize];
                     pfn += SUPERPAGE_2MB_NR_PFNS;
                     j += 1;
                 }
 
-                let starts = self.memctl.populate_physmap(
+                let extents = self.memctl.populate_physmap(
                     self.domid,
                     count,
                     SUPERPAGE_2MB_SHIFT as u32,
                     0,
-                    extents.as_slice(),
+                    extents_init.as_slice(),
                 )?;
 
                 pfn = pfn_base_idx;
-                for mfn in starts {
+                for mfn in extents {
                     for k in 0..SUPERPAGE_2MB_NR_PFNS {
                         p2m[pfn as usize] = mfn + k;
                         pfn += 1;
@@ -192,8 +194,7 @@ impl BootSetup<'_> {
                         format!("failed to populate physmap: {:?}", result).as_str(),
                     ));
                 }
-
-                p2m[p2m_idx] = result[0];
+                copy(p2m.as_mut_slice(), result.as_slice());
                 j += allocsz;
             }
         }
@@ -223,27 +224,31 @@ impl BootSetup<'_> {
         self.initialize_memory(memkb)?;
 
         let image_info = image_loader.parse()?;
+        debug!("BootSetup initialize image_info={:?}", image_info);
         self.virt_alloc_end = image_info.virt_base;
         let kernel_segment = self.load_kernel_segment(image_loader, &image_info)?;
         let start_info_segment = self.alloc_page()?;
         let xenstore_segment = self.alloc_page()?;
         let console_segment = self.alloc_page()?;
-        let (page_table_segment, page_table) = self.alloc_page_tables(&image_info)?;
+        let mut page_table = PageTable::default();
+        let page_table_segment = self.alloc_page_tables(&mut page_table, &image_info)?;
         let boot_stack_segment = self.alloc_page()?;
         if self.virt_pgtab_end > 0 {
             self.alloc_padding_pages(self.virt_pgtab_end)?;
         }
+        let p2m_segment = self.alloc_p2m_segment(&mut page_table, &image_info)?;
         let state = BootState {
             kernel_segment,
             start_info_segment,
             xenstore_segment,
             console_segment,
             boot_stack_segment,
+            p2m_segment,
             page_table_segment,
             page_table,
             image_info,
         };
-        debug!("initialize state={:?}", state);
+        debug!("BootSetup initialize state={:?}", state);
         Ok(state)
     }
 
@@ -264,12 +269,12 @@ impl BootSetup<'_> {
         vcpu.flags = VGCF_IN_KERNEL | VGCF_ONLINE;
         let cr3_pfn = self.phys.p2m[state.page_table_segment.pfn as usize];
         vcpu.ctrlreg[3] = cr3_pfn << 12;
-        vcpu.user_regs.ds = 0xe021;
-        vcpu.user_regs.es = 0xe021;
-        vcpu.user_regs.fs = 0xe021;
-        vcpu.user_regs.gs = 0xe021;
+        vcpu.user_regs.ds = 0x0;
+        vcpu.user_regs.es = 0x0;
+        vcpu.user_regs.fs = 0x0;
+        vcpu.user_regs.gs = 0x0;
         vcpu.user_regs.ss = 0xe02b;
-        vcpu.user_regs.cs = 0xe019;
+        vcpu.user_regs.cs = 0xe033;
         vcpu.kernel_ss = vcpu.user_regs.ss as u64;
         vcpu.kernel_sp = vcpu.user_regs.rsp;
         self.domctl.set_vcpu_context(self.domid, 0, Some(&vcpu))?;
@@ -277,7 +282,15 @@ impl BootSetup<'_> {
     }
 
     fn setup_page_tables(&mut self, state: &mut BootState) -> Result<(), XenClientError> {
-        for lvl_idx in (0usize..3usize).rev() {
+        let p2m_guest = unsafe {
+            slice::from_raw_parts_mut(
+                state.p2m_segment.addr as *mut u64,
+                state.p2m_segment.size as usize,
+            )
+        };
+        copy(p2m_guest, &self.phys.p2m);
+
+        for lvl_idx in (0usize..X86_PGTABLE_LEVELS as usize).rev() {
             for map_idx_1 in 0usize..state.page_table.mappings_count {
                 let map1 = &state.page_table.mappings[map_idx_1];
                 let from = map1.levels[lvl_idx].from;
@@ -337,7 +350,7 @@ impl BootSetup<'_> {
             (*info).nr_p2m_frames = 0;
             (*info).flags = 0;
             (*info).store_evtchn = 0;
-            (*info).store_mfn = 0;
+            (*info).store_mfn = self.phys.p2m[state.xenstore_segment.pfn as usize];
             (*info).console.mfn = self.phys.p2m[state.console_segment.pfn as usize];
             (*info).console.evtchn = 0;
             (*info).mod_start = 0;
@@ -346,7 +359,7 @@ impl BootSetup<'_> {
                 (*info).cmdline[i] = c as c_char;
                 (*info).cmdline[MAX_GUEST_CMDLINE - 1] = 0;
             }
-            debug!("BootSetup setup_start_info={:?}", *info);
+            trace!("BootSetup setup_start_info start_info={:?}", *info);
         }
         Ok(())
     }
@@ -361,10 +374,6 @@ impl BootSetup<'_> {
             image_info.virt_kend - image_info.virt_kstart,
         )?;
         let kernel_segment_ptr = kernel_segment.addr as *mut u8;
-        debug!(
-            "BootSetup initialize kernel_segment ptr={:#x}",
-            kernel_segment_ptr as u64
-        );
         let kernel_segment_slice =
             unsafe { slice::from_raw_parts_mut(kernel_segment_ptr, kernel_segment.size as usize) };
         image_loader.load(image_info, kernel_segment_slice)?;
@@ -399,7 +408,7 @@ impl BootSetup<'_> {
         map.area.from = from & X86_VIRT_MASK;
         map.area.to = to & X86_VIRT_MASK;
 
-        for lvl_index in (0usize..3usize).rev() {
+        for lvl_index in (0usize..X86_PGTABLE_LEVELS as usize).rev() {
             let lvl = &mut map.levels[lvl_index];
             lvl.pfn = self.pfn_alloc_end + map.area.pgtables as u64;
             if lvl_index as u64 == X86_PGTABLE_LEVELS - 1 {
@@ -443,7 +452,7 @@ impl BootSetup<'_> {
             }
 
             debug!(
-                "count_pgtables {:#x}/{}: {:#x} -> {:#x}, {} tables",
+                "BootSetup count_pgtables {:#x}/{}: {:#x} -> {:#x}, {} tables",
                 mask, bits, lvl.from, lvl.to, lvl.pgtables
             );
             map.area.pgtables += lvl.pgtables;
@@ -451,20 +460,47 @@ impl BootSetup<'_> {
         Ok(())
     }
 
+    fn alloc_p2m_segment(
+        &mut self,
+        page_table: &mut PageTable,
+        image_info: &BootImageInfo,
+    ) -> Result<DomainSegment, XenClientError> {
+        let mut p2m_alloc_size =
+            ((self.phys.p2m_size() * 8) + X86_PAGE_SIZE - 1) & !(X86_PAGE_SIZE - 1);
+        let from = image_info.virt_p2m_base;
+        let to = from + p2m_alloc_size - 1;
+        self.count_page_tables(page_table, from, to, self.pfn_alloc_end)?;
+
+        let pgtables: usize;
+        {
+            let map = &mut page_table.mappings[page_table.mappings_count];
+            map.area.pfn = self.pfn_alloc_end;
+            for lvl_idx in 0..4 {
+                map.levels[lvl_idx].pfn += p2m_alloc_size >> X86_PAGE_SHIFT;
+            }
+            pgtables = map.area.pgtables;
+        }
+        page_table.mappings_count += 1;
+        p2m_alloc_size += (pgtables << X86_PAGE_SHIFT) as u64;
+        let p2m_segment = self.alloc_segment(0, p2m_alloc_size)?;
+        Ok(p2m_segment)
+    }
+
     fn alloc_page_tables(
         &mut self,
+        table: &mut PageTable,
         image_info: &BootImageInfo,
-    ) -> Result<(DomainSegment, PageTable), XenClientError> {
-        let mut table = PageTable::default();
+    ) -> Result<DomainSegment, XenClientError> {
         let mut extra_pages = 1;
         extra_pages += (512 * 1024) / X86_PAGE_SIZE;
         let mut pages = extra_pages;
+        let nr_mappings = table.mappings_count;
 
         let mut try_virt_end: u64;
         loop {
             try_virt_end = (self.virt_alloc_end + pages * X86_PAGE_SIZE) | ((1 << 22) - 1);
-            self.count_page_tables(&mut table, image_info.virt_base, try_virt_end, 0)?;
-            pages = table.mappings[0].area.pgtables as u64 + extra_pages;
+            self.count_page_tables(table, image_info.virt_base, try_virt_end, 0)?;
+            pages = table.mappings[nr_mappings].area.pgtables as u64 + extra_pages;
             if self.virt_alloc_end + pages * X86_PAGE_SIZE <= try_virt_end + 1 {
                 break;
             }
@@ -472,18 +508,17 @@ impl BootSetup<'_> {
 
         let segment: DomainSegment;
         {
-            let map = &mut table.mappings[table.mappings_count];
+            let map = &mut table.mappings[nr_mappings];
             map.area.pfn = 0;
             table.mappings_count += 1;
             self.virt_pgtab_end = try_virt_end + 1;
-            segment =
-                self.alloc_segment(0, (map.area.pgtables as u64 * X86_PAGE_SIZE) + extra_pages)?;
+            segment = self.alloc_segment(0, map.area.pgtables as u64 * X86_PAGE_SIZE)?;
         }
         debug!(
             "BootSetup alloc_page_tables table={:?} segment={:?}",
             table, segment
         );
-        Ok((segment, table))
+        Ok(segment)
     }
 
     fn alloc_segment(&mut self, start: u64, size: u64) -> Result<DomainSegment, XenClientError> {
@@ -513,7 +548,7 @@ impl BootSetup<'_> {
         }
         segment._vend = self.virt_alloc_end;
         debug!(
-            "alloc_segment {:#x} -> {:#x} (pfn {:#x} + {:#x} pages)",
+            "BootSetup alloc_segment {:#x} -> {:#x} (pfn {:#x} + {:#x} pages)",
             start, segment._vend, segment.pfn, pages
         );
         Ok(segment)
@@ -524,7 +559,7 @@ impl BootSetup<'_> {
         let pfn = self.pfn_alloc_end;
 
         self.chk_alloc_pages(1)?;
-        debug!("alloc_page {:#x} (pfn {:#x})", start, pfn);
+        debug!("BootSetup alloc_page {:#x} (pfn {:#x})", start, pfn);
         Ok(DomainSegment {
             vstart: start,
             _vend: (start + X86_PAGE_SIZE) - 1,

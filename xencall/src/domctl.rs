@@ -2,8 +2,9 @@ use crate::sys::{
     AddressSize, ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
     GetDomainInfo, HypercallInit, MaxMem, MaxVcpus, VcpuGuestContext, VcpuGuestContextAny,
     HYPERVISOR_DOMCTL, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO,
-    XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION, XEN_DOMCTL_MAX_MEM,
-    XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE,
+    XEN_DOMCTL_GETVCPUCONTEXT, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION,
+    XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
+    XEN_DOMCTL_SET_ADDRESS_SIZE,
 };
 use crate::{XenCall, XenCallError};
 use log::trace;
@@ -77,6 +78,23 @@ impl DomainControl<'_> {
         Ok(domctl.domid)
     }
 
+    pub fn pause_domain(&self, domid: u32) -> Result<(), XenCallError> {
+        trace!(
+            "domctl fd={} pause_domain domid={:?}",
+            self.call.handle.as_raw_fd(),
+            domid,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_PAUSEDOMAIN,
+            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            domid,
+            value: DomCtlValue { pad: [0; 128] },
+        };
+        self.call
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
+        Ok(())
+    }
+
     pub fn set_max_mem(&self, domid: u32, memkb: u64) -> Result<(), XenCallError> {
         trace!(
             "domctl fd={} set_max_mem domid={} memkb={}",
@@ -135,6 +153,35 @@ impl DomainControl<'_> {
         self.call
             .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
         Ok(())
+    }
+
+    pub fn get_vcpu_context(
+        &self,
+        domid: u32,
+        vcpu: u32,
+    ) -> Result<VcpuGuestContext, XenCallError> {
+        trace!(
+            "domctl fd={} get_vcpu_context domid={}",
+            self.call.handle.as_raw_fd(),
+            domid,
+        );
+        let mut wrapper = VcpuGuestContextAny {
+            value: VcpuGuestContext::default(),
+        };
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_GETVCPUCONTEXT,
+            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            domid,
+            value: DomCtlValue {
+                vcpu_context: DomCtlVcpuContext {
+                    vcpu,
+                    ctx: addr_of_mut!(wrapper) as c_ulong,
+                },
+            },
+        };
+        self.call
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
+        Ok(unsafe { wrapper.value })
     }
 
     pub fn set_vcpu_context(

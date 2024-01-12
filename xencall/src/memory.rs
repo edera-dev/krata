@@ -3,11 +3,9 @@ use crate::sys::{
 };
 use crate::{XenCall, XenCallError};
 
+use log::{trace};
 use std::ffi::c_ulong;
 use std::os::fd::AsRawFd;
-
-use libc::c_long;
-use log::trace;
 use std::ptr::addr_of_mut;
 
 pub struct MemoryControl<'a> {
@@ -29,8 +27,10 @@ impl MemoryControl<'_> {
     ) -> Result<Vec<u64>, XenCallError> {
         trace!("memory fd={} populate_physmap domid={} nr_extents={} extent_order={} mem_flags={} extent_starts={:?}", self.call.handle.as_raw_fd(), domid, nr_extents, extent_order, mem_flags, extent_starts);
         let mut extent_starts = extent_starts.to_vec();
+        let ptr = extent_starts.as_mut_ptr();
+
         let mut reservation = MemoryReservation {
-            extent_start: extent_starts.as_mut_ptr() as c_ulong,
+            extent_start: ptr as c_ulong,
             nr_extents,
             extent_order,
             mem_flags,
@@ -50,15 +50,13 @@ impl MemoryControl<'_> {
             ],
         }];
         self.call.multicall(calls)?;
-        let code = calls[0].result as c_long;
-        if code < 0 {
+        let code = calls[0].result;
+        if code > !0xfff {
             return Err(XenCallError::new("failed to populate physmap"));
         }
-
         if code as usize > extent_starts.len() {
             return Err(XenCallError::new("failed to populate physmap"));
         }
-
         Ok(extent_starts[0..code as usize].to_vec())
     }
 }

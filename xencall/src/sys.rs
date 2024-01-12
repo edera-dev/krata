@@ -313,7 +313,7 @@ pub struct HypercallInit {
 }
 
 pub const XEN_DOMCTL_INTERFACE_VERSION: u32 = 0x00000015;
-pub const SECINITSID_DOMU: u32 = 13;
+pub const SECINITSID_DOMU: u32 = 12;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]

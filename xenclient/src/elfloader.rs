@@ -270,15 +270,16 @@ impl BootImageLoader for ElfImageLoader {
         let virt_kend = end + virt_offset;
         let virt_entry = entry;
 
-        Ok(BootImageInfo {
+        let image_info = BootImageInfo {
             start,
             virt_base,
             virt_kstart,
             virt_kend,
             virt_hypercall,
             virt_entry,
-            init_p2m,
-        })
+            virt_p2m_base: init_p2m,
+        };
+        Ok(image_info)
     }
 
     fn load(&self, image_info: &BootImageInfo, dst: &mut [u8]) -> Result<(), XenClientError> {
