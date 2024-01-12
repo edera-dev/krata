@@ -3,6 +3,7 @@ pub mod create;
 pub mod elfloader;
 pub mod mem;
 pub mod sys;
+mod x86;
 
 use crate::create::DomainConfig;
 use std::error::Error;

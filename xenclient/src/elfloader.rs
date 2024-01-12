@@ -265,11 +265,7 @@ impl BootImageLoader for ElfImageLoader {
             ));
         }
 
-        let _virt_base = if virt_base == XEN_UNSET_ADDR {
-            0
-        } else {
-            virt_base
-        };
+        let virt_base = 0;
 
         let _paddr_offset = if paddr_offset == XEN_UNSET_ADDR {
             0
@@ -287,6 +283,7 @@ impl BootImageLoader for ElfImageLoader {
         };
 
         Ok(BootImageInfo {
+            virt_base,
             virt_kstart,
             virt_kend,
             virt_hypercall,
@@ -295,7 +292,7 @@ impl BootImageLoader for ElfImageLoader {
         })
     }
 
-    fn load(&self, image_info: BootImageInfo, dst: &mut [u8]) -> Result<(), XenClientError> {
+    fn load(&self, image_info: &BootImageInfo, dst: &mut [u8]) -> Result<(), XenClientError> {
         let elf = ElfBytes::<AnyEndian>::minimal_parse(self.data.as_slice())?;
         let segments = elf.segments().ok_or(XenClientError::new(
             "Unable to parse kernel image: segments not found.",

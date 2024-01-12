@@ -23,7 +23,8 @@ fn main() -> Result<(), XenClientError> {
     let image_loader = ElfImageLoader::load_file_kernel(kernel_image_path.as_str())?;
     let memctl = MemoryControl::new(&call);
     let mut boot = BootSetup::new(&call, &domctl, &memctl, domid);
-    boot.initialize(&image_loader, 512 * 1024)?;
+    let mut state = boot.initialize(&image_loader, 512 * 1024)?;
+    boot.boot(&mut state, "debug")?;
     domctl.destroy_domain(domid)?;
     println!("domain destroyed: {}", domid);
     Ok(())

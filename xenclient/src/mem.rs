@@ -12,7 +12,7 @@ pub struct PhysicalPage {
 
 pub struct PhysicalPages<'a> {
     domid: u32,
-    p2m: Vec<u64>,
+    pub(crate) p2m: Vec<u64>,
     call: &'a XenCall,
     pages: Vec<PhysicalPage>,
 }
@@ -29,6 +29,10 @@ impl PhysicalPages<'_> {
 
     pub fn load_p2m(&mut self, p2m: Vec<u64>) {
         self.p2m = p2m;
+    }
+
+    pub fn p2m_size(&mut self) -> u64 {
+        self.p2m.len() as u64
     }
 
     pub fn pfn_to_ptr(&mut self, pfn: u64, count: u64) -> Result<u64, XenClientError> {
