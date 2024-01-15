@@ -188,7 +188,7 @@ impl DomainControl<'_> {
         &self,
         domid: u32,
         vcpu: u32,
-        context: Option<&VcpuGuestContext>,
+        context: &VcpuGuestContext,
     ) -> Result<(), XenCallError> {
         trace!(
             "domctl fd={} set_vcpu_context domid={} context={:?}",
@@ -196,7 +196,10 @@ impl DomainControl<'_> {
             domid,
             context,
         );
-        let mut wrapper = context.map(|ctx| VcpuGuestContextAny { value: *ctx });
+
+        let mut value = VcpuGuestContextAny {
+            value: *context,
+        };
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_SETVCPUCONTEXT,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
@@ -204,11 +207,7 @@ impl DomainControl<'_> {
             value: DomCtlValue {
                 vcpu_context: DomCtlVcpuContext {
                     vcpu,
-                    ctx: if wrapper.is_some() {
-                        addr_of_mut!(wrapper) as c_ulong
-                    } else {
-                        0
-                    },
+                    ctx: addr_of_mut!(value) as c_ulong,
                 },
             },
         };

@@ -9,11 +9,10 @@ use crate::x86::{
     X86_VIRT_MASK,
 };
 use crate::XenClientError;
-use libc::{c_char, memset};
+use libc::c_char;
 use log::{debug, trace};
 use slice_copy::copy;
 use std::cmp::{max, min};
-use std::ffi::c_void;
 use std::slice;
 use xencall::domctl::DomainControl;
 use xencall::memory::MemoryControl;
@@ -59,6 +58,7 @@ pub struct DomainSegment {
     _pages: u64,
 }
 
+#[derive(Debug)]
 struct VmemRange {
     start: u64,
     end: u64,
@@ -154,12 +154,13 @@ impl BootSetup<'_> {
                     j += 1;
                 }
 
+                let extents_init_slice = extents_init.as_slice();
                 let extents = self.memctl.populate_physmap(
                     self.domid,
                     count,
                     SUPERPAGE_2MB_SHIFT as u32,
                     0,
-                    extents_init.as_slice(),
+                    &extents_init_slice[0usize..count as usize],
                 )?;
 
                 pfn = pfn_base_idx;
@@ -181,17 +182,20 @@ impl BootSetup<'_> {
                 let allocsz = (1024 * 1024).min(pages - j);
                 let p2m_idx = (pfn_base + j) as usize;
                 let p2m_end_idx = p2m_idx + allocsz as usize;
-                let result = self.memctl.populate_physmap(
-                    self.domid,
-                    allocsz,
-                    0,
-                    0,
-                    &p2m[p2m_idx..p2m_end_idx],
-                )?;
+                let input_extent_starts = &p2m[p2m_idx..p2m_end_idx];
+                let result =
+                    self.memctl
+                        .populate_physmap(self.domid, allocsz, 0, 0, input_extent_starts)?;
 
                 if result.len() != allocsz as usize {
                     return Err(XenClientError::new(
-                        format!("failed to populate physmap: {:?}", result).as_str(),
+                        format!(
+                            "failed to populate physmap: wanted={} received={} input_extents={}",
+                            allocsz,
+                            result.len(),
+                            input_extent_starts.len()
+                        )
+                        .as_str(),
                     ));
                 }
                 copy(p2m.as_mut_slice(), result.as_slice());
@@ -268,6 +272,10 @@ impl BootSetup<'_> {
         vcpu.debugreg[7] = 0x00000400;
         vcpu.flags = VGCF_IN_KERNEL | VGCF_ONLINE;
         let cr3_pfn = self.phys.p2m[state.page_table_segment.pfn as usize];
+        debug!(
+            "cr3: pfn {:#x} mfn {:#x}",
+            state.page_table_segment.pfn, cr3_pfn
+        );
         vcpu.ctrlreg[3] = cr3_pfn << 12;
         vcpu.user_regs.ds = 0x0;
         vcpu.user_regs.es = 0x0;
@@ -277,7 +285,7 @@ impl BootSetup<'_> {
         vcpu.user_regs.cs = 0xe033;
         vcpu.kernel_ss = vcpu.user_regs.ss as u64;
         vcpu.kernel_sp = vcpu.user_regs.rsp;
-        self.domctl.set_vcpu_context(self.domid, 0, Some(&vcpu))?;
+        self.domctl.set_vcpu_context(self.domid, 0, &vcpu)?;
         Ok(())
     }
 
@@ -323,9 +331,12 @@ impl BootSetup<'_> {
                         )
                         .unwrap_or(0u64);
 
-                    for p in p_s..p_e + 1 {
+                    for p in p_s..p_e {
+                        let prot = self.get_pg_prot(lvl_idx, pfn, &state.page_table);
+
                         unsafe {
-                            *pg.add(p as usize) = self.phys.p2m[pfn as usize] << X86_PAGE_SHIFT;
+                            *pg.add(p as usize) =
+                                (self.phys.p2m[pfn as usize] << X86_PAGE_SHIFT) | prot;
                         }
                         pfn += 1;
                     }
@@ -333,6 +344,46 @@ impl BootSetup<'_> {
             }
         }
         Ok(())
+    }
+
+    const PAGE_PRESENT: u64 = 0x001;
+    const PAGE_RW: u64 = 0x002;
+    const PAGE_ACCESSED: u64 = 0x020;
+    const PAGE_DIRTY: u64 = 0x040;
+    const PAGE_USER: u64 = 0x004;
+    fn get_pg_prot(&mut self, l: usize, pfn: u64, table: &PageTable) -> u64 {
+        let prot = [
+            BootSetup::PAGE_PRESENT | BootSetup::PAGE_RW | BootSetup::PAGE_ACCESSED,
+            BootSetup::PAGE_PRESENT
+                | BootSetup::PAGE_RW
+                | BootSetup::PAGE_ACCESSED
+                | BootSetup::PAGE_DIRTY
+                | BootSetup::PAGE_USER,
+            BootSetup::PAGE_PRESENT
+                | BootSetup::PAGE_RW
+                | BootSetup::PAGE_ACCESSED
+                | BootSetup::PAGE_DIRTY
+                | BootSetup::PAGE_USER,
+            BootSetup::PAGE_PRESENT
+                | BootSetup::PAGE_RW
+                | BootSetup::PAGE_ACCESSED
+                | BootSetup::PAGE_DIRTY
+                | BootSetup::PAGE_USER,
+        ];
+
+        let prot = prot[l];
+        if l > 0 {
+            return prot;
+        }
+
+        for map in &table.mappings {
+            let pfn_s = map.levels[(X86_PGTABLE_LEVELS - 1) as usize].pfn;
+            let pfn_e = map.area.pgtables as u64 + pfn_s;
+            if pfn > pfn_s && pfn < pfn_e {
+                return prot & !BootSetup::PAGE_RW;
+            }
+        }
+        prot
     }
 
     fn setup_start_info(&mut self, state: &BootState, cmdline: &str) -> Result<(), XenClientError> {
@@ -543,9 +594,9 @@ impl BootSetup<'_> {
 
         let ptr = self.phys.pfn_to_ptr(segment.pfn, pages)?;
         segment.addr = ptr;
-        unsafe {
-            memset(ptr as *mut c_void, 0, (pages * page_size) as usize);
-        }
+        let slice =
+            unsafe { slice::from_raw_parts_mut(ptr as *mut u8, (pages * page_size) as usize) };
+        slice.fill(0);
         segment._vend = self.virt_alloc_end;
         debug!(
             "BootSetup alloc_segment {:#x} -> {:#x} (pfn {:#x} + {:#x} pages)",

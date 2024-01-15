@@ -3,7 +3,7 @@ use crate::sys::{
 };
 use crate::{XenCall, XenCallError};
 
-use log::{trace};
+use log::trace;
 use std::ffi::c_ulong;
 use std::os::fd::AsRawFd;
 use std::ptr::addr_of_mut;
@@ -52,11 +52,14 @@ impl MemoryControl<'_> {
         self.call.multicall(calls)?;
         let code = calls[0].result;
         if code > !0xfff {
-            return Err(XenCallError::new("failed to populate physmap"));
+            return Err(XenCallError::new(
+                format!("failed to populate physmap: {:#x}", code).as_str(),
+            ));
         }
         if code as usize > extent_starts.len() {
             return Err(XenCallError::new("failed to populate physmap"));
         }
-        Ok(extent_starts[0..code as usize].to_vec())
+        let extents = extent_starts[0..code as usize].to_vec();
+        Ok(extents)
     }
 }
