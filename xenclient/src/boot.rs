@@ -98,19 +98,18 @@ impl BootSetup<'_> {
         }
     }
 
-    fn initialize_memory(&mut self, memkb: u64) -> Result<(), XenClientError> {
+    fn initialize_memory(&mut self, total_pages: u64) -> Result<(), XenClientError> {
         self.domctl.set_address_size(self.domid, 64)?;
 
-        let mem_mb: u64 = memkb / 1024;
-        let page_count: u64 = mem_mb << (20 - XEN_PAGE_SHIFT);
         let mut vmemranges: Vec<VmemRange> = Vec::new();
         let stub = VmemRange {
             start: 0,
-            end: page_count << XEN_PAGE_SHIFT,
+            end: total_pages << XEN_PAGE_SHIFT,
             _flags: 0,
             _nid: 0,
         };
         vmemranges.push(stub);
+        debug!("BootSetup initialize_memory vmemranges: {:?}", vmemranges);
 
         let mut p2m_size: u64 = 0;
         let mut total: u64 = 0;
@@ -119,15 +118,16 @@ impl BootSetup<'_> {
             p2m_size = p2m_size.max(range.end >> XEN_PAGE_SHIFT);
         }
 
-        if total != page_count {
+        if total != total_pages {
             return Err(XenClientError::new(
                 "page count mismatch while calculating pages",
             ));
         }
 
+        debug!("BootSetup initialize_memory total_pages={}", total);
         self.total_pages = total;
 
-        let mut p2m = vec![-1i64 as u64; p2m_size as usize];
+        let mut p2m = vec![u64::MAX; p2m_size as usize];
         for range in &vmemranges {
             let mut extents_init = vec![0u64; SUPERPAGE_BATCH_SIZE as usize];
             let pages = (range.end - range.start) >> XEN_PAGE_SHIFT;
@@ -221,11 +221,13 @@ impl BootSetup<'_> {
     pub fn initialize(
         &mut self,
         image_loader: &dyn BootImageLoader,
-        memkb: u64,
+        mem_mb: u64,
     ) -> Result<BootState, XenClientError> {
-        debug!("BootSetup initialize memkb={:?}", memkb);
-        self.domctl.set_max_mem(self.domid, memkb)?;
-        self.initialize_memory(memkb)?;
+        debug!("BootSetup initialize mem_mb={:?}", mem_mb);
+        self.domctl.set_max_mem(self.domid, mem_mb * 1024)?;
+
+        let total_pages = mem_mb << (20 - X86_PAGE_SHIFT);
+        self.initialize_memory(total_pages)?;
 
         let image_info = image_loader.parse()?;
         debug!("BootSetup initialize image_info={:?}", image_info);
@@ -291,10 +293,7 @@ impl BootSetup<'_> {
 
     fn setup_page_tables(&mut self, state: &mut BootState) -> Result<(), XenClientError> {
         let p2m_guest = unsafe {
-            slice::from_raw_parts_mut(
-                state.p2m_segment.addr as *mut u64,
-                state.p2m_segment.size as usize,
-            )
+            slice::from_raw_parts_mut(state.p2m_segment.addr as *mut u64, self.phys.p2m.len())
         };
         copy(p2m_guest, &self.phys.p2m);
 
@@ -331,12 +330,16 @@ impl BootSetup<'_> {
                         )
                         .unwrap_or(0u64);
 
-                    for p in p_s..p_e {
+                    debug!(
+                        "BootSetup setup_page_tables lvl={} map_1={} map_2={} pfn={} p_s={} p_e={}",
+                        lvl_idx, map_idx_1, map_idx_2, pfn, p_s, p_e
+                    );
+                    for p in p_s..p_e + 1 {
                         let prot = self.get_pg_prot(lvl_idx, pfn, &state.page_table);
 
+                        let pfn_paddr = self.phys.p2m[pfn as usize] << X86_PAGE_SHIFT;
                         unsafe {
-                            *pg.add(p as usize) =
-                                (self.phys.p2m[pfn as usize] << X86_PAGE_SHIFT) | prot;
+                            *pg.add(p as usize) = pfn_paddr | prot;
                         }
                         pfn += 1;
                     }

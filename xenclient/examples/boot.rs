@@ -38,7 +38,7 @@ fn boot(
     let image_loader = ElfImageLoader::load_file_kernel(kernel_image_path)?;
     let memctl = MemoryControl::new(call);
     let mut boot = BootSetup::new(call, domctl, &memctl, domid);
-    let mut state = boot.initialize(&image_loader, 128 * 1024)?;
+    let mut state = boot.initialize(&image_loader, 512)?;
     boot.boot(&mut state, "debug")?;
     Ok(())
 }

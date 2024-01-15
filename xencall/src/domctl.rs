@@ -197,9 +197,7 @@ impl DomainControl<'_> {
             context,
         );
 
-        let mut value = VcpuGuestContextAny {
-            value: *context,
-        };
+        let mut value = VcpuGuestContextAny { value: *context };
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_SETVCPUCONTEXT,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
