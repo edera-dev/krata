@@ -44,6 +44,7 @@ impl DomainControl<'_> {
                     shr_pages: 0,
                     paged_pages: 0,
                     shared_info_frame: 0,
+                    cpu_time: 0,
                     number_online_vcpus: 0,
                     max_vcpu_id: 0,
                     ssidref: 0,

@@ -278,6 +278,7 @@ pub struct GetDomainInfo {
     pub shr_pages: u64,
     pub paged_pages: u64,
     pub shared_info_frame: u64,
+    pub cpu_time: u64,
     pub number_online_vcpus: u32,
     pub max_vcpu_id: u32,
     pub ssidref: u32,

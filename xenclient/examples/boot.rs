@@ -18,8 +18,8 @@ fn main() -> Result<(), XenClientError> {
     let kernel_image_path = args.get(1).expect("argument not specified");
     let call = XenCall::open()?;
     let domctl = DomainControl::new(&call);
-    let domid = domctl.create_domain(CreateDomain::default())?;
-    domctl.set_max_vcpus(domid, 1)?;
+    let domain = CreateDomain { max_vcpus: 2, ..Default::default() };
+    let domid = domctl.create_domain(domain)?;
     let result = boot(domid, kernel_image_path.as_str(), &call, &domctl);
     domctl.destroy_domain(domid)?;
     result?;
