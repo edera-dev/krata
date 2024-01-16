@@ -269,7 +269,7 @@ impl Default for CreateDomain {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct GetDomainInfo {
-    pub domid: u32,
+    pub domid: u16,
     pub pad1: u16,
     pub flags: u32,
     pub total_pages: u64,

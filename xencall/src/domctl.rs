@@ -35,7 +35,7 @@ impl DomainControl<'_> {
             domid,
             value: DomCtlValue {
                 get_domain_info: GetDomainInfo {
-                    domid,
+                    domid: 0,
                     pad1: 0,
                     flags: 0,
                     total_pages: 0,
