@@ -223,6 +223,7 @@ pub union DomCtlValue {
     pub hypercall_init: HypercallInit,
     pub vcpu_context: DomCtlVcpuContext,
     pub address_size: AddressSize,
+    pub get_page_frame_info: GetPageFrameInfo3,
     pub pad: [u8; 128],
 }
 
@@ -289,6 +290,13 @@ pub struct GetDomainInfo {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
+pub struct GetPageFrameInfo3 {
+    pub num: u64,
+    pub array: c_ulong,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub struct ArchDomainConfig {
     pub emulation_flags: u32,
     pub misc_flags: u32,
@@ -342,6 +350,14 @@ pub struct MultiCallEntry {
 }
 
 pub const XEN_MEM_POPULATE_PHYSMAP: u32 = 6;
+pub const XEN_MEM_MEMORY_MAP: u32 = 9;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct MemoryMap {
+    pub count: c_uint,
+    pub buffer: c_ulong,
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -456,3 +472,13 @@ impl Default for VcpuGuestContext {
 pub union VcpuGuestContextAny {
     pub value: VcpuGuestContext,
 }
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct MmuExtOp {
+    pub cmd: c_uint,
+    pub arg1: c_ulong,
+    pub arg2: c_ulong,
+}
+
+pub const MMUEXT_PIN_L4_TABLE: u32 = 3;

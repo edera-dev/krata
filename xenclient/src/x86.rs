@@ -62,3 +62,53 @@ pub struct StartInfo {
 }
 
 pub const X86_GUEST_MAGIC: &str = "xen-3.0-x86_64";
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct ArchVcpuInfo {
+    pub cr2: u64,
+    pub pad: u64,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct VcpuInfoTime {
+    pub version: u32,
+    pub pad0: u32,
+    pub tsc_timestamp: u64,
+    pub system_time: u64,
+    pub tsc_to_system_mul: u32,
+    pub tsc_shift: i8,
+    pub flags: u8,
+    pub pad1: [u8; 2],
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct VcpuInfo {
+    pub evtchn_upcall_pending: u8,
+    pub evtchn_upcall_mask: u8,
+    pub evtchn_pending_sel: u64,
+    pub arch_vcpu_info: ArchVcpuInfo,
+    pub vcpu_info_time: VcpuInfoTime,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct SharedInfo {
+    pub vcpu_info: [VcpuInfo; 32],
+    pub evtchn_pending: [u64; u64::BITS as usize],
+    pub evtchn_mask: [u64; u64::BITS as usize],
+    pub wc_version: u32,
+    pub wc_sec: u32,
+    pub wc_nsec: u32,
+    pub wc_sec_hi: u32,
+
+    // arch shared info
+    pub max_pfn: u64,
+    pub pfn_to_mfn_frame_list_list: u64,
+    pub nmi_reason: u64,
+    pub p2m_cr3: u64,
+    pub p2m_vaddr: u64,
+    pub p2m_generation: u64,
+}

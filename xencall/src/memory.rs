@@ -1,10 +1,11 @@
 use crate::sys::{
-    MemoryReservation, MultiCallEntry, HYPERVISOR_MEMORY_OP, XEN_MEM_POPULATE_PHYSMAP,
+    MemoryMap, MemoryReservation, MmuExtOp, MultiCallEntry, HYPERVISOR_MEMORY_OP,
+    HYPERVISOR_MMUEXT_OP, XEN_MEM_MEMORY_MAP, XEN_MEM_POPULATE_PHYSMAP,
 };
 use crate::{XenCall, XenCallError};
 
 use log::trace;
-use std::ffi::c_ulong;
+use std::ffi::{c_uint, c_ulong};
 use std::os::fd::AsRawFd;
 use std::ptr::addr_of_mut;
 
@@ -15,6 +16,26 @@ pub struct MemoryControl<'a> {
 impl MemoryControl<'_> {
     pub fn new(call: &XenCall) -> MemoryControl {
         MemoryControl { call }
+    }
+
+    pub fn get_memory_map(&self, size_of_entry: usize) -> Result<Vec<u8>, XenCallError> {
+        let mut memory_map = MemoryMap {
+            count: 0,
+            buffer: 0,
+        };
+        self.call.hypercall2(
+            HYPERVISOR_MEMORY_OP,
+            XEN_MEM_MEMORY_MAP as c_ulong,
+            addr_of_mut!(memory_map) as c_ulong,
+        )?;
+        let mut buffer = vec![0u8; memory_map.count as usize * size_of_entry];
+        memory_map.buffer = buffer.as_mut_ptr() as c_ulong;
+        self.call.hypercall2(
+            HYPERVISOR_MEMORY_OP,
+            XEN_MEM_MEMORY_MAP as c_ulong,
+            addr_of_mut!(memory_map) as c_ulong,
+        )?;
+        Ok(buffer)
     }
 
     pub fn populate_physmap(
@@ -61,5 +82,25 @@ impl MemoryControl<'_> {
         }
         let extents = extent_starts[0..code as usize].to_vec();
         Ok(extents)
+    }
+
+    pub fn mmuext(
+        &self,
+        domid: u32,
+        cmd: c_uint,
+        arg1: u64,
+        arg2: u64,
+    ) -> Result<(), XenCallError> {
+        let mut ops = MmuExtOp { cmd, arg1, arg2 };
+
+        self.call
+            .hypercall4(
+                HYPERVISOR_MMUEXT_OP,
+                addr_of_mut!(ops) as c_ulong,
+                1,
+                0,
+                domid as c_ulong,
+            )
+            .map(|_| ())
     }
 }

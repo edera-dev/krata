@@ -1,9 +1,10 @@
 use crate::sys::{
     AddressSize, ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
-    GetDomainInfo, HypercallInit, MaxMem, MaxVcpus, VcpuGuestContext, VcpuGuestContextAny,
-    HYPERVISOR_DOMCTL, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO,
-    XEN_DOMCTL_GETVCPUCONTEXT, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION,
-    XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
+    GetDomainInfo, GetPageFrameInfo3, HypercallInit, MaxMem, MaxVcpus, VcpuGuestContext,
+    VcpuGuestContextAny, HYPERVISOR_DOMCTL, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN,
+    XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_GETVCPUCONTEXT,
+    XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION, XEN_DOMCTL_MAX_MEM,
+    XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
     XEN_DOMCTL_SET_ADDRESS_SIZE,
 };
 use crate::{XenCall, XenCallError};
@@ -11,6 +12,7 @@ use log::trace;
 use std::ffi::c_ulong;
 use std::os::fd::AsRawFd;
 use std::ptr::addr_of_mut;
+use std::slice;
 
 pub struct DomainControl<'a> {
     call: &'a XenCall,
@@ -212,6 +214,34 @@ impl DomainControl<'_> {
         self.call
             .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
         Ok(())
+    }
+
+    pub fn get_page_frame_info(
+        &self,
+        domid: u32,
+        frames: &[u64],
+    ) -> Result<Vec<u64>, XenCallError> {
+        let mut buffer: Vec<u64> = frames.to_vec();
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_GETPAGEFRAMEINFO3,
+            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            domid,
+            value: DomCtlValue {
+                get_page_frame_info: GetPageFrameInfo3 {
+                    num: buffer.len() as u64,
+                    array: buffer.as_mut_ptr() as c_ulong,
+                },
+            },
+        };
+        self.call
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
+        let slice = unsafe {
+            slice::from_raw_parts_mut(
+                domctl.value.get_page_frame_info.array as *mut u64,
+                domctl.value.get_page_frame_info.num as usize,
+            )
+        };
+        Ok(slice.to_vec())
     }
 
     pub fn hypercall_init(&self, domid: u32, gmfn: u64) -> Result<(), XenCallError> {

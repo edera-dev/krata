@@ -4,19 +4,20 @@ use crate::sys::{
     XEN_PAGE_SHIFT,
 };
 use crate::x86::{
-    PageTable, PageTableMapping, StartInfo, MAX_GUEST_CMDLINE, X86_GUEST_MAGIC, X86_PAGE_SHIFT,
-    X86_PAGE_SIZE, X86_PAGE_TABLE_MAX_MAPPINGS, X86_PGTABLE_LEVELS, X86_PGTABLE_LEVEL_SHIFT,
-    X86_VIRT_MASK,
+    PageTable, PageTableMapping, SharedInfo, StartInfo, MAX_GUEST_CMDLINE, X86_GUEST_MAGIC,
+    X86_PAGE_SHIFT, X86_PAGE_SIZE, X86_PAGE_TABLE_MAX_MAPPINGS, X86_PGTABLE_LEVELS,
+    X86_PGTABLE_LEVEL_SHIFT, X86_VIRT_MASK,
 };
 use crate::XenClientError;
 use libc::c_char;
 use log::{debug, trace};
 use slice_copy::copy;
 use std::cmp::{max, min};
+use std::mem::size_of;
 use std::slice;
 use xencall::domctl::DomainControl;
 use xencall::memory::MemoryControl;
-use xencall::sys::VcpuGuestContext;
+use xencall::sys::{VcpuGuestContext, MMUEXT_PIN_L4_TABLE};
 use xencall::XenCall;
 
 pub trait BootImageLoader {
@@ -198,7 +199,12 @@ impl BootSetup<'_> {
                         .as_str(),
                     ));
                 }
-                copy(p2m.as_mut_slice(), result.as_slice());
+
+                for (i, item) in result.iter().enumerate() {
+                    let p = (pfn_base + j + i as u64) as usize;
+                    let m = *item;
+                    p2m[p] = m;
+                }
                 j += allocsz;
             }
         }
@@ -263,6 +269,22 @@ impl BootSetup<'_> {
         self.setup_start_info(state, cmdline)?;
         self.setup_hypercall_page(&state.image_info)?;
 
+        self.phys.unmap(state.page_table_segment.pfn)?;
+        self.phys.unmap(state.p2m_segment.pfn)?;
+        let pg_pfn = state.page_table_segment.pfn;
+        let pg_mfn = self.phys.p2m[pg_pfn as usize];
+        debug!(
+            "domain info: {:?}",
+            self.domctl.get_domain_info(self.domid)?
+        );
+        let page_frame_info = self.domctl.get_page_frame_info(self.domid, &[pg_pfn])?;
+        debug!("pgtable page frame info: {:#x}", page_frame_info[0]);
+        debug!("pinning l4 table: mfn={:#x}", pg_mfn);
+        self.memctl
+            .mmuext(self.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)?;
+        debug!("pinned l4 table: {:#x}", state.page_table_segment.pfn);
+        self.setup_shared_info()?;
+
         let mut vcpu = VcpuGuestContext::default();
         vcpu.user_regs.rip = state.image_info.virt_entry;
         vcpu.user_regs.rsp =
@@ -273,7 +295,7 @@ impl BootSetup<'_> {
         vcpu.debugreg[6] = 0xffff0ff0;
         vcpu.debugreg[7] = 0x00000400;
         vcpu.flags = VGCF_IN_KERNEL | VGCF_ONLINE;
-        let cr3_pfn = self.phys.p2m[state.page_table_segment.pfn as usize];
+        let cr3_pfn = pg_mfn;
         debug!(
             "cr3: pfn {:#x} mfn {:#x}",
             state.page_table_segment.pfn, cr3_pfn
@@ -358,9 +380,9 @@ impl BootSetup<'_> {
 
     const PAGE_PRESENT: u64 = 0x001;
     const PAGE_RW: u64 = 0x002;
+    const PAGE_USER: u64 = 0x004;
     const PAGE_ACCESSED: u64 = 0x020;
     const PAGE_DIRTY: u64 = 0x040;
-    const PAGE_USER: u64 = 0x004;
     fn get_pg_prot(&mut self, l: usize, pfn: u64, table: &PageTable) -> u64 {
         let prot = [
             BootSetup::PAGE_PRESENT | BootSetup::PAGE_RW | BootSetup::PAGE_ACCESSED,
@@ -421,6 +443,21 @@ impl BootSetup<'_> {
                 (*info).cmdline[MAX_GUEST_CMDLINE - 1] = 0;
             }
             trace!("BootSetup setup_start_info start_info={:?}", *info);
+        }
+        Ok(())
+    }
+
+    fn setup_shared_info(&mut self) -> Result<(), XenClientError> {
+        let domain_info = self.domctl.get_domain_info(self.domid)?;
+        let info = self.phys.pfn_to_ptr(domain_info.shared_info_frame, 1)? as *mut SharedInfo;
+        unsafe {
+            let size = size_of::<SharedInfo>();
+            let info_as_buff = slice::from_raw_parts_mut(info as *mut u8, size);
+            info_as_buff.fill(0);
+            for i in 0..32 {
+                (*info).vcpu_info[i].evtchn_upcall_mask = 1;
+            }
+            trace!("BootSetup setup_shared_info shared_info={:?}", *info);
         }
         Ok(())
     }

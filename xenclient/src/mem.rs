@@ -1,5 +1,7 @@
 use crate::sys::XEN_PAGE_SHIFT;
 use crate::XenClientError;
+use libc::munmap;
+use std::ffi::c_void;
 
 use crate::x86::X86_PAGE_SHIFT;
 use xencall::sys::MmapEntry;
@@ -103,5 +105,29 @@ impl PhysicalPages<'_> {
         };
         self.pages.push(page);
         Ok(addr)
+    }
+
+    pub fn unmap(&mut self, pfn: u64) -> Result<(), XenClientError> {
+        let mut page: Option<&PhysicalPage> = None;
+        for item in &self.pages {
+            if pfn >= item.pfn && pfn < (item.pfn + item.count) {
+                break;
+            }
+            page = Some(item);
+        }
+        if page.is_none() {
+            return Err(XenClientError::new("failed to unmap pfn"));
+        }
+        let page = page.unwrap();
+        unsafe {
+            let err = munmap(
+                page.ptr as *mut c_void,
+                (page.count << X86_PAGE_SHIFT) as usize,
+            );
+            if err != 0 {
+                return Err(XenClientError::new("failed to munmap pfn"));
+            }
+        }
+        Ok(())
     }
 }
