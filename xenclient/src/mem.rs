@@ -74,25 +74,28 @@ impl PhysicalPages<'_> {
 
     fn pfn_alloc(&mut self, pfn: u64, count: u64) -> Result<u64, XenClientError> {
         let mut entries = vec![MmapEntry::default(); count as usize];
-        for (i, entry) in (0_u64..).zip(entries.iter_mut()) {
-            entry.mfn = self.p2m[(pfn + i) as usize];
+        for (i, entry) in entries.iter_mut().enumerate() {
+            entry.mfn = self.p2m[pfn as usize + i];
         }
         let chunk_size = 1 << XEN_PAGE_SHIFT;
         let num_per_entry = chunk_size >> XEN_PAGE_SHIFT;
-        let num = num_per_entry * entries.len();
-        let mut pfns = vec![0u64; num];
-        for i in 0..entries.len() {
+        let num = num_per_entry * count as usize;
+        let mut pfns = vec![u64::MAX; num];
+        for i in 0..count as usize {
             for j in 0..num_per_entry {
                 pfns[i * num_per_entry + j] = entries[i].mfn + j as u64;
             }
         }
 
-        let size = count << XEN_PAGE_SHIFT;
+        let actual_mmap_len = (num as u64) << XEN_PAGE_SHIFT;
         let addr = self
             .call
-            .mmap(0, size)
+            .mmap(0, actual_mmap_len)
             .ok_or(XenClientError::new("failed to mmap address"))?;
-        self.call.mmap_batch(self.domid, num as u64, addr, pfns)?;
+        let result = self.call.mmap_batch(self.domid, num as u64, addr, pfns)?;
+        if result != 0 {
+            return Err(XenClientError::new("mmap_batch call failed"));
+        }
         let page = PhysicalPage {
             pfn,
             ptr: addr,

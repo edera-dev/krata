@@ -233,16 +233,16 @@ impl BootSetup<'_> {
         debug!("BootSetup initialize image_info={:?}", image_info);
         self.virt_alloc_end = image_info.virt_base;
         let kernel_segment = self.load_kernel_segment(image_loader, &image_info)?;
+        let mut page_table = PageTable::default();
+        let p2m_segment = self.alloc_p2m_segment(&mut page_table, &image_info)?;
         let start_info_segment = self.alloc_page()?;
         let xenstore_segment = self.alloc_page()?;
         let console_segment = self.alloc_page()?;
-        let mut page_table = PageTable::default();
         let page_table_segment = self.alloc_page_tables(&mut page_table, &image_info)?;
         let boot_stack_segment = self.alloc_page()?;
         if self.virt_pgtab_end > 0 {
             self.alloc_padding_pages(self.virt_pgtab_end)?;
         }
-        let p2m_segment = self.alloc_p2m_segment(&mut page_table, &image_info)?;
         let state = BootState {
             kernel_segment,
             start_info_segment,
@@ -338,8 +338,15 @@ impl BootSetup<'_> {
                         let prot = self.get_pg_prot(lvl_idx, pfn, &state.page_table);
 
                         let pfn_paddr = self.phys.p2m[pfn as usize] << X86_PAGE_SHIFT;
+                        let value = pfn_paddr | prot;
+                        if pfn == state.page_table_segment.pfn {
+                            debug!(
+                                "pgtable pfn: {:#x}, p: {:#x}, pfn_paddr: {:#x}, value: {:#x}",
+                                pfn, p, pfn_paddr, value
+                            );
+                        }
                         unsafe {
-                            *pg.add(p as usize) = pfn_paddr | prot;
+                            *pg.add(p as usize) = value;
                         }
                         pfn += 1;
                     }
