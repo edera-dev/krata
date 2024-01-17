@@ -82,6 +82,8 @@ pub struct BootState {
     pub image_info: BootImageInfo,
     pub shared_info_frame: u64,
     pub initrd_segment: DomainSegment,
+    pub store_evtchn: u32,
+    pub console_evtchn: u32,
 }
 
 impl BootSetup<'_> {
@@ -282,7 +284,8 @@ impl BootSetup<'_> {
         }
 
         let initrd_segment = initrd_segment.unwrap();
-
+        let store_evtchn = self.domctl.call.evtchn_alloc_unbound(self.domid, 0)?;
+        let console_evtchn = self.domctl.call.evtchn_alloc_unbound(self.domid, 0)?;
         let state = BootState {
             kernel_segment,
             start_info_segment,
@@ -294,6 +297,8 @@ impl BootSetup<'_> {
             page_table,
             image_info,
             initrd_segment,
+            store_evtchn,
+            console_evtchn,
             shared_info_frame: 0,
         };
         debug!("BootSetup initialize state={:?}", state);
@@ -491,10 +496,10 @@ impl BootSetup<'_> {
             (*info).first_p2m_pfn = state.p2m_segment.pfn;
             (*info).nr_p2m_frames = state.p2m_segment.pages;
             (*info).flags = 0;
-            (*info).store_evtchn = 0;
+            (*info).store_evtchn = state.store_evtchn;
             (*info).store_mfn = self.phys.p2m[state.xenstore_segment.pfn as usize];
             (*info).console.mfn = self.phys.p2m[state.console_segment.pfn as usize];
-            (*info).console.evtchn = 0;
+            (*info).console.evtchn = state.console_evtchn;
             (*info).mod_start = state.initrd_segment.vstart;
             (*info).mod_len = state.initrd_segment.size;
             for (i, c) in cmdline.chars().enumerate() {

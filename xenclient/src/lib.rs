@@ -12,6 +12,7 @@ use std::string::FromUtf8Error;
 use xencall::domctl::DomainControl;
 use xencall::sys::CreateDomain;
 use xencall::{XenCall, XenCallError};
+use xenevtchn::EventChannelError;
 use xenstore::bus::XsdBusError;
 use xenstore::client::{XsdClient, XsdInterface};
 
@@ -65,6 +66,12 @@ impl From<XenCallError> for XenClientError {
 
 impl From<FromUtf8Error> for XenClientError {
     fn from(value: FromUtf8Error) -> Self {
+        XenClientError::new(value.to_string().as_str())
+    }
+}
+
+impl From<EventChannelError> for XenClientError {
+    fn from(value: EventChannelError) -> Self {
         XenClientError::new(value.to_string().as_str())
     }
 }

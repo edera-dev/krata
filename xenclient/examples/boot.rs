@@ -7,6 +7,7 @@ use xencall::XenCall;
 use xenclient::boot::BootSetup;
 use xenclient::elfloader::ElfImageLoader;
 use xenclient::XenClientError;
+use xenevtchn::EventChannel;
 
 fn main() -> Result<(), XenClientError> {
     env_logger::init();
@@ -48,6 +49,10 @@ fn boot(
     let mut boot = BootSetup::new(call, domctl, &memctl, domid);
     let initrd = read(initrd_path)?;
     let mut state = boot.initialize(&image_loader, initrd.as_slice(), 1, 512)?;
-    boot.boot(&mut state, "debug")?;
+    boot.boot(&mut state, "debug elevator=noop")?;
+    domctl.unpause_domain(domid)?;
+
+    let _evtchn = EventChannel::open()?;
+
     Ok(())
 }

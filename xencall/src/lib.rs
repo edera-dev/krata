@@ -3,10 +3,10 @@ pub mod memory;
 pub mod sys;
 
 use crate::sys::{
-    Hypercall, MmapBatch, MmapResource, MultiCallEntry, XenCapabilitiesInfo, HYPERVISOR_MULTICALL,
-    HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES,
+    EvtChnAllocUnbound, Hypercall, MmapBatch, MmapResource, MultiCallEntry, XenCapabilitiesInfo,
+    HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_MULTICALL, HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES,
 };
-use libc::{mmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
+use libc::{c_int, mmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use log::trace;
 use nix::errno::Errno;
 use std::error::Error;
@@ -235,5 +235,20 @@ impl XenCall {
             addr_of_mut!(info) as c_ulong,
         )?;
         Ok(info)
+    }
+
+    pub fn evtchn_op(&self, cmd: c_int, arg: u64) -> Result<(), XenCallError> {
+        self.hypercall2(HYPERVISOR_EVENT_CHANNEL_OP, cmd as c_ulong, arg)?;
+        Ok(())
+    }
+
+    pub fn evtchn_alloc_unbound(&self, domid: u32, remote_domid: u32) -> Result<u32, XenCallError> {
+        let mut alloc_unbound = EvtChnAllocUnbound {
+            dom: domid as u16,
+            remote_dom: remote_domid as u16,
+            port: 0,
+        };
+        self.evtchn_op(6, addr_of_mut!(alloc_unbound) as c_ulong)?;
+        Ok(alloc_unbound.port)
     }
 }

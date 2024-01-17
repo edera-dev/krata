@@ -5,7 +5,7 @@ use crate::sys::{
     XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_GETVCPUCONTEXT,
     XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION, XEN_DOMCTL_MAX_MEM,
     XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
-    XEN_DOMCTL_SET_ADDRESS_SIZE,
+    XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN,
 };
 use crate::{XenCall, XenCallError};
 use log::trace;
@@ -89,6 +89,23 @@ impl DomainControl<'_> {
         );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_PAUSEDOMAIN,
+            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            domid,
+            value: DomCtlValue { pad: [0; 128] },
+        };
+        self.call
+            .hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
+        Ok(())
+    }
+
+    pub fn unpause_domain(&self, domid: u32) -> Result<(), XenCallError> {
+        trace!(
+            "domctl fd={} unpause_domain domid={:?}",
+            self.call.handle.as_raw_fd(),
+            domid,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_UNPAUSEDOMAIN,
             interface_version: XEN_DOMCTL_INTERFACE_VERSION,
             domid,
             value: DomCtlValue { pad: [0; 128] },

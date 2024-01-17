@@ -19,6 +19,9 @@ path = "../xencall"
 [dependencies.xenstore]
 path = "../xenstore"
 
+[dependencies.xenevtchn]
+path = "../xenevtchn"
+
 [dependencies.uuid]
 version = "1.6.1"
 features = ["v4"]

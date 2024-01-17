@@ -496,3 +496,11 @@ pub struct MmuExtOp {
 }
 
 pub const MMUEXT_PIN_L4_TABLE: u32 = 3;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct EvtChnAllocUnbound {
+    pub dom: u16,
+    pub remote_dom: u16,
+    pub port: u32,
+}
