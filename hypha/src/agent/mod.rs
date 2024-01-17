@@ -29,8 +29,7 @@ impl Agent {
 
     fn find_boot_path(&self, prefix: &str) -> Result<String> {
         let vmlinuz = read_dir("/boot")?
-            .filter(|x| x.is_ok())
-            .map(|x| x.unwrap())
+            .filter_map(|x| x.ok())
             .filter(|x| {
                 x.file_name()
                     .to_str()
