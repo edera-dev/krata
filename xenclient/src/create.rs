@@ -1,19 +1,27 @@
 use std::collections::HashMap;
 
 pub struct DomainConfig {
-    vm_entries: HashMap<String, String>,
-    domain_entries: HashMap<String, String>,
+    pub max_vcpus: u32,
+    pub mem_mb: u64,
+    pub kernel_path: String,
+    pub initrd_path: String,
+    pub cmdline: String,
 }
 
-pub struct PvDomainConfig {
+pub struct PvDomainStore {
     kernel: String,
     ramdisk: Option<String>,
     cmdline: Option<String>,
 }
 
-impl DomainConfig {
-    pub fn new() -> DomainConfig {
-        DomainConfig {
+pub struct DomainStore {
+    vm_entries: HashMap<String, String>,
+    domain_entries: HashMap<String, String>,
+}
+
+impl DomainStore {
+    pub fn new() -> DomainStore {
+        DomainStore {
             vm_entries: HashMap::new(),
             domain_entries: HashMap::new(),
         }
@@ -43,7 +51,7 @@ impl DomainConfig {
 
     pub fn configure_cpus(&mut self, _maxvcpus: u32) {}
 
-    pub fn configure_pv(&mut self, pv: PvDomainConfig) {
+    pub fn configure_pv(&mut self, pv: PvDomainStore) {
         self.put_vm_str("image/ostype", "linux");
         self.put_vm("image/kernel", pv.kernel);
 
@@ -67,15 +75,15 @@ impl DomainConfig {
     }
 }
 
-impl Default for DomainConfig {
+impl Default for DomainStore {
     fn default() -> Self {
-        DomainConfig::new()
+        DomainStore::new()
     }
 }
 
-impl PvDomainConfig {
-    pub fn new(kernel: String, ramdisk: Option<String>, cmdline: Option<String>) -> PvDomainConfig {
-        PvDomainConfig {
+impl PvDomainStore {
+    pub fn new(kernel: String, ramdisk: Option<String>, cmdline: Option<String>) -> PvDomainStore {
+        PvDomainStore {
             kernel,
             ramdisk,
             cmdline,

@@ -1,6 +1,6 @@
 use crate::sys::{XsdMessageHeader, XSD_ERROR};
 use std::error::Error;
-use std::ffi::{CString, FromVecWithNulError, NulError};
+use std::ffi::{CString, FromVecWithNulError, IntoStringError, NulError};
 use std::fs::metadata;
 use std::io::{Read, Write};
 use std::mem::size_of;
@@ -83,6 +83,12 @@ impl From<ParseIntError> for XsdBusError {
     }
 }
 
+impl From<IntoStringError> for XsdBusError {
+    fn from(_: IntoStringError) -> Self {
+        XsdBusError::new("Unable to coerce data into a string.")
+    }
+}
+
 pub struct XsdSocket {
     handle: UnixStream,
 }
@@ -95,7 +101,7 @@ pub struct XsdResponse {
 
 impl XsdResponse {
     pub fn parse_string(&self) -> Result<String, XsdBusError> {
-        Ok(String::from_utf8(self.payload.clone())?)
+        Ok(CString::from_vec_with_nul(self.payload.clone())?.into_string()?)
     }
 
     pub fn parse_string_vec(&self) -> Result<Vec<String>, XsdBusError> {
@@ -114,8 +120,10 @@ impl XsdResponse {
     }
 
     pub fn parse_bool(&self) -> Result<bool, XsdBusError> {
-        if self.payload.len() != 1 {
-            Err(XsdBusError::new("Expected payload to be a single byte."))
+        if self.payload.is_empty() {
+            Err(XsdBusError::new(
+                "Expected bool payload to be at least one byte.",
+            ))
         } else {
             Ok(self.payload[0] == 0)
         }

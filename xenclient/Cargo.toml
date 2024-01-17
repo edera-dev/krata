@@ -33,9 +33,5 @@ env_logger = "0.10.1"
 path = "src/lib.rs"
 
 [[example]]
-name = "xenclient-simple"
-path = "examples/simple.rs"
-
-[[example]]
 name = "xenclient-boot"
 path = "examples/boot.rs"

@@ -1,13 +1,6 @@
-use std::fs::read;
 use std::{env, process};
-use xencall::domctl::DomainControl;
-use xencall::memory::MemoryControl;
-use xencall::sys::CreateDomain;
-use xencall::XenCall;
-use xenclient::boot::BootSetup;
-use xenclient::elfloader::ElfImageLoader;
-use xenclient::XenClientError;
-use xenevtchn::EventChannel;
+use xenclient::create::DomainConfig;
+use xenclient::{XenClient, XenClientError};
 
 fn main() -> Result<(), XenClientError> {
     env_logger::init();
@@ -19,40 +12,15 @@ fn main() -> Result<(), XenClientError> {
     }
     let kernel_image_path = args.get(1).expect("argument not specified");
     let initrd_path = args.get(2).expect("argument not specified");
-    let call = XenCall::open()?;
-    let domctl = DomainControl::new(&call);
-    let domain = CreateDomain {
+    let mut client = XenClient::open()?;
+    let config = DomainConfig {
         max_vcpus: 1,
-        ..Default::default()
+        mem_mb: 512,
+        kernel_path: kernel_image_path.to_string(),
+        initrd_path: initrd_path.to_string(),
+        cmdline: "debug elevator=noop".to_string(),
     };
-    let domid = domctl.create_domain(domain)?;
-    boot(
-        domid,
-        kernel_image_path.as_str(),
-        initrd_path.as_str(),
-        &call,
-        &domctl,
-    )?;
-    Ok(())
-}
-
-fn boot(
-    domid: u32,
-    kernel_image_path: &str,
-    initrd_path: &str,
-    call: &XenCall,
-    domctl: &DomainControl,
-) -> Result<(), XenClientError> {
-    println!("domain created: {:?}", domid);
-    let image_loader = ElfImageLoader::load_file_kernel(kernel_image_path)?;
-    let memctl = MemoryControl::new(call);
-    let mut boot = BootSetup::new(call, domctl, &memctl, domid);
-    let initrd = read(initrd_path)?;
-    let mut state = boot.initialize(&image_loader, initrd.as_slice(), 1, 512)?;
-    boot.boot(&mut state, "debug elevator=noop")?;
-    domctl.unpause_domain(domid)?;
-
-    let _evtchn = EventChannel::open()?;
-
+    let domid = client.create(config)?;
+    println!("created domain {}", domid);
     Ok(())
 }

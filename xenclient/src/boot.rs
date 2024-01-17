@@ -16,8 +16,6 @@ use std::cmp::{max, min};
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::slice;
-use xencall::domctl::DomainControl;
-use xencall::memory::MemoryControl;
 use xencall::sys::{VcpuGuestContext, MMUEXT_PIN_L4_TABLE};
 use xencall::XenCall;
 
@@ -41,9 +39,8 @@ pub struct BootImageInfo {
 }
 
 pub struct BootSetup<'a> {
-    domctl: &'a DomainControl<'a>,
-    memctl: &'a MemoryControl<'a>,
-    phys: PhysicalPages<'a>,
+    call: &'a XenCall,
+    pub phys: PhysicalPages<'a>,
     domid: u32,
     virt_alloc_end: u64,
     pfn_alloc_end: u64,
@@ -55,7 +52,7 @@ pub struct BootSetup<'a> {
 pub struct DomainSegment {
     vstart: u64,
     _vend: u64,
-    pfn: u64,
+    pub pfn: u64,
     addr: u64,
     size: u64,
     pages: u64,
@@ -87,15 +84,9 @@ pub struct BootState {
 }
 
 impl BootSetup<'_> {
-    pub fn new<'a>(
-        call: &'a XenCall,
-        domctl: &'a DomainControl<'a>,
-        memctl: &'a MemoryControl<'a>,
-        domid: u32,
-    ) -> BootSetup<'a> {
+    pub fn new(call: &XenCall, domid: u32) -> BootSetup {
         BootSetup {
-            domctl,
-            memctl,
+            call,
             phys: PhysicalPages::new(call, domid),
             domid,
             virt_alloc_end: 0,
@@ -106,7 +97,7 @@ impl BootSetup<'_> {
     }
 
     fn initialize_memory(&mut self, total_pages: u64) -> Result<(), XenClientError> {
-        self.domctl.set_address_size(self.domid, 64)?;
+        self.call.set_address_size(self.domid, 64)?;
 
         let mut vmemranges: Vec<VmemRange> = Vec::new();
         let stub = VmemRange {
@@ -162,7 +153,7 @@ impl BootSetup<'_> {
                 }
 
                 let extents_init_slice = extents_init.as_slice();
-                let extents = self.memctl.populate_physmap(
+                let extents = self.call.populate_physmap(
                     self.domid,
                     count,
                     SUPERPAGE_2MB_SHIFT as u32,
@@ -191,7 +182,7 @@ impl BootSetup<'_> {
                 let p2m_end_idx = p2m_idx + allocsz as usize;
                 let input_extent_starts = &p2m[p2m_idx..p2m_end_idx];
                 let result =
-                    self.memctl
+                    self.call
                         .populate_physmap(self.domid, allocsz, 0, 0, input_extent_starts)?;
 
                 if result.len() != allocsz as usize {
@@ -226,7 +217,7 @@ impl BootSetup<'_> {
 
         let pfn = (image_info.virt_hypercall - image_info.virt_base) >> X86_PAGE_SHIFT;
         let mfn = self.phys.p2m[pfn as usize];
-        self.domctl.hypercall_init(self.domid, mfn)?;
+        self.call.hypercall_init(self.domid, mfn)?;
         Ok(())
     }
 
@@ -241,8 +232,6 @@ impl BootSetup<'_> {
             "BootSetup initialize max_vcpus={:?} mem_mb={:?}",
             max_vcpus, mem_mb
         );
-        self.domctl.set_max_vcpus(self.domid, max_vcpus)?;
-        self.domctl.set_max_mem(self.domid, mem_mb * 1024)?;
 
         let total_pages = mem_mb << (20 - X86_PAGE_SHIFT);
         self.initialize_memory(total_pages)?;
@@ -284,8 +273,8 @@ impl BootSetup<'_> {
         }
 
         let initrd_segment = initrd_segment.unwrap();
-        let store_evtchn = self.domctl.call.evtchn_alloc_unbound(self.domid, 0)?;
-        let console_evtchn = self.domctl.call.evtchn_alloc_unbound(self.domid, 0)?;
+        let store_evtchn = self.call.evtchn_alloc_unbound(self.domid, 0)?;
+        let console_evtchn = self.call.evtchn_alloc_unbound(self.domid, 0)?;
         let state = BootState {
             kernel_segment,
             start_info_segment,
@@ -306,7 +295,7 @@ impl BootSetup<'_> {
     }
 
     pub fn boot(&mut self, state: &mut BootState, cmdline: &str) -> Result<(), XenClientError> {
-        let domain_info = self.domctl.get_domain_info(self.domid)?;
+        let domain_info = self.call.get_domain_info(self.domid)?;
         let shared_info_frame = domain_info.shared_info_frame;
         state.shared_info_frame = shared_info_frame;
         self.setup_page_tables(state)?;
@@ -317,7 +306,7 @@ impl BootSetup<'_> {
         self.phys.unmap(pg_pfn)?;
         self.phys.unmap(state.p2m_segment.pfn)?;
         let pg_mfn = self.phys.p2m[pg_pfn as usize];
-        self.memctl
+        self.call
             .mmuext(self.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)?;
         self.setup_shared_info(state.shared_info_frame)?;
 
@@ -346,7 +335,7 @@ impl BootSetup<'_> {
         vcpu.kernel_ss = vcpu.user_regs.ss as u64;
         vcpu.kernel_sp = vcpu.user_regs.rsp;
         debug!("vcpu context: {:?}", vcpu);
-        self.domctl.set_vcpu_context(self.domid, 0, &vcpu)?;
+        self.call.set_vcpu_context(self.domid, 0, &vcpu)?;
         self.phys.unmap_all()?;
         self.gnttab_seed(state)?;
         Ok(())
@@ -356,13 +345,10 @@ impl BootSetup<'_> {
         let console_gfn = self.phys.p2m[state.console_segment.pfn as usize];
         let xenstore_gfn = self.phys.p2m[state.xenstore_segment.pfn as usize];
         let addr = self
-            .domctl
             .call
             .mmap(0, 1 << XEN_PAGE_SHIFT)
             .ok_or(XenClientError::new("failed to mmap for resource"))?;
-        self.domctl
-            .call
-            .map_resource(self.domid, 1, 0, 0, 1, addr)?;
+        self.call.map_resource(self.domid, 1, 0, 0, 1, addr)?;
         let entries = unsafe { slice::from_raw_parts_mut(addr as *mut GrantEntry, 2) };
         entries[0].flags = 1 << 0;
         entries[0].domid = 0;

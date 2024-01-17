@@ -9,14 +9,23 @@ pub struct XsdClient {
     pub socket: XsdSocket,
 }
 
+pub struct XsPermissions {
+    pub id: u32,
+    pub perms: u32,
+}
+
 pub trait XsdInterface {
     fn list(&mut self, path: &str) -> Result<Vec<String>, XsdBusError>;
     fn read(&mut self, path: &str) -> Result<Vec<u8>, XsdBusError>;
     fn read_string(&mut self, path: &str) -> Result<String, XsdBusError>;
     fn write(&mut self, path: &str, data: Vec<u8>) -> Result<bool, XsdBusError>;
-    fn write_string(&mut self, path: &str, data: String) -> Result<bool, XsdBusError>;
+    fn write_string(&mut self, path: &str, data: &str) -> Result<bool, XsdBusError>;
     fn mkdir(&mut self, path: &str) -> Result<bool, XsdBusError>;
     fn rm(&mut self, path: &str) -> Result<bool, XsdBusError>;
+
+    fn mknod(&mut self, path: &str, _perm: &XsPermissions) -> Result<bool, XsdBusError> {
+        self.write_string(path, "")
+    }
 }
 
 impl XsdClient {
@@ -53,8 +62,9 @@ impl XsdClient {
     }
 
     pub fn transaction(&mut self) -> Result<XsdTransaction, XsdBusError> {
-        let response = self.socket.send(0, XSD_TRANSACTION_START, &[])?;
-        let tx = response.parse_string()?.parse::<u32>()?;
+        let response = self.socket.send_single(0, XSD_TRANSACTION_START, "")?;
+        let str = response.parse_string()?;
+        let tx = str.parse::<u32>()?;
         Ok(XsdTransaction { client: self, tx })
     }
 
@@ -68,7 +78,7 @@ impl XsdClient {
     pub fn introduce_domain(
         &mut self,
         domid: u32,
-        mfn: u32,
+        mfn: u64,
         eventchn: u32,
     ) -> Result<String, XsdBusError> {
         let response = self.socket.send_multiple(
@@ -106,8 +116,8 @@ impl XsdInterface for XsdClient {
         self.write(0, path, data)
     }
 
-    fn write_string(&mut self, path: &str, data: String) -> Result<bool, XsdBusError> {
-        self.write(0, path, data.into_bytes())
+    fn write_string(&mut self, path: &str, data: &str) -> Result<bool, XsdBusError> {
+        self.write(0, path, data.as_bytes().to_vec())
     }
 
     fn mkdir(&mut self, path: &str) -> Result<bool, XsdBusError> {
@@ -136,8 +146,8 @@ impl XsdInterface for XsdTransaction<'_> {
         self.client.write(self.tx, path, data)
     }
 
-    fn write_string(&mut self, path: &str, data: String) -> Result<bool, XsdBusError> {
-        self.client.write(self.tx, path, data.into_bytes())
+    fn write_string(&mut self, path: &str, data: &str) -> Result<bool, XsdBusError> {
+        self.client.write(self.tx, path, data.as_bytes().to_vec())
     }
 
     fn mkdir(&mut self, path: &str) -> Result<bool, XsdBusError> {
