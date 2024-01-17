@@ -276,6 +276,10 @@ impl ArchBootSetup for X86BootSetup {
         X86_PAGE_SIZE
     }
 
+    fn page_shift(&mut self) -> u64 {
+        X86_PAGE_SHIFT
+    }
+
     fn alloc_p2m_segment(
         &mut self,
         setup: &mut BootSetup,
@@ -458,6 +462,21 @@ impl ArchBootSetup for X86BootSetup {
         Ok(())
     }
 
+    fn setup_hypercall_page(
+        &mut self,
+        setup: &mut BootSetup,
+        image_info: &BootImageInfo,
+    ) -> Result<(), XenClientError> {
+        if image_info.virt_hypercall == XEN_UNSET_ADDR {
+            return Ok(());
+        }
+
+        let pfn = (image_info.virt_hypercall - image_info.virt_base) >> X86_PAGE_SHIFT;
+        let mfn = setup.phys.p2m[pfn as usize];
+        setup.call.hypercall_init(setup.domid, mfn)?;
+        Ok(())
+    }
+
     fn meminit(&mut self, setup: &mut BootSetup, total_pages: u64) -> Result<(), XenClientError> {
         let mut vmemranges: Vec<VmemRange> = Vec::new();
         let stub = VmemRange {
@@ -568,23 +587,19 @@ impl ArchBootSetup for X86BootSetup {
         Ok(())
     }
 
-    fn setup_hypercall_page(
+    fn bootlate(
         &mut self,
         setup: &mut BootSetup,
-        image_info: &BootImageInfo,
+        state: &mut BootState,
     ) -> Result<(), XenClientError> {
-        if image_info.virt_hypercall == XEN_UNSET_ADDR {
-            return Ok(());
-        }
-
-        let pfn = (image_info.virt_hypercall - image_info.virt_base) >> X86_PAGE_SHIFT;
-        let mfn = setup.phys.p2m[pfn as usize];
-        setup.call.hypercall_init(setup.domid, mfn)?;
+        let pg_pfn = state.page_table_segment.pfn;
+        let pg_mfn = setup.phys.p2m[pg_pfn as usize];
+        setup.phys.unmap(pg_pfn)?;
+        setup.phys.unmap(state.p2m_segment.pfn)?;
+        setup
+            .call
+            .mmuext(setup.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)?;
         Ok(())
-    }
-
-    fn page_shift(&mut self) -> u64 {
-        X86_PAGE_SHIFT
     }
 
     fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<(), XenClientError> {
@@ -616,21 +631,6 @@ impl ArchBootSetup for X86BootSetup {
         vcpu.kernel_sp = vcpu.user_regs.rsp;
         debug!("vcpu context: {:?}", vcpu);
         setup.call.set_vcpu_context(setup.domid, 0, &vcpu)?;
-        Ok(())
-    }
-
-    fn bootlate(
-        &mut self,
-        setup: &mut BootSetup,
-        state: &mut BootState,
-    ) -> Result<(), XenClientError> {
-        let pg_pfn = state.page_table_segment.pfn;
-        let pg_mfn = setup.phys.p2m[pg_pfn as usize];
-        setup.phys.unmap(pg_pfn)?;
-        setup.phys.unmap(state.p2m_segment.pfn)?;
-        setup
-            .call
-            .mmuext(setup.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)?;
         Ok(())
     }
 }
