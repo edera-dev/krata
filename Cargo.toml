@@ -3,6 +3,7 @@ members = [
     "xenstore",
     "xenevtchn",
     "xencall",
-    "xenclient"
+    "xenclient",
+    "hypha",
 ]
 resolver = "2"

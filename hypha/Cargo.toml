@@ -1,0 +1,22 @@
+[package]
+name = "hypha"
+version = "0.0.1"
+edition = "2021"
+resolver = "2"
+
+[dependencies.xenclient]
+path = "../xenclient"
+
+[dependencies]
+log = "0.4.20"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "hypha-agent"
+path = "bin/agent.rs"
+
+[[bin]]
+name = "hypha-container"
+path = "bin/container.rs"
