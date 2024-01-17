@@ -9,7 +9,7 @@ use crate::x86::{
     X86_PGTABLE_LEVEL_SHIFT, X86_VIRT_MASK,
 };
 use crate::XenClientError;
-use libc::{c_char};
+use libc::c_char;
 use log::{debug, trace};
 use slice_copy::copy;
 use std::cmp::{max, min};
@@ -290,23 +290,20 @@ impl BootSetup<'_> {
     }
 
     pub fn boot(&mut self, state: &mut BootState, cmdline: &str) -> Result<(), XenClientError> {
-        self.setup_page_tables(state)?;
-        self.setup_start_info(state, cmdline)?;
-        self.setup_hypercall_page(&state.image_info)?;
-
-        self.phys.unmap_all()?;
-        let pg_pfn = state.page_table_segment.pfn;
-        let pg_mfn = self.phys.p2m[pg_pfn as usize];
         debug!(
             "domain info: {:?}",
             self.domctl.get_domain_info(self.domid)?
         );
-        let page_frame_info = self.domctl.get_page_frame_info(self.domid, &[pg_pfn])?;
-        debug!("pgtable page frame info: {:#x}", page_frame_info[0]);
-        debug!("pinning l4 table: pfn={:#x} mfn={:#x}", pg_pfn, pg_mfn);
+        self.setup_page_tables(state)?;
+        self.setup_start_info(state, cmdline)?;
+        self.setup_hypercall_page(&state.image_info)?;
+
+        let pg_pfn = state.page_table_segment.pfn;
+        self.phys.unmap(pg_pfn)?;
+        self.phys.unmap(state.p2m_segment.pfn)?;
+        let pg_mfn = self.phys.p2m[pg_pfn as usize];
         self.memctl
             .mmuext(self.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)?;
-        debug!("pinned l4 table: {:#x}", state.page_table_segment.pfn);
         // self.setup_shared_info()?;
 
         let mut vcpu = VcpuGuestContext::default();
@@ -348,7 +345,7 @@ impl BootSetup<'_> {
                 let map1 = &state.page_table.mappings[m1];
                 let from = map1.levels[l].from;
                 let to = map1.levels[l].to;
-                let pg = self.phys.pfn_to_ptr(map1.levels[l].pfn, 0)? as *mut u64;
+                let pg_ptr = self.phys.pfn_to_ptr(map1.levels[l].pfn, 0)? as *mut u64;
                 for m2 in 0usize..state.page_table.mappings_count {
                     let map2 = &state.page_table.mappings[m2];
                     let lvl = if l > 0 {
@@ -376,18 +373,13 @@ impl BootSetup<'_> {
                         "BootSetup setup_page_tables lvl={} map_1={} map_2={} pfn={:#x} p_s={:#x} p_e={:#x}",
                         l, m1, m2, pfn, p_s, p_e
                     );
+
+                    let pg = unsafe { slice::from_raw_parts_mut(pg_ptr, (p_e + 1) as usize) };
                     for p in p_s..p_e + 1 {
                         let prot = self.get_pg_prot(l, pfn, &state.page_table);
-
                         let pfn_paddr = self.phys.p2m[pfn as usize] << X86_PAGE_SHIFT;
                         let value = pfn_paddr | prot;
-                        // debug!(
-                        //         "pgtable pfn: {:#x}, p: {:#x}, pfn_paddr: {:#x}, value: {:#x}, prot: {:#x}",
-                        //         pfn, p, pfn_paddr, value, prot
-                        //     );
-                        unsafe {
-                            *pg.add(p as usize) = value;
-                        }
+                        pg[p as usize] = value;
                         pfn += 1;
                     }
                 }
@@ -426,10 +418,11 @@ impl BootSetup<'_> {
             return prot;
         }
 
-        for map in &table.mappings {
+        for m in 0..table.mappings_count {
+            let map = &table.mappings[m];
             let pfn_s = map.levels[(X86_PGTABLE_LEVELS - 1) as usize].pfn;
             let pfn_e = map.area.pgtables as u64 + pfn_s;
-            if pfn > pfn_s && pfn < pfn_e {
+            if pfn >= pfn_s && pfn < pfn_e {
                 return prot & !BootSetup::PAGE_RW;
             }
         }

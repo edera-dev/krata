@@ -96,6 +96,7 @@ impl PhysicalPages<'_> {
             .call
             .mmap(0, actual_mmap_len)
             .ok_or(XenClientError::new("failed to mmap address"))?;
+        debug!("mapped {:#x} foreign bytes at {:#x}", actual_mmap_len, addr);
         let result = self.call.mmap_batch(self.domid, num as u64, addr, pfns)?;
         if result != 0 {
             return Err(XenClientError::new("mmap_batch call failed"));
@@ -130,16 +131,25 @@ impl PhysicalPages<'_> {
     }
 
     pub fn unmap(&mut self, pfn: u64) -> Result<(), XenClientError> {
-        let mut page: Option<(usize, &PhysicalPage)> = None;
-        for (i, item) in self.pages.iter().enumerate() {
-            if pfn >= item.pfn && pfn < (item.pfn + item.count) {
-                break;
-            }
-            page = Some((i, item));
-        }
-
+        let page = self.pages.iter().find(|x| x.pfn == pfn);
         if page.is_none() {
-            return Err(XenClientError::new("failed to unmap pfn"));
+            return Err(XenClientError::new("unable to find page to unmap"));
+        }
+        let page = page.unwrap();
+
+        unsafe {
+            let err = munmap(
+                page.ptr as *mut c_void,
+                (page.count << X86_PAGE_SHIFT) as usize,
+            );
+            debug!(
+                "unmapped {:#x} foreign bytes at {:#x}",
+                (page.count << X86_PAGE_SHIFT) as usize,
+                page.ptr
+            );
+            if err != 0 {
+                return Err(XenClientError::new("failed to munmap page"));
+            }
         }
         Ok(())
     }
