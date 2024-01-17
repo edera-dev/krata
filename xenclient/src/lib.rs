@@ -1,12 +1,10 @@
 pub mod boot;
-pub mod create;
 pub mod elfloader;
 pub mod mem;
 pub mod sys;
 mod x86;
 
 use crate::boot::BootSetup;
-use crate::create::DomainConfig;
 use crate::elfloader::ElfImageLoader;
 use crate::x86::X86BootSetup;
 use std::error::Error;
@@ -80,6 +78,14 @@ impl From<EventChannelError> for XenClientError {
     }
 }
 
+pub struct DomainConfig<'a> {
+    pub max_vcpus: u32,
+    pub mem_mb: u64,
+    pub kernel_path: &'a str,
+    pub initrd_path: &'a str,
+    pub cmdline: &'a str,
+}
+
 impl XenClient {
     pub fn open() -> Result<XenClient, XenClientError> {
         let store = XsdClient::open()?;
@@ -87,7 +93,7 @@ impl XenClient {
         Ok(XenClient { store, call })
     }
 
-    pub fn create(&mut self, config: DomainConfig) -> Result<u32, XenClientError> {
+    pub fn create(&mut self, config: &DomainConfig) -> Result<u32, XenClientError> {
         let domain = CreateDomain {
             max_vcpus: config.max_vcpus,
             ..Default::default()
@@ -99,9 +105,7 @@ impl XenClient {
         let libxl_path = format!("/libxl/{}", domid);
 
         let ro_perm = XsPermissions { id: 0, perms: 0 };
-
         let rw_perm = XsPermissions { id: 0, perms: 0 };
-
         let no_perm = XsPermissions { id: 0, perms: 0 };
 
         {
@@ -156,7 +160,7 @@ impl XenClient {
 
         self.call.set_max_vcpus(domid, config.max_vcpus)?;
         self.call.set_max_mem(domid, config.mem_mb * 1024)?;
-        let image_loader = ElfImageLoader::load_file_kernel(config.kernel_path.as_str())?;
+        let image_loader = ElfImageLoader::load_file_kernel(config.kernel_path)?;
 
         let console_evtchn: u32;
         let xenstore_evtchn: u32;
@@ -166,7 +170,7 @@ impl XenClient {
         {
             let mut boot = BootSetup::new(&self.call, domid);
             let mut arch = X86BootSetup::new();
-            let initrd = read(config.initrd_path.as_str())?;
+            let initrd = read(config.initrd_path)?;
             let mut state = boot.initialize(
                 &mut arch,
                 &image_loader,
@@ -174,7 +178,7 @@ impl XenClient {
                 config.max_vcpus,
                 config.mem_mb,
             )?;
-            boot.boot(&mut arch, &mut state, config.cmdline.as_str())?;
+            boot.boot(&mut arch, &mut state, config.cmdline)?;
             console_evtchn = state.console_evtchn;
             xenstore_evtchn = state.store_evtchn;
             console_mfn = boot.phys.p2m[state.console_segment.pfn as usize];
@@ -186,15 +190,15 @@ impl XenClient {
             tx.write_string(format!("{}/image/os_type", vm_path).as_str(), "linux")?;
             tx.write_string(
                 format!("{}/image/kernel", vm_path).as_str(),
-                &config.kernel_path,
+                config.kernel_path,
             )?;
             tx.write_string(
                 format!("{}/image/ramdisk", vm_path).as_str(),
-                &config.initrd_path,
+                config.initrd_path,
             )?;
             tx.write_string(
                 format!("{}/image/cmdline", vm_path).as_str(),
-                &config.cmdline,
+                config.cmdline,
             )?;
 
             tx.write_string(

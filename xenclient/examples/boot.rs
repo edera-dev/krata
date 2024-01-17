@@ -1,6 +1,5 @@
 use std::{env, process};
-use xenclient::create::DomainConfig;
-use xenclient::{XenClient, XenClientError};
+use xenclient::{DomainConfig, XenClient, XenClientError};
 
 fn main() -> Result<(), XenClientError> {
     env_logger::init();
@@ -16,11 +15,11 @@ fn main() -> Result<(), XenClientError> {
     let config = DomainConfig {
         max_vcpus: 1,
         mem_mb: 512,
-        kernel_path: kernel_image_path.to_string(),
-        initrd_path: initrd_path.to_string(),
-        cmdline: "debug elevator=noop".to_string(),
+        kernel_path: kernel_image_path.as_str(),
+        initrd_path: initrd_path.as_str(),
+        cmdline: "debug elevator=noop",
     };
-    let domid = client.create(config)?;
+    let domid = client.create(&config)?;
     println!("created domain {}", domid);
     Ok(())
 }
