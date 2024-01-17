@@ -1,7 +1,7 @@
 use crate::boot::{BootImageInfo, BootImageLoader, XEN_UNSET_ADDR};
 use crate::sys::{
-    XEN_ELFNOTE_ENTRY, XEN_ELFNOTE_HYPERCALL_PAGE, XEN_ELFNOTE_INIT_P2M, XEN_ELFNOTE_PADDR_OFFSET,
-    XEN_ELFNOTE_TYPES, XEN_ELFNOTE_VIRT_BASE,
+    XEN_ELFNOTE_ENTRY, XEN_ELFNOTE_HYPERCALL_PAGE, XEN_ELFNOTE_INIT_P2M, XEN_ELFNOTE_MOD_START_PFN,
+    XEN_ELFNOTE_PADDR_OFFSET, XEN_ELFNOTE_TYPES, XEN_ELFNOTE_VIRT_BASE,
 };
 use crate::XenClientError;
 use elf::abi::{PF_R, PF_W, PF_X, PT_LOAD, SHT_NOTE};
@@ -236,6 +236,12 @@ impl BootImageLoader for ElfImageLoader {
                 "Unable to find init_p2m note in kernel.",
             ))?
             .value;
+        let mod_start_pfn = xen_notes
+            .get(&XEN_ELFNOTE_MOD_START_PFN)
+            .ok_or(XenClientError::new(
+                "Unable to find mod_start_pfn note in kernel.",
+            ))?
+            .value;
 
         let mut start: u64 = u64::MAX;
         let mut end: u64 = 0;
@@ -278,6 +284,7 @@ impl BootImageLoader for ElfImageLoader {
             virt_hypercall,
             virt_entry,
             virt_p2m_base: init_p2m,
+            unmapped_initrd: mod_start_pfn != 0,
         };
         Ok(image_info)
     }

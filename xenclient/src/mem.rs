@@ -1,12 +1,14 @@
 use crate::sys::XEN_PAGE_SHIFT;
 use crate::XenClientError;
 use libc::munmap;
+use log::debug;
 use std::ffi::c_void;
 
 use crate::x86::X86_PAGE_SHIFT;
 use xencall::sys::MmapEntry;
 use xencall::XenCall;
 
+#[derive(Debug)]
 pub struct PhysicalPage {
     pfn: u64,
     ptr: u64,
@@ -103,30 +105,41 @@ impl PhysicalPages<'_> {
             ptr: addr,
             count,
         };
+        debug!(
+            "alloc_pfn {:#x}+{:#x} at {:#x}",
+            page.pfn, page.count, page.ptr
+        );
         self.pages.push(page);
         Ok(addr)
     }
 
+    pub fn unmap_all(&mut self) -> Result<(), XenClientError> {
+        for page in &self.pages {
+            unsafe {
+                let err = munmap(
+                    page.ptr as *mut c_void,
+                    (page.count << X86_PAGE_SHIFT) as usize,
+                );
+                if err != 0 {
+                    return Err(XenClientError::new("failed to munmap all pages"));
+                }
+            }
+        }
+        self.pages.clear();
+        Ok(())
+    }
+
     pub fn unmap(&mut self, pfn: u64) -> Result<(), XenClientError> {
-        let mut page: Option<&PhysicalPage> = None;
-        for item in &self.pages {
+        let mut page: Option<(usize, &PhysicalPage)> = None;
+        for (i, item) in self.pages.iter().enumerate() {
             if pfn >= item.pfn && pfn < (item.pfn + item.count) {
                 break;
             }
-            page = Some(item);
+            page = Some((i, item));
         }
+
         if page.is_none() {
             return Err(XenClientError::new("failed to unmap pfn"));
-        }
-        let page = page.unwrap();
-        unsafe {
-            let err = munmap(
-                page.ptr as *mut c_void,
-                (page.count << X86_PAGE_SHIFT) as usize,
-            );
-            if err != 0 {
-                return Err(XenClientError::new("failed to munmap pfn"));
-            }
         }
         Ok(())
     }

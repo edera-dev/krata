@@ -9,7 +9,7 @@ use crate::x86::{
     X86_PGTABLE_LEVEL_SHIFT, X86_VIRT_MASK,
 };
 use crate::XenClientError;
-use libc::c_char;
+use libc::{c_char};
 use log::{debug, trace};
 use slice_copy::copy;
 use std::cmp::{max, min};
@@ -36,6 +36,7 @@ pub struct BootImageInfo {
     pub virt_hypercall: u64,
     pub virt_entry: u64,
     pub virt_p2m_base: u64,
+    pub unmapped_initrd: bool,
 }
 
 pub struct BootSetup<'a> {
@@ -227,6 +228,7 @@ impl BootSetup<'_> {
     pub fn initialize(
         &mut self,
         image_loader: &dyn BootImageLoader,
+        initrd: &[u8],
         mem_mb: u64,
     ) -> Result<BootState, XenClientError> {
         debug!("BootSetup initialize mem_mb={:?}", mem_mb);
@@ -239,16 +241,39 @@ impl BootSetup<'_> {
         debug!("BootSetup initialize image_info={:?}", image_info);
         self.virt_alloc_end = image_info.virt_base;
         let kernel_segment = self.load_kernel_segment(image_loader, &image_info)?;
+        let mut p2m_segment: Option<DomainSegment> = None;
         let mut page_table = PageTable::default();
-        let p2m_segment = self.alloc_p2m_segment(&mut page_table, &image_info)?;
+        if image_info.virt_p2m_base >= image_info.virt_base
+            || (image_info.virt_p2m_base & ((1 << X86_PAGE_SHIFT) - 1)) != 0
+        {
+            p2m_segment = Some(self.alloc_p2m_segment(&mut page_table, &image_info)?);
+        }
         let start_info_segment = self.alloc_page()?;
         let xenstore_segment = self.alloc_page()?;
         let console_segment = self.alloc_page()?;
         let page_table_segment = self.alloc_page_tables(&mut page_table, &image_info)?;
         let boot_stack_segment = self.alloc_page()?;
+        let mut initrd_segment: Option<DomainSegment> = None;
+        if !image_info.unmapped_initrd {
+            initrd_segment = Some(self.alloc_module(initrd)?);
+        }
+        if p2m_segment.is_none() {
+            let mut segment = self.alloc_p2m_segment(&mut page_table, &image_info)?;
+            segment.vstart = image_info.virt_p2m_base;
+            p2m_segment = Some(segment);
+        }
+        let p2m_segment = p2m_segment.unwrap();
+
         if self.virt_pgtab_end > 0 {
             self.alloc_padding_pages(self.virt_pgtab_end)?;
         }
+
+        if image_info.unmapped_initrd {
+            initrd_segment = Some(self.alloc_module(initrd)?);
+        }
+
+        let _initrd_segment = initrd_segment.unwrap();
+
         let state = BootState {
             kernel_segment,
             start_info_segment,
@@ -269,8 +294,7 @@ impl BootSetup<'_> {
         self.setup_start_info(state, cmdline)?;
         self.setup_hypercall_page(&state.image_info)?;
 
-        self.phys.unmap(state.page_table_segment.pfn)?;
-        self.phys.unmap(state.p2m_segment.pfn)?;
+        self.phys.unmap_all()?;
         let pg_pfn = state.page_table_segment.pfn;
         let pg_mfn = self.phys.p2m[pg_pfn as usize];
         debug!(
@@ -279,11 +303,11 @@ impl BootSetup<'_> {
         );
         let page_frame_info = self.domctl.get_page_frame_info(self.domid, &[pg_pfn])?;
         debug!("pgtable page frame info: {:#x}", page_frame_info[0]);
-        debug!("pinning l4 table: mfn={:#x}", pg_mfn);
+        debug!("pinning l4 table: pfn={:#x} mfn={:#x}", pg_pfn, pg_mfn);
         self.memctl
             .mmuext(self.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)?;
         debug!("pinned l4 table: {:#x}", state.page_table_segment.pfn);
-        self.setup_shared_info()?;
+        // self.setup_shared_info()?;
 
         let mut vcpu = VcpuGuestContext::default();
         vcpu.user_regs.rip = state.image_info.virt_entry;
@@ -319,21 +343,21 @@ impl BootSetup<'_> {
         };
         copy(p2m_guest, &self.phys.p2m);
 
-        for lvl_idx in (0usize..X86_PGTABLE_LEVELS as usize).rev() {
-            for map_idx_1 in 0usize..state.page_table.mappings_count {
-                let map1 = &state.page_table.mappings[map_idx_1];
-                let from = map1.levels[lvl_idx].from;
-                let to = map1.levels[lvl_idx].to;
-                let pg = self.phys.pfn_to_ptr(map1.levels[lvl_idx].pfn, 0)? as *mut u64;
-                for map_idx_2 in 0usize..state.page_table.mappings_count {
-                    let map2 = &state.page_table.mappings[map_idx_2];
-                    let lvl = if lvl_idx > 0 {
-                        &map2.levels[lvl_idx - 1]
+        for l in (0usize..X86_PGTABLE_LEVELS as usize).rev() {
+            for m1 in 0usize..state.page_table.mappings_count {
+                let map1 = &state.page_table.mappings[m1];
+                let from = map1.levels[l].from;
+                let to = map1.levels[l].to;
+                let pg = self.phys.pfn_to_ptr(map1.levels[l].pfn, 0)? as *mut u64;
+                for m2 in 0usize..state.page_table.mappings_count {
+                    let map2 = &state.page_table.mappings[m2];
+                    let lvl = if l > 0 {
+                        &map2.levels[l - 1]
                     } else {
                         &map2.area
                     };
 
-                    if lvl_idx > 0 && lvl.pgtables == 0 {
+                    if l > 0 && lvl.pgtables == 0 {
                         continue;
                     }
 
@@ -342,31 +366,25 @@ impl BootSetup<'_> {
                     }
 
                     let p_s = (max(from, lvl.from) - from)
-                        >> (X86_PAGE_SHIFT + lvl_idx as u64 * X86_PGTABLE_LEVEL_SHIFT);
+                        >> (X86_PAGE_SHIFT + l as u64 * X86_PGTABLE_LEVEL_SHIFT);
                     let p_e = (min(to, lvl.to) - from)
-                        >> (X86_PAGE_SHIFT + lvl_idx as u64 * X86_PGTABLE_LEVEL_SHIFT);
-                    let mut pfn = (max(from, lvl.from) - from)
-                        .checked_shr(
-                            ((X86_PAGE_SHIFT + lvl_idx as u64 * X86_PGTABLE_LEVEL_SHIFT) + lvl.pfn)
-                                as u32,
-                        )
-                        .unwrap_or(0u64);
+                        >> (X86_PAGE_SHIFT + l as u64 * X86_PGTABLE_LEVEL_SHIFT);
+                    let rhs = X86_PAGE_SHIFT as usize + l * X86_PGTABLE_LEVEL_SHIFT as usize;
+                    let mut pfn = ((max(from, lvl.from) - lvl.from) >> rhs) + lvl.pfn;
 
                     debug!(
-                        "BootSetup setup_page_tables lvl={} map_1={} map_2={} pfn={} p_s={} p_e={}",
-                        lvl_idx, map_idx_1, map_idx_2, pfn, p_s, p_e
+                        "BootSetup setup_page_tables lvl={} map_1={} map_2={} pfn={:#x} p_s={:#x} p_e={:#x}",
+                        l, m1, m2, pfn, p_s, p_e
                     );
                     for p in p_s..p_e + 1 {
-                        let prot = self.get_pg_prot(lvl_idx, pfn, &state.page_table);
+                        let prot = self.get_pg_prot(l, pfn, &state.page_table);
 
                         let pfn_paddr = self.phys.p2m[pfn as usize] << X86_PAGE_SHIFT;
                         let value = pfn_paddr | prot;
-                        if pfn == state.page_table_segment.pfn {
-                            debug!(
-                                "pgtable pfn: {:#x}, p: {:#x}, pfn_paddr: {:#x}, value: {:#x}",
-                                pfn, p, pfn_paddr, value
-                            );
-                        }
+                        // debug!(
+                        //         "pgtable pfn: {:#x}, p: {:#x}, pfn_paddr: {:#x}, value: {:#x}, prot: {:#x}",
+                        //         pfn, p, pfn_paddr, value, prot
+                        //     );
                         unsafe {
                             *pg.add(p as usize) = value;
                         }
@@ -447,7 +465,7 @@ impl BootSetup<'_> {
         Ok(())
     }
 
-    fn setup_shared_info(&mut self) -> Result<(), XenClientError> {
+    fn _setup_shared_info(&mut self) -> Result<(), XenClientError> {
         let domain_info = self.domctl.get_domain_info(self.domid)?;
         let info = self.phys.pfn_to_ptr(domain_info.shared_info_frame, 1)? as *mut SharedInfo;
         unsafe {
@@ -484,78 +502,81 @@ impl BootSetup<'_> {
         from: u64,
         to: u64,
         pfn: u64,
-    ) -> Result<(), XenClientError> {
+    ) -> Result<usize, XenClientError> {
+        debug!("counting pgtables from={} to={} pfn={}", from, to, pfn);
         if table.mappings_count == X86_PAGE_TABLE_MAX_MAPPINGS {
             return Err(XenClientError::new("too many mappings"));
         }
+
+        let m = table.mappings_count;
 
         let pfn_end = pfn + ((to - from) >> X86_PAGE_SHIFT);
         if pfn_end >= self.phys.p2m_size() {
             return Err(XenClientError::new("not enough memory for initial mapping"));
         }
 
-        for mapping in &table.mappings {
-            if from < mapping.area.to && to > mapping.area.from {
+        for idx in 0..table.mappings_count {
+            if from < table.mappings[idx].area.to && to > table.mappings[idx].area.from {
                 return Err(XenClientError::new("overlapping mappings"));
             }
         }
-
-        table.mappings[table.mappings_count] = PageTableMapping::default();
-        let compare_table = table.clone();
-        let map = &mut table.mappings[table.mappings_count];
+        let mut map = PageTableMapping::default();
         map.area.from = from & X86_VIRT_MASK;
         map.area.to = to & X86_VIRT_MASK;
 
-        for lvl_index in (0usize..X86_PGTABLE_LEVELS as usize).rev() {
-            let lvl = &mut map.levels[lvl_index];
-            lvl.pfn = self.pfn_alloc_end + map.area.pgtables as u64;
-            if lvl_index as u64 == X86_PGTABLE_LEVELS - 1 {
+        for l in (0usize..X86_PGTABLE_LEVELS as usize).rev() {
+            map.levels[l].pfn = self.pfn_alloc_end + map.area.pgtables as u64;
+            if l as u64 == X86_PGTABLE_LEVELS - 1 {
                 if table.mappings_count == 0 {
-                    lvl.from = 0;
-                    lvl.to = X86_VIRT_MASK;
-                    lvl.pgtables = 1;
+                    map.levels[l].from = 0;
+                    map.levels[l].to = X86_VIRT_MASK;
+                    map.levels[l].pgtables = 1;
                     map.area.pgtables += 1;
                 }
                 continue;
             }
 
-            let bits = X86_PAGE_SHIFT + (lvl_index + 1) as u64 * X86_PGTABLE_LEVEL_SHIFT;
-            let mask = (1 << bits) - 1;
-            lvl.from = map.area.from & !mask;
-            lvl.to = map.area.to | mask;
+            let bits = X86_PAGE_SHIFT + (l + 1) as u64 * X86_PGTABLE_LEVEL_SHIFT;
+            let mask = BootSetup::bits_to_mask(bits);
+            map.levels[l].from = map.area.from & !mask;
+            map.levels[l].to = map.area.to | mask;
 
-            for cmp in &compare_table.mappings {
-                let cmp_lvl = &cmp.levels[lvl_index];
-                if cmp_lvl.from == cmp_lvl.to {
+            for cmp in &mut table.mappings[0..table.mappings_count] {
+                if cmp.levels[l].from == cmp.levels[l].to {
                     continue;
                 }
 
-                if lvl.from >= cmp_lvl.from && lvl.to <= cmp_lvl.to {
-                    lvl.from = 0;
-                    lvl.to = 0;
+                if map.levels[l].from >= cmp.levels[l].from && map.levels[l].to <= cmp.levels[l].to
+                {
+                    map.levels[l].from = 0;
+                    map.levels[l].to = 0;
                     break;
                 }
 
-                if lvl.from >= cmp_lvl.from && lvl.from <= cmp_lvl.to {
-                    lvl.from = cmp_lvl.to + 1;
+                if map.levels[l].from >= cmp.levels[l].from
+                    && map.levels[l].from <= cmp.levels[l].to
+                {
+                    map.levels[l].from = cmp.levels[l].to + 1;
                 }
 
-                if lvl.to >= cmp_lvl.from && lvl.to <= cmp_lvl.to {
-                    lvl.to = cmp_lvl.from - 1;
+                if map.levels[l].to >= cmp.levels[l].from && map.levels[l].to <= cmp.levels[l].to {
+                    map.levels[l].to = cmp.levels[l].from - 1;
                 }
             }
 
-            if lvl.from < lvl.to {
-                lvl.pgtables = (((lvl.to - lvl.from) >> bits) + 1) as usize;
+            if map.levels[l].from < map.levels[l].to {
+                map.levels[l].pgtables =
+                    (((map.levels[l].to - map.levels[l].from) >> bits) + 1) as usize;
             }
 
             debug!(
                 "BootSetup count_pgtables {:#x}/{}: {:#x} -> {:#x}, {} tables",
-                mask, bits, lvl.from, lvl.to, lvl.pgtables
+                mask, bits, map.levels[l].from, map.levels[l].to, map.levels[l].pgtables
             );
-            map.area.pgtables += lvl.pgtables;
+            map.area.pgtables += map.levels[l].pgtables;
         }
-        Ok(())
+        table.mappings[m] = map;
+        Ok(m)
     }
 
     fn alloc_p2m_segment(
@@ -567,11 +588,11 @@ impl BootSetup<'_> {
             ((self.phys.p2m_size() * 8) + X86_PAGE_SIZE - 1) & !(X86_PAGE_SIZE - 1);
         let from = image_info.virt_p2m_base;
         let to = from + p2m_alloc_size - 1;
-        self.count_page_tables(page_table, from, to, self.pfn_alloc_end)?;
+        let m = self.count_page_tables(page_table, from, to, self.pfn_alloc_end)?;
 
         let pgtables: usize;
         {
-            let map = &mut page_table.mappings[page_table.mappings_count];
+            let map = &mut page_table.mappings[m];
             map.area.pfn = self.pfn_alloc_end;
             for lvl_idx in 0..4 {
                 map.levels[lvl_idx].pfn += p2m_alloc_size >> X86_PAGE_SHIFT;
@@ -584,6 +605,14 @@ impl BootSetup<'_> {
         Ok(p2m_segment)
     }
 
+    fn round_up(addr: u64, mask: u64) -> u64 {
+        addr | mask
+    }
+
+    fn bits_to_mask(bits: u64) -> u64 {
+        (1 << bits) - 1
+    }
+
     fn alloc_page_tables(
         &mut self,
         table: &mut PageTable,
@@ -592,26 +621,26 @@ impl BootSetup<'_> {
         let mut extra_pages = 1;
         extra_pages += (512 * 1024) / X86_PAGE_SIZE;
         let mut pages = extra_pages;
-        let nr_mappings = table.mappings_count;
 
         let mut try_virt_end: u64;
+        let mut m: usize;
         loop {
-            try_virt_end = (self.virt_alloc_end + pages * X86_PAGE_SIZE) | ((1 << 22) - 1);
-            self.count_page_tables(table, image_info.virt_base, try_virt_end, 0)?;
-            pages = table.mappings[nr_mappings].area.pgtables as u64 + extra_pages;
+            try_virt_end = BootSetup::round_up(
+                self.virt_alloc_end + pages * X86_PAGE_SIZE,
+                BootSetup::bits_to_mask(22),
+            );
+            m = self.count_page_tables(table, image_info.virt_base, try_virt_end, 0)?;
+            pages = table.mappings[m].area.pgtables as u64 + extra_pages;
             if self.virt_alloc_end + pages * X86_PAGE_SIZE <= try_virt_end + 1 {
                 break;
             }
         }
 
-        let segment: DomainSegment;
-        {
-            let map = &mut table.mappings[nr_mappings];
-            map.area.pfn = 0;
-            table.mappings_count += 1;
-            self.virt_pgtab_end = try_virt_end + 1;
-            segment = self.alloc_segment(0, map.area.pgtables as u64 * X86_PAGE_SIZE)?;
-        }
+        table.mappings[m].area.pfn = 0;
+        table.mappings_count += 1;
+        self.virt_pgtab_end = try_virt_end + 1;
+        let segment =
+            self.alloc_segment(0, table.mappings[m].area.pgtables as u64 * X86_PAGE_SIZE)?;
         debug!(
             "BootSetup alloc_page_tables table={:?} segment={:?}",
             table, segment
@@ -624,9 +653,9 @@ impl BootSetup<'_> {
             self.alloc_padding_pages(start)?;
         }
 
+        let page_size: u32 = (1i64 << XEN_PAGE_SHIFT) as u32;
+        let pages = (size + page_size as u64 - 1) / page_size as u64;
         let start = self.virt_alloc_end;
-        let page_size = 1u64 << XEN_PAGE_SHIFT;
-        let pages = (size + page_size - 1) / page_size;
 
         let mut segment = DomainSegment {
             vstart: start,
@@ -641,8 +670,9 @@ impl BootSetup<'_> {
 
         let ptr = self.phys.pfn_to_ptr(segment.pfn, pages)?;
         segment.addr = ptr;
-        let slice =
-            unsafe { slice::from_raw_parts_mut(ptr as *mut u8, (pages * page_size) as usize) };
+        let slice = unsafe {
+            slice::from_raw_parts_mut(ptr as *mut u8, (pages * page_size as u64) as usize)
+        };
         slice.fill(0);
         segment._vend = self.virt_alloc_end;
         debug!(
@@ -668,6 +698,13 @@ impl BootSetup<'_> {
         })
     }
 
+    fn alloc_module(&mut self, buffer: &[u8]) -> Result<DomainSegment, XenClientError> {
+        let segment = self.alloc_segment(0, buffer.len() as u64)?;
+        let slice = unsafe { slice::from_raw_parts_mut(segment.addr as *mut u8, buffer.len()) };
+        copy(slice, buffer);
+        Ok(segment)
+    }
+
     fn alloc_padding_pages(&mut self, boundary: u64) -> Result<(), XenClientError> {
         if (boundary & (X86_PAGE_SIZE - 1)) != 0 {
             return Err(XenClientError::new(
@@ -676,7 +713,9 @@ impl BootSetup<'_> {
         }
 
         if boundary < self.virt_alloc_end {
-            return Err(XenClientError::new("segment boundary too low"));
+            return Err(XenClientError::new(
+                format!("segment boundary too low: {:#x})", boundary).as_str(),
+            ));
         }
         let pages = (boundary - self.virt_alloc_end) / X86_PAGE_SIZE;
         self.chk_alloc_pages(pages)?;
