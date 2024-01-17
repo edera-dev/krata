@@ -1,7 +1,7 @@
 use crate::error::Result;
 use xenclient::{DomainConfig, XenClient};
 
-pub struct Agent {
+pub struct Controller {
     client: XenClient,
     kernel_path: String,
     initrd_path: String,
@@ -9,10 +9,15 @@ pub struct Agent {
     mem: u64,
 }
 
-impl Agent {
-    pub fn new(kernel_path: String, initrd_path: String, vcpus: u32, mem: u64) -> Result<Agent> {
+impl Controller {
+    pub fn new(
+        kernel_path: String,
+        initrd_path: String,
+        vcpus: u32,
+        mem: u64,
+    ) -> Result<Controller> {
         let client = XenClient::open()?;
-        Ok(Agent {
+        Ok(Controller {
             client,
             kernel_path,
             initrd_path,
