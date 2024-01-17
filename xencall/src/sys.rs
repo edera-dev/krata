@@ -19,6 +19,17 @@ pub struct MmapEntry {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct MmapResource {
+    pub dom: u16,
+    pub typ: u32,
+    pub id: u32,
+    pub idx: u32,
+    pub num: u64,
+    pub addr: u64,
+}
+
+#[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct MmapBatch {
     pub num: u32,
@@ -39,10 +50,12 @@ pub struct Mmap {
 const IOCTL_PRIVCMD_HYPERCALL: u64 = 0x305000;
 const IOCTL_PRIVCMD_MMAP: u64 = 0x105002;
 const IOCTL_PRIVCMD_MMAPBATCH_V2: u64 = 0x205004;
+const IOCTL_PRIVCMD_MMAP_RESOURCE: u64 = 0x205007;
 
 ioctl_readwrite_bad!(hypercall, IOCTL_PRIVCMD_HYPERCALL, Hypercall);
 ioctl_readwrite_bad!(mmap, IOCTL_PRIVCMD_MMAP, Mmap);
 ioctl_readwrite_bad!(mmapbatch, IOCTL_PRIVCMD_MMAPBATCH_V2, MmapBatch);
+ioctl_readwrite_bad!(mmap_resource, IOCTL_PRIVCMD_MMAP_RESOURCE, MmapResource);
 
 pub const HYPERVISOR_SET_TRAP_TABLE: c_ulong = 0;
 pub const HYPERVISOR_MMU_UPDATE: c_ulong = 1;

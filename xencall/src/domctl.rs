@@ -15,7 +15,7 @@ use std::ptr::addr_of_mut;
 use std::slice;
 
 pub struct DomainControl<'a> {
-    call: &'a XenCall,
+    pub call: &'a XenCall,
 }
 
 impl DomainControl<'_> {

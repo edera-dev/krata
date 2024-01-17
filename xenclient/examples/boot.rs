@@ -25,16 +25,13 @@ fn main() -> Result<(), XenClientError> {
         ..Default::default()
     };
     let domid = domctl.create_domain(domain)?;
-    let result = boot(
+    boot(
         domid,
         kernel_image_path.as_str(),
         initrd_path.as_str(),
         &call,
         &domctl,
-    );
-    domctl.destroy_domain(domid)?;
-    result?;
-    println!("domain destroyed: {}", domid);
+    )?;
     Ok(())
 }
 
@@ -50,7 +47,7 @@ fn boot(
     let memctl = MemoryControl::new(call);
     let mut boot = BootSetup::new(call, domctl, &memctl, domid);
     let initrd = read(initrd_path)?;
-    let mut state = boot.initialize(&image_loader, initrd.as_slice(), 512)?;
+    let mut state = boot.initialize(&image_loader, initrd.as_slice(), 1, 512)?;
     boot.boot(&mut state, "debug")?;
     Ok(())
 }

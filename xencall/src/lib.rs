@@ -3,7 +3,7 @@ pub mod memory;
 pub mod sys;
 
 use crate::sys::{
-    Hypercall, MmapBatch, MultiCallEntry, XenCapabilitiesInfo, HYPERVISOR_MULTICALL,
+    Hypercall, MmapBatch, MmapResource, MultiCallEntry, XenCapabilitiesInfo, HYPERVISOR_MULTICALL,
     HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES,
 };
 use libc::{mmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
@@ -165,6 +165,29 @@ impl XenCall {
             calls.as_mut_ptr() as c_ulong,
             calls.len() as c_ulong,
         )?;
+        Ok(())
+    }
+
+    pub fn map_resource(
+        &self,
+        domid: u32,
+        typ: u32,
+        id: u32,
+        idx: u32,
+        num: u64,
+        addr: u64,
+    ) -> Result<(), XenCallError> {
+        let mut resource = MmapResource {
+            dom: domid as u16,
+            typ,
+            id,
+            idx,
+            num,
+            addr,
+        };
+        unsafe {
+            sys::mmap_resource(self.handle.as_raw_fd(), &mut resource)?;
+        }
         Ok(())
     }
 

@@ -1,7 +1,7 @@
 use crate::mem::PhysicalPages;
 use crate::sys::{
-    SUPERPAGE_2MB_NR_PFNS, SUPERPAGE_2MB_SHIFT, SUPERPAGE_BATCH_SIZE, VGCF_IN_KERNEL, VGCF_ONLINE,
-    XEN_PAGE_SHIFT,
+    GrantEntry, SUPERPAGE_2MB_NR_PFNS, SUPERPAGE_2MB_SHIFT, SUPERPAGE_BATCH_SIZE, VGCF_IN_KERNEL,
+    VGCF_ONLINE, XEN_PAGE_SHIFT,
 };
 use crate::x86::{
     PageTable, PageTableMapping, SharedInfo, StartInfo, MAX_GUEST_CMDLINE, X86_GUEST_MAGIC,
@@ -9,10 +9,11 @@ use crate::x86::{
     X86_PGTABLE_LEVEL_SHIFT, X86_VIRT_MASK,
 };
 use crate::XenClientError;
-use libc::c_char;
+use libc::{c_char, munmap};
 use log::{debug, trace};
 use slice_copy::copy;
 use std::cmp::{max, min};
+use std::ffi::c_void;
 use std::mem::size_of;
 use std::slice;
 use xencall::domctl::DomainControl;
@@ -57,7 +58,7 @@ pub struct DomainSegment {
     pfn: u64,
     addr: u64,
     size: u64,
-    _pages: u64,
+    pages: u64,
 }
 
 #[derive(Debug)]
@@ -79,6 +80,8 @@ pub struct BootState {
     pub page_table_segment: DomainSegment,
     pub page_table: PageTable,
     pub image_info: BootImageInfo,
+    pub shared_info_frame: u64,
+    pub initrd_segment: DomainSegment,
 }
 
 impl BootSetup<'_> {
@@ -229,9 +232,14 @@ impl BootSetup<'_> {
         &mut self,
         image_loader: &dyn BootImageLoader,
         initrd: &[u8],
+        max_vcpus: u32,
         mem_mb: u64,
     ) -> Result<BootState, XenClientError> {
-        debug!("BootSetup initialize mem_mb={:?}", mem_mb);
+        debug!(
+            "BootSetup initialize max_vcpus={:?} mem_mb={:?}",
+            max_vcpus, mem_mb
+        );
+        self.domctl.set_max_vcpus(self.domid, max_vcpus)?;
         self.domctl.set_max_mem(self.domid, mem_mb * 1024)?;
 
         let total_pages = mem_mb << (20 - X86_PAGE_SHIFT);
@@ -253,6 +261,11 @@ impl BootSetup<'_> {
         let console_segment = self.alloc_page()?;
         let page_table_segment = self.alloc_page_tables(&mut page_table, &image_info)?;
         let boot_stack_segment = self.alloc_page()?;
+
+        if self.virt_pgtab_end > 0 {
+            self.alloc_padding_pages(self.virt_pgtab_end)?;
+        }
+
         let mut initrd_segment: Option<DomainSegment> = None;
         if !image_info.unmapped_initrd {
             initrd_segment = Some(self.alloc_module(initrd)?);
@@ -264,15 +277,11 @@ impl BootSetup<'_> {
         }
         let p2m_segment = p2m_segment.unwrap();
 
-        if self.virt_pgtab_end > 0 {
-            self.alloc_padding_pages(self.virt_pgtab_end)?;
-        }
-
         if image_info.unmapped_initrd {
             initrd_segment = Some(self.alloc_module(initrd)?);
         }
 
-        let _initrd_segment = initrd_segment.unwrap();
+        let initrd_segment = initrd_segment.unwrap();
 
         let state = BootState {
             kernel_segment,
@@ -284,16 +293,17 @@ impl BootSetup<'_> {
             page_table_segment,
             page_table,
             image_info,
+            initrd_segment,
+            shared_info_frame: 0,
         };
         debug!("BootSetup initialize state={:?}", state);
         Ok(state)
     }
 
     pub fn boot(&mut self, state: &mut BootState, cmdline: &str) -> Result<(), XenClientError> {
-        debug!(
-            "domain info: {:?}",
-            self.domctl.get_domain_info(self.domid)?
-        );
+        let domain_info = self.domctl.get_domain_info(self.domid)?;
+        let shared_info_frame = domain_info.shared_info_frame;
+        state.shared_info_frame = shared_info_frame;
         self.setup_page_tables(state)?;
         self.setup_start_info(state, cmdline)?;
         self.setup_hypercall_page(&state.image_info)?;
@@ -304,7 +314,7 @@ impl BootSetup<'_> {
         let pg_mfn = self.phys.p2m[pg_pfn as usize];
         self.memctl
             .mmuext(self.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)?;
-        // self.setup_shared_info()?;
+        self.setup_shared_info(state.shared_info_frame)?;
 
         let mut vcpu = VcpuGuestContext::default();
         vcpu.user_regs.rip = state.image_info.virt_entry;
@@ -330,13 +340,46 @@ impl BootSetup<'_> {
         vcpu.user_regs.cs = 0xe033;
         vcpu.kernel_ss = vcpu.user_regs.ss as u64;
         vcpu.kernel_sp = vcpu.user_regs.rsp;
+        debug!("vcpu context: {:?}", vcpu);
         self.domctl.set_vcpu_context(self.domid, 0, &vcpu)?;
+        self.phys.unmap_all()?;
+        self.gnttab_seed(state)?;
+        Ok(())
+    }
+
+    fn gnttab_seed(&mut self, state: &mut BootState) -> Result<(), XenClientError> {
+        let console_gfn = self.phys.p2m[state.console_segment.pfn as usize];
+        let xenstore_gfn = self.phys.p2m[state.xenstore_segment.pfn as usize];
+        let addr = self
+            .domctl
+            .call
+            .mmap(0, 1 << XEN_PAGE_SHIFT)
+            .ok_or(XenClientError::new("failed to mmap for resource"))?;
+        self.domctl
+            .call
+            .map_resource(self.domid, 1, 0, 0, 1, addr)?;
+        let entries = unsafe { slice::from_raw_parts_mut(addr as *mut GrantEntry, 2) };
+        entries[0].flags = 1 << 0;
+        entries[0].domid = 0;
+        entries[0].frame = console_gfn as u32;
+        entries[1].flags = 1 << 0;
+        entries[1].domid = 0;
+        entries[1].frame = xenstore_gfn as u32;
+        unsafe {
+            let result = munmap(addr as *mut c_void, 1 << XEN_PAGE_SHIFT);
+            if result != 0 {
+                return Err(XenClientError::new("failed to unmap resource"));
+            }
+        }
         Ok(())
     }
 
     fn setup_page_tables(&mut self, state: &mut BootState) -> Result<(), XenClientError> {
         let p2m_guest = unsafe {
-            slice::from_raw_parts_mut(state.p2m_segment.addr as *mut u64, self.phys.p2m.len())
+            slice::from_raw_parts_mut(
+                state.p2m_segment.addr as *mut u64,
+                self.phys.p2m_size() as usize,
+            )
         };
         copy(p2m_guest, &self.phys.p2m);
 
@@ -430,37 +473,44 @@ impl BootSetup<'_> {
     }
 
     fn setup_start_info(&mut self, state: &BootState, cmdline: &str) -> Result<(), XenClientError> {
-        let info = self.phys.pfn_to_ptr(state.start_info_segment.pfn, 1)? as *mut StartInfo;
+        let ptr = self.phys.pfn_to_ptr(state.start_info_segment.pfn, 1)?;
+        let byte_slice =
+            unsafe { slice::from_raw_parts_mut(ptr as *mut u8, X86_PAGE_SIZE as usize) };
+        byte_slice.fill(0);
+        let info = ptr as *mut StartInfo;
         unsafe {
             for (i, c) in X86_GUEST_MAGIC.chars().enumerate() {
                 (*info).magic[i] = c as c_char;
             }
+            (*info).magic[X86_GUEST_MAGIC.len()] = 0 as c_char;
             (*info).nr_pages = self.total_pages;
-            (*info).shared_info = 0;
+            (*info).shared_info = state.shared_info_frame << X86_PAGE_SHIFT;
             (*info).pt_base = state.page_table_segment.vstart;
             (*info).nr_pt_frames = state.page_table.mappings[0].area.pgtables as u64;
-            (*info).mfn_list = 0;
-            (*info).first_p2m_pfn = 0;
-            (*info).nr_p2m_frames = 0;
+            (*info).mfn_list = state.p2m_segment.vstart;
+            (*info).first_p2m_pfn = state.p2m_segment.pfn;
+            (*info).nr_p2m_frames = state.p2m_segment.pages;
             (*info).flags = 0;
             (*info).store_evtchn = 0;
             (*info).store_mfn = self.phys.p2m[state.xenstore_segment.pfn as usize];
             (*info).console.mfn = self.phys.p2m[state.console_segment.pfn as usize];
             (*info).console.evtchn = 0;
-            (*info).mod_start = 0;
-            (*info).mod_len = 0;
+            (*info).mod_start = state.initrd_segment.vstart;
+            (*info).mod_len = state.initrd_segment.size;
             for (i, c) in cmdline.chars().enumerate() {
                 (*info).cmdline[i] = c as c_char;
-                (*info).cmdline[MAX_GUEST_CMDLINE - 1] = 0;
             }
+            (*info).cmdline[MAX_GUEST_CMDLINE - 1] = 0;
             trace!("BootSetup setup_start_info start_info={:?}", *info);
         }
         Ok(())
     }
 
-    fn _setup_shared_info(&mut self) -> Result<(), XenClientError> {
-        let domain_info = self.domctl.get_domain_info(self.domid)?;
-        let info = self.phys.pfn_to_ptr(domain_info.shared_info_frame, 1)? as *mut SharedInfo;
+    fn setup_shared_info(&mut self, shared_info_frame: u64) -> Result<(), XenClientError> {
+        let info = self
+            .phys
+            .map_foreign_pages(shared_info_frame, X86_PAGE_SIZE)?
+            as *mut SharedInfo;
         unsafe {
             let size = size_of::<SharedInfo>();
             let info_as_buff = slice::from_raw_parts_mut(info as *mut u8, size);
@@ -656,7 +706,7 @@ impl BootSetup<'_> {
             pfn: self.pfn_alloc_end,
             addr: 0,
             size,
-            _pages: pages,
+            pages,
         };
 
         self.chk_alloc_pages(pages)?;
@@ -687,7 +737,7 @@ impl BootSetup<'_> {
             pfn,
             addr: 0,
             size: 0,
-            _pages: 1,
+            pages: 1,
         })
     }
 

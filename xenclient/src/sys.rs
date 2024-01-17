@@ -121,3 +121,10 @@ pub const SUPERPAGE_2MB_SHIFT: u64 = 9;
 pub const SUPERPAGE_2MB_NR_PFNS: u64 = 1u64 << SUPERPAGE_2MB_SHIFT;
 pub const VGCF_IN_KERNEL: u64 = 1 << 2;
 pub const VGCF_ONLINE: u64 = 1 << 5;
+
+#[repr(C)]
+pub struct GrantEntry {
+    pub flags: u16,
+    pub domid: u16,
+    pub frame: u32,
+}
