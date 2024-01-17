@@ -8,6 +8,7 @@ mod x86;
 use crate::boot::BootSetup;
 use crate::create::DomainConfig;
 use crate::elfloader::ElfImageLoader;
+use crate::x86::X86BootSetup;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::read;
@@ -148,10 +149,7 @@ impl XenClient {
                 format!("{}/uuid", vm_path).as_str(),
                 &Uuid::from_bytes(domain.handle).to_string(),
             )?;
-            tx.write_string(
-                format!("{}/name", vm_path).as_str(),
-                "mycelium",
-            )?;
+            tx.write_string(format!("{}/name", vm_path).as_str(), "mycelium")?;
             tx.write_string(format!("{}/type", libxl_path).as_str(), "pv")?;
             tx.commit()?;
         }
@@ -167,14 +165,16 @@ impl XenClient {
 
         {
             let mut boot = BootSetup::new(&self.call, domid);
+            let mut arch = X86BootSetup::new();
             let initrd = read(config.initrd_path.as_str())?;
             let mut state = boot.initialize(
+                &mut arch,
                 &image_loader,
                 initrd.as_slice(),
                 config.max_vcpus,
                 config.mem_mb,
             )?;
-            boot.boot(&mut state, config.cmdline.as_str())?;
+            boot.boot(&mut arch, &mut state, config.cmdline.as_str())?;
             console_evtchn = state.console_evtchn;
             xenstore_evtchn = state.store_evtchn;
             console_mfn = boot.phys.p2m[state.console_segment.pfn as usize];
@@ -183,10 +183,7 @@ impl XenClient {
 
         {
             let mut tx = self.store.transaction()?;
-            tx.write_string(
-                format!("{}/image/os_type", vm_path).as_str(),
-                "linux",
-            )?;
+            tx.write_string(format!("{}/image/os_type", vm_path).as_str(), "linux")?;
             tx.write_string(
                 format!("{}/image/kernel", vm_path).as_str(),
                 &config.kernel_path,
@@ -208,10 +205,7 @@ impl XenClient {
                 format!("{}/memory/target", dom_path).as_str(),
                 &(config.mem_mb * 1024).to_string(),
             )?;
-            tx.write_string(
-                format!("{}/memory/videoram", dom_path).as_str(),
-                "0",
-            )?;
+            tx.write_string(format!("{}/memory/videoram", dom_path).as_str(), "0")?;
             tx.write_string(format!("{}/domid", dom_path).as_str(), &domid.to_string())?;
             tx.write_string(
                 format!("{}/store/port", dom_path).as_str(),
@@ -252,32 +246,14 @@ impl XenClient {
             format!("{}/frontend-id", backend_path).as_str(),
             &domid.to_string(),
         )?;
-        tx.write_string(
-            format!("{}/online", backend_path).as_str(),
-            "1",
-        )?;
+        tx.write_string(format!("{}/online", backend_path).as_str(), "1")?;
         tx.write_string(format!("{}/state", backend_path).as_str(), "1")?;
-        tx.write_string(
-            format!("{}/protocol", backend_path).as_str(),
-            "vt100",
-        )?;
+        tx.write_string(format!("{}/protocol", backend_path).as_str(), "vt100")?;
 
-        tx.write_string(
-            format!("{}/backend-id", frontend_path).as_str(),
-            "0",
-        )?;
-        tx.write_string(
-            format!("{}/limit", frontend_path).as_str(),
-            "1048576",
-        )?;
-        tx.write_string(
-            format!("{}/type", frontend_path).as_str(),
-            "xenconsoled",
-        )?;
-        tx.write_string(
-            format!("{}/output", frontend_path).as_str(),
-            "pty",
-        )?;
+        tx.write_string(format!("{}/backend-id", frontend_path).as_str(), "0")?;
+        tx.write_string(format!("{}/limit", frontend_path).as_str(), "1048576")?;
+        tx.write_string(format!("{}/type", frontend_path).as_str(), "xenconsoled")?;
+        tx.write_string(format!("{}/output", frontend_path).as_str(), "pty")?;
         tx.write_string(format!("{}/tty", frontend_path).as_str(), "")?;
         tx.write_string(
             format!("{}/port", frontend_path).as_str(),
