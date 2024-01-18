@@ -33,7 +33,7 @@ impl ImageCache {
                 {
                     let manifest_text = fs::read_to_string(&manifest_path)?;
                     let manifest: ImageManifest = serde_json::from_str(&manifest_text)?;
-                    let config_text = fs::read_to_string(&manifest_path)?;
+                    let config_text = fs::read_to_string(&config_path)?;
                     let config: ImageConfiguration = serde_json::from_str(&config_text)?;
                     debug!("cache hit digest={}", digest);
                     Some(ImageInfo::new(squashfs_path.clone(), manifest, config)?)

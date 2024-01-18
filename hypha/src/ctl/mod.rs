@@ -4,6 +4,7 @@ use crate::image::{ImageCompiler, ImageInfo};
 use ocipkg::ImageName;
 use std::fs;
 use std::path::PathBuf;
+use uuid::Uuid;
 use xenclient::{DomainConfig, XenClient};
 
 pub struct Controller {
@@ -50,8 +51,11 @@ impl Controller {
     }
 
     pub fn launch(&mut self) -> Result<u32> {
+        let uuid = Uuid::new_v4();
+        let name = format!("hypha-{uuid}");
         let _image_info = self.compile()?;
         let config = DomainConfig {
+            name: &name,
             max_vcpus: self.vcpus,
             mem_mb: self.mem,
             kernel_path: self.kernel_path.as_str(),

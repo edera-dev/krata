@@ -79,6 +79,7 @@ impl From<EventChannelError> for XenClientError {
 }
 
 pub struct DomainConfig<'a> {
+    pub name: &'a str,
     pub max_vcpus: u32,
     pub mem_mb: u64,
     pub kernel_path: &'a str,
@@ -153,7 +154,8 @@ impl XenClient {
                 format!("{}/uuid", vm_path).as_str(),
                 &Uuid::from_bytes(domain.handle).to_string(),
             )?;
-            tx.write_string(format!("{}/name", vm_path).as_str(), "mycelium")?;
+            tx.write_string(format!("{}/name", dom_path).as_str(), config.name)?;
+            tx.write_string(format!("{}/name", vm_path).as_str(), config.name)?;
             tx.write_string(format!("{}/type", libxl_path).as_str(), "pv")?;
             tx.commit()?;
         }
