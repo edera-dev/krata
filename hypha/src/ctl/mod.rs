@@ -1,7 +1,7 @@
 use crate::error::{HyphaError, Result};
 use crate::image::cache::ImageCache;
+use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
-use ocipkg::ImageName;
 use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;

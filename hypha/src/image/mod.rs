@@ -1,13 +1,14 @@
 pub mod cache;
+pub mod fetch;
+pub mod name;
 
 use crate::error::{HyphaError, Result};
 use crate::image::cache::ImageCache;
+use crate::image::fetch::RegistryClient;
+use crate::image::name::ImageName;
 use backhand::{FilesystemWriter, NodeHeader};
 use log::{debug, trace};
 use oci_spec::image::{ImageConfiguration, ImageManifest, MediaType};
-use ocipkg::distribution::Client;
-use ocipkg::error::Error;
-use ocipkg::{Digest, ImageName};
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
@@ -71,11 +72,8 @@ impl ImageCompiler<'_> {
             "ImageCompiler download image={image}, image_dir={}",
             image_dir.to_str().unwrap()
         );
-        let ImageName {
-            name, reference, ..
-        } = image;
-        let mut client = Client::new(image.registry_url()?, name.clone())?;
-        let manifest = client.get_manifest(reference)?;
+        let mut client = RegistryClient::new(image.registry_url()?)?;
+        let manifest = client.get_manifest(&image.name, &image.reference)?;
         let manifest_serialized = serde_json::to_string(&manifest)?;
         let cache_key = format!(
             "manifest\n{}squashfs-version\n{}\n",
@@ -87,7 +85,7 @@ impl ImageCompiler<'_> {
             return Ok(cached);
         }
 
-        let config_bytes = client.get_blob(&Digest::new(manifest.config().digest())?)?;
+        let config_bytes = client.get_blob(&image.name, manifest.config())?;
         let config: ImageConfiguration = serde_json::from_slice(&config_bytes)?;
 
         for layer in manifest.layers() {
@@ -97,7 +95,7 @@ impl ImageCompiler<'_> {
                 layer.size()
             );
 
-            let blob = client.get_blob(&Digest::new(layer.digest())?)?;
+            let blob = client.get_blob(&image.name, layer)?;
             match layer.media_type() {
                 MediaType::ImageLayerGzip => {}
                 MediaType::Other(ty) => {
@@ -123,7 +121,7 @@ impl ImageCompiler<'_> {
             let info = ImageInfo::new(squash_file.clone(), manifest.clone(), config)?;
             return self.cache.store(&cache_digest, &info);
         }
-        Err(Error::MissingLayer.into())
+        Err(HyphaError::new("unable to find image layer"))
     }
 
     fn squash(&self, image_dir: &PathBuf, squash_file: &PathBuf) -> Result<()> {

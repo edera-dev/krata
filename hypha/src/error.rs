@@ -1,6 +1,8 @@
 use backhand::BackhandError;
+use oci_spec::OciSpecError;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::num::ParseIntError;
 use std::path::StripPrefixError;
 use xenclient::XenClientError;
 
@@ -43,12 +45,6 @@ impl From<XenClientError> for HyphaError {
     }
 }
 
-impl From<ocipkg::error::Error> for HyphaError {
-    fn from(value: ocipkg::error::Error) -> Self {
-        HyphaError::new(value.to_string().as_str())
-    }
-}
-
 impl From<walkdir::Error> for HyphaError {
     fn from(value: walkdir::Error) -> Self {
         HyphaError::new(value.to_string().as_str())
@@ -69,6 +65,36 @@ impl From<BackhandError> for HyphaError {
 
 impl From<serde_json::Error> for HyphaError {
     fn from(value: serde_json::Error) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
+
+impl From<ureq::Error> for HyphaError {
+    fn from(value: ureq::Error) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
+
+impl From<ParseIntError> for HyphaError {
+    fn from(value: ParseIntError) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
+
+impl From<OciSpecError> for HyphaError {
+    fn from(value: OciSpecError) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
+
+impl From<url::ParseError> for HyphaError {
+    fn from(value: url::ParseError) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
+
+impl From<std::fmt::Error> for HyphaError {
+    fn from(value: std::fmt::Error) -> Self {
         HyphaError::new(value.to_string().as_str())
     }
 }
