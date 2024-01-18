@@ -16,6 +16,8 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+pub const IMAGE_SQUASHFS_VERSION: u64 = 1;
+
 pub struct ImageInfo {
     pub squashfs: PathBuf,
     pub manifest: ImageManifest,
@@ -75,8 +77,13 @@ impl ImageCompiler<'_> {
         let mut client = Client::new(image.registry_url()?, name.clone())?;
         let manifest = client.get_manifest(reference)?;
         let manifest_serialized = serde_json::to_string(&manifest)?;
-        let manifest_digest = sha256::digest(manifest_serialized);
-        if let Some(cached) = self.cache.recall(&manifest_digest)? {
+        let cache_key = format!(
+            "manifest\n{}squashfs-version\n{}\n",
+            manifest_serialized, IMAGE_SQUASHFS_VERSION
+        );
+        let cache_digest = sha256::digest(cache_key);
+
+        if let Some(cached) = self.cache.recall(&cache_digest)? {
             return Ok(cached);
         }
 
@@ -114,7 +121,7 @@ impl ImageCompiler<'_> {
             );
             self.squash(image_dir, squash_file)?;
             let info = ImageInfo::new(squash_file.clone(), manifest.clone(), config)?;
-            return self.cache.store(&manifest_digest, &info);
+            return self.cache.store(&cache_digest, &info);
         }
         Err(Error::MissingLayer.into())
     }
