@@ -4,7 +4,7 @@ use crate::error::{HyphaError, Result};
 use crate::image::cache::ImageCache;
 use backhand::{FilesystemWriter, NodeHeader};
 use log::{debug, trace};
-use oci_spec::image::{ImageManifest, MediaType};
+use oci_spec::image::{ImageConfiguration, ImageManifest, MediaType};
 use ocipkg::distribution::Client;
 use ocipkg::error::Error;
 use ocipkg::{Digest, ImageName};
@@ -19,11 +19,20 @@ use walkdir::WalkDir;
 pub struct ImageInfo {
     pub squashfs: PathBuf,
     pub manifest: ImageManifest,
+    pub config: ImageConfiguration,
 }
 
 impl ImageInfo {
-    fn new(squashfs: PathBuf, manifest: ImageManifest) -> Result<ImageInfo> {
-        Ok(ImageInfo { squashfs, manifest })
+    fn new(
+        squashfs: PathBuf,
+        manifest: ImageManifest,
+        config: ImageConfiguration,
+    ) -> Result<ImageInfo> {
+        Ok(ImageInfo {
+            squashfs,
+            manifest,
+            config,
+        })
     }
 }
 
@@ -70,6 +79,10 @@ impl ImageCompiler<'_> {
         if let Some(cached) = self.cache.recall(&manifest_digest)? {
             return Ok(cached);
         }
+
+        let config_bytes = client.get_blob(&Digest::new(manifest.config().digest())?)?;
+        let config: ImageConfiguration = serde_json::from_slice(&config_bytes)?;
+
         for layer in manifest.layers() {
             debug!(
                 "ImageCompiler download start digest={} size={}",
@@ -100,7 +113,7 @@ impl ImageCompiler<'_> {
                 layer.size()
             );
             self.squash(image_dir, squash_file)?;
-            let info = ImageInfo::new(squash_file.clone(), manifest.clone())?;
+            let info = ImageInfo::new(squash_file.clone(), manifest.clone(), config)?;
             return self.cache.store(&manifest_digest, &info);
         }
         Err(Error::MissingLayer.into())
