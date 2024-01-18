@@ -1,17 +1,37 @@
 use crate::bus::{XsdBusError, XsdSocket};
 use crate::sys::{
-    XSD_DIRECTORY, XSD_GET_DOMAIN_PATH, XSD_INTRODUCE, XSD_MKDIR, XSD_READ, XSD_RM,
+    XSD_DIRECTORY, XSD_GET_DOMAIN_PATH, XSD_INTRODUCE, XSD_MKDIR, XSD_READ, XSD_RM, XSD_SET_PERMS,
     XSD_TRANSACTION_END, XSD_TRANSACTION_START, XSD_WRITE,
 };
+use log::trace;
 use std::ffi::CString;
+
+pub const XS_PERM_NONE: u32 = 0x00;
+pub const XS_PERM_READ: u32 = 0x01;
+pub const XS_PERM_WRITE: u32 = 0x02;
+pub const XS_PERM_READ_WRITE: u32 = XS_PERM_READ | XS_PERM_WRITE;
 
 pub struct XsdClient {
     pub socket: XsdSocket,
 }
 
-pub struct XsPermissions {
+#[derive(Debug, Copy, Clone)]
+pub struct XsPermission {
     pub id: u32,
     pub perms: u32,
+}
+
+impl XsPermission {
+    pub fn encode(&self) -> Result<String, XsdBusError> {
+        let c = match self.perms {
+            XS_PERM_READ_WRITE => 'b',
+            XS_PERM_WRITE => 'w',
+            XS_PERM_READ => 'r',
+            XS_PERM_NONE => 'n',
+            _ => return Err(XsdBusError::new("invalid permissions")),
+        };
+        Ok(format!("{}{}", c, self.id))
+    }
 }
 
 pub trait XsdInterface {
@@ -22,9 +42,12 @@ pub trait XsdInterface {
     fn write_string(&mut self, path: &str, data: &str) -> Result<bool, XsdBusError>;
     fn mkdir(&mut self, path: &str) -> Result<bool, XsdBusError>;
     fn rm(&mut self, path: &str) -> Result<bool, XsdBusError>;
+    fn set_perms(&mut self, path: &str, perms: &[XsPermission]) -> Result<bool, XsdBusError>;
 
-    fn mknod(&mut self, path: &str, _perm: &XsPermissions) -> Result<bool, XsdBusError> {
-        self.write_string(path, "")
+    fn mknod(&mut self, path: &str, perms: &[XsPermission]) -> Result<bool, XsdBusError> {
+        let result1 = self.write_string(path, "")?;
+        let result2 = self.set_perms(path, perms)?;
+        Ok(result1 && result2)
     }
 }
 
@@ -35,16 +58,19 @@ impl XsdClient {
     }
 
     fn list(&mut self, tx: u32, path: &str) -> Result<Vec<String>, XsdBusError> {
+        trace!("list tx={tx} path={path}");
         let response = self.socket.send_single(tx, XSD_DIRECTORY, path)?;
         response.parse_string_vec()
     }
 
     fn read(&mut self, tx: u32, path: &str) -> Result<Vec<u8>, XsdBusError> {
+        trace!("read tx={tx} path={path}");
         let response = self.socket.send_single(tx, XSD_READ, path)?;
         Ok(response.payload)
     }
 
     fn write(&mut self, tx: u32, path: &str, data: Vec<u8>) -> Result<bool, XsdBusError> {
+        trace!("write tx={tx} path={path} data={:?}", data);
         let mut buffer = Vec::new();
         let path = CString::new(path)?;
         buffer.extend_from_slice(path.as_bytes_with_nul());
@@ -54,14 +80,34 @@ impl XsdClient {
     }
 
     fn mkdir(&mut self, tx: u32, path: &str) -> Result<bool, XsdBusError> {
+        trace!("mkdir tx={tx} path={path}");
         self.socket.send_single(tx, XSD_MKDIR, path)?.parse_bool()
     }
 
     fn rm(&mut self, tx: u32, path: &str) -> Result<bool, XsdBusError> {
+        trace!("rm tx={tx} path={path}");
         self.socket.send_single(tx, XSD_RM, path)?.parse_bool()
     }
 
+    fn set_perms(
+        &mut self,
+        tx: u32,
+        path: &str,
+        perms: &[XsPermission],
+    ) -> Result<bool, XsdBusError> {
+        trace!("set_perms tx={tx} path={path} perms={:?}", perms);
+        let mut items: Vec<String> = Vec::new();
+        items.push(path.to_string());
+        for perm in perms {
+            items.push(perm.encode()?);
+        }
+        let items_str: Vec<&str> = items.iter().map(|x| x.as_str()).collect();
+        let response = self.socket.send_multiple(tx, XSD_SET_PERMS, &items_str)?;
+        response.parse_bool()
+    }
+
     pub fn transaction(&mut self) -> Result<XsdTransaction, XsdBusError> {
+        trace!("transaction start");
         let response = self.socket.send_single(0, XSD_TRANSACTION_START, "")?;
         let str = response.parse_string()?;
         let tx = str.parse::<u32>()?;
@@ -79,18 +125,19 @@ impl XsdClient {
         &mut self,
         domid: u32,
         mfn: u64,
-        eventchn: u32,
-    ) -> Result<String, XsdBusError> {
+        evtchn: u32,
+    ) -> Result<bool, XsdBusError> {
+        trace!("introduce domain domid={domid} mfn={mfn} evtchn={evtchn}");
         let response = self.socket.send_multiple(
             0,
             XSD_INTRODUCE,
             &[
                 domid.to_string().as_str(),
                 mfn.to_string().as_str(),
-                eventchn.to_string().as_str(),
+                evtchn.to_string().as_str(),
             ],
         )?;
-        response.parse_string()
+        response.parse_bool()
     }
 }
 
@@ -127,6 +174,10 @@ impl XsdInterface for XsdClient {
     fn rm(&mut self, path: &str) -> Result<bool, XsdBusError> {
         self.rm(0, path)
     }
+
+    fn set_perms(&mut self, path: &str, perms: &[XsPermission]) -> Result<bool, XsdBusError> {
+        self.set_perms(0, path, perms)
+    }
 }
 
 impl XsdInterface for XsdTransaction<'_> {
@@ -157,12 +208,17 @@ impl XsdInterface for XsdTransaction<'_> {
     fn rm(&mut self, path: &str) -> Result<bool, XsdBusError> {
         self.client.rm(self.tx, path)
     }
+
+    fn set_perms(&mut self, path: &str, perms: &[XsPermission]) -> Result<bool, XsdBusError> {
+        self.client.set_perms(self.tx, path, perms)
+    }
 }
 
 impl XsdTransaction<'_> {
     pub fn end(&mut self, abort: bool) -> Result<bool, XsdBusError> {
         let abort_str = if abort { "F" } else { "T" };
 
+        trace!("transaction end abort={abort_str}");
         self.client
             .socket
             .send_single(self.tx, XSD_TRANSACTION_END, abort_str)?

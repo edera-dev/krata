@@ -13,12 +13,14 @@ fn main() -> Result<(), XenClientError> {
     let initrd_path = args.get(2).expect("argument not specified");
     let mut client = XenClient::open()?;
     let config = DomainConfig {
+        backend_domid: 0,
         name: "xenclient-test",
         max_vcpus: 1,
         mem_mb: 512,
         kernel_path: kernel_image_path.as_str(),
         initrd_path: initrd_path.as_str(),
         cmdline: "debug elevator=noop",
+        disks: vec![],
     };
     let domid = client.create(&config)?;
     println!("created domain {}", domid);

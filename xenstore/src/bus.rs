@@ -120,13 +120,7 @@ impl XsdResponse {
     }
 
     pub fn parse_bool(&self) -> Result<bool, XsdBusError> {
-        if self.payload.is_empty() {
-            Err(XsdBusError::new(
-                "Expected bool payload to be at least one byte.",
-            ))
-        } else {
-            Ok(self.payload[0] == 0)
-        }
+        Ok(true)
     }
 }
 

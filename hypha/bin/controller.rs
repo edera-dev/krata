@@ -1,6 +1,7 @@
 use clap::Parser;
 use hypha::ctl::Controller;
 use hypha::error::{HyphaError, Result};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -20,23 +21,28 @@ struct ControllerArgs {
     #[arg(short, long, default_value_t = 512)]
     mem: u64,
 
-    #[arg(short = 'C', long, default_value = "auto")]
-    cache: String,
+    #[arg(short, long, default_value = "auto")]
+    store: String,
 }
 
 fn main() -> Result<()> {
     env_logger::init();
 
     let args = ControllerArgs::parse();
-    let cache_path = if args.cache == "auto" {
-        default_cache_path()
-            .ok_or_else(|| HyphaError::new("unable to determine default cache path"))
+    let store_path = if args.store == "auto" {
+        default_store_path()
+            .ok_or_else(|| HyphaError::new("unable to determine default store path"))
     } else {
-        Ok(args.cache)
+        Ok(PathBuf::from(args.store))
     }?;
 
+    let store_path = store_path
+        .to_str()
+        .map(|x| x.to_string())
+        .ok_or_else(|| HyphaError::new("unable to convert store path to string"))?;
+
     let mut controller = Controller::new(
-        cache_path,
+        store_path,
         args.kernel,
         args.initrd,
         args.image,
@@ -48,9 +54,13 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn default_cache_path() -> Option<String> {
+fn default_store_path() -> Option<PathBuf> {
     let user_dirs = directories::UserDirs::new()?;
     let mut path = user_dirs.home_dir().to_path_buf();
-    path.push(".hypha/cache");
-    Some(path.to_str()?.to_string())
+    if path == PathBuf::from("/root") {
+        path.push("/var/lib/hypha")
+    } else {
+        path.push(".hypha");
+    }
+    Some(path)
 }

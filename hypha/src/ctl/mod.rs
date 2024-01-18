@@ -1,11 +1,11 @@
-use crate::error::Result;
+use crate::error::{HyphaError, Result};
 use crate::image::cache::ImageCache;
 use crate::image::{ImageCompiler, ImageInfo};
 use ocipkg::ImageName;
 use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
-use xenclient::{DomainConfig, XenClient};
+use xenclient::{DomainConfig, DomainDisk, XenClient};
 
 pub struct Controller {
     image_cache: ImageCache,
@@ -19,17 +19,18 @@ pub struct Controller {
 
 impl Controller {
     pub fn new(
-        cache_path: String,
+        store_path: String,
         kernel_path: String,
         initrd_path: String,
         image: String,
         vcpus: u32,
         mem: u64,
     ) -> Result<Controller> {
-        fs::create_dir_all(&cache_path)?;
+        let mut image_cache_path = PathBuf::from(store_path);
+        image_cache_path.push("cache");
+        fs::create_dir_all(&image_cache_path)?;
 
         let client = XenClient::open()?;
-        let mut image_cache_path = PathBuf::from(cache_path);
         image_cache_path.push("image");
         fs::create_dir_all(&image_cache_path)?;
         let image_cache = ImageCache::new(&image_cache_path)?;
@@ -53,14 +54,24 @@ impl Controller {
     pub fn launch(&mut self) -> Result<u32> {
         let uuid = Uuid::new_v4();
         let name = format!("hypha-{uuid}");
-        let _image_info = self.compile()?;
+        let image_info = self.compile()?;
+        let squashfs_path = image_info
+            .squashfs
+            .to_str()
+            .ok_or_else(|| HyphaError::new("failed to convert squashfs path to string"))?;
         let config = DomainConfig {
+            backend_domid: 0,
             name: &name,
             max_vcpus: self.vcpus,
             mem_mb: self.mem,
             kernel_path: self.kernel_path.as_str(),
             initrd_path: self.initrd_path.as_str(),
-            cmdline: "debug elevator=noop",
+            cmdline: "elevator=noop",
+            disks: vec![DomainDisk {
+                vdev: "xvda",
+                pdev: squashfs_path,
+                writable: false,
+            }],
         };
         Ok(self.client.create(&config)?)
     }
