@@ -1,7 +1,10 @@
+pub mod cache;
+
 use crate::error::{HyphaError, Result};
+use crate::image::cache::ImageCache;
 use backhand::{FilesystemWriter, NodeHeader};
 use log::{debug, trace};
-use oci_spec::image::MediaType;
+use oci_spec::image::{ImageManifest, MediaType};
 use ocipkg::distribution::Client;
 use ocipkg::error::Error;
 use ocipkg::{Digest, ImageName};
@@ -13,14 +16,27 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-pub struct ImageCompiler {}
+pub struct ImageInfo {
+    pub squashfs: PathBuf,
+    pub manifest: ImageManifest,
+}
 
-impl ImageCompiler {
-    pub fn new() -> Result<ImageCompiler> {
-        Ok(ImageCompiler {})
+impl ImageInfo {
+    fn new(squashfs: PathBuf, manifest: ImageManifest) -> Result<ImageInfo> {
+        Ok(ImageInfo { squashfs, manifest })
+    }
+}
+
+pub struct ImageCompiler<'a> {
+    cache: &'a ImageCache,
+}
+
+impl ImageCompiler<'_> {
+    pub fn new(cache: &ImageCache) -> Result<ImageCompiler> {
+        Ok(ImageCompiler { cache })
     }
 
-    pub fn compile(&self, image: &ImageName) -> Result<String> {
+    pub fn compile(&self, image: &ImageName) -> Result<ImageInfo> {
         debug!("ImageCompiler compile image={image}");
         let mut tmp_dir = std::env::temp_dir().clone();
         tmp_dir.push(format!("hypha-compile-{}", Uuid::new_v4()));
@@ -29,11 +45,17 @@ impl ImageCompiler {
         fs::create_dir_all(&image_dir)?;
         let mut squash_file = tmp_dir.clone();
         squash_file.push("image.squashfs");
-        self.download(image, &image_dir)?;
-        self.squash(&image_dir, &squash_file)
+        let info = self.download_and_compile(image, &image_dir, &squash_file)?;
+        fs::remove_dir_all(tmp_dir)?;
+        Ok(info)
     }
 
-    fn download(&self, image: &ImageName, image_dir: &PathBuf) -> Result<()> {
+    fn download_and_compile(
+        &self,
+        image: &ImageName,
+        image_dir: &PathBuf,
+        squash_file: &PathBuf,
+    ) -> Result<ImageInfo> {
         debug!(
             "ImageCompiler download image={image}, image_dir={}",
             image_dir.to_str().unwrap()
@@ -43,12 +65,18 @@ impl ImageCompiler {
         } = image;
         let mut client = Client::new(image.registry_url()?, name.clone())?;
         let manifest = client.get_manifest(reference)?;
+        let manifest_serialized = serde_json::to_string(&manifest)?;
+        let manifest_digest = sha256::digest(manifest_serialized);
+        if let Some(cached) = self.cache.recall(&manifest_digest)? {
+            return Ok(cached);
+        }
         for layer in manifest.layers() {
             debug!(
                 "ImageCompiler download start digest={} size={}",
                 layer.digest(),
                 layer.size()
             );
+
             let blob = client.get_blob(&Digest::new(layer.digest())?)?;
             match layer.media_type() {
                 MediaType::ImageLayerGzip => {}
@@ -71,12 +99,14 @@ impl ImageCompiler {
                 layer.digest(),
                 layer.size()
             );
-            return Ok(());
+            self.squash(image_dir, squash_file)?;
+            let info = ImageInfo::new(squash_file.clone(), manifest.clone())?;
+            return self.cache.store(&manifest_digest, &info);
         }
         Err(Error::MissingLayer.into())
     }
 
-    fn squash(&self, image_dir: &PathBuf, squash_file: &PathBuf) -> Result<String> {
+    fn squash(&self, image_dir: &PathBuf, squash_file: &PathBuf) -> Result<()> {
         let mut writer = FilesystemWriter::default();
         let walk = WalkDir::new(image_dir).follow_links(false);
         for entry in walk {
@@ -137,9 +167,8 @@ impl ImageCompiler {
             .ok_or_else(|| HyphaError::new("failed to convert squashfs string"))?;
 
         let mut out = File::create(squash_file)?;
-        trace!("ImageCompiler squash generateI : {}", squash_file_path);
+        trace!("ImageCompiler squash generate: {}", squash_file_path);
         writer.write(&mut out)?;
-
-        Ok(squash_file_path.to_string())
+        Ok(())
     }
 }

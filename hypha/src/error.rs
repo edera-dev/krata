@@ -66,3 +66,9 @@ impl From<BackhandError> for HyphaError {
         HyphaError::new(value.to_string().as_str())
     }
 }
+
+impl From<serde_json::Error> for HyphaError {
+    fn from(value: serde_json::Error) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
