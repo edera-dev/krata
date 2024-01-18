@@ -1,3 +1,6 @@
+mod cfgblk;
+
+use crate::ctl::cfgblk::ConfigBlock;
 use crate::error::{HyphaError, Result};
 use crate::image::cache::ImageCache;
 use crate::image::name::ImageName;
@@ -55,10 +58,16 @@ impl Controller {
         let uuid = Uuid::new_v4();
         let name = format!("hypha-{uuid}");
         let image_info = self.compile()?;
-        let squashfs_path = image_info
-            .squashfs
+        let cfgblk = ConfigBlock::new(&uuid, &image_info)?;
+        cfgblk.build()?;
+        let cfgblk_squashfs_path = cfgblk
+            .file
             .to_str()
-            .ok_or_else(|| HyphaError::new("failed to convert squashfs path to string"))?;
+            .ok_or_else(|| HyphaError::new("failed to convert config squashfs path to string"))?;
+        let image_squashfs_path = image_info
+            .image_squashfs
+            .to_str()
+            .ok_or_else(|| HyphaError::new("failed to convert image squashfs path to string"))?;
         let config = DomainConfig {
             backend_domid: 0,
             name: &name,
@@ -66,13 +75,21 @@ impl Controller {
             mem_mb: self.mem,
             kernel_path: self.kernel_path.as_str(),
             initrd_path: self.initrd_path.as_str(),
-            cmdline: "elevator=noop",
-            disks: vec![DomainDisk {
-                vdev: "xvda",
-                pdev: squashfs_path,
-                writable: false,
-            }],
+            cmdline: "quiet elevator=noop",
+            disks: vec![
+                DomainDisk {
+                    vdev: "xvda",
+                    pdev: image_squashfs_path,
+                    writable: false,
+                },
+                DomainDisk {
+                    vdev: "xvdb",
+                    pdev: cfgblk_squashfs_path,
+                    writable: false,
+                },
+            ],
         };
-        Ok(self.client.create(&config)?)
+        let domid = self.client.create(&config)?;
+        Ok(domid)
     }
 }

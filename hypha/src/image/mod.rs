@@ -20,7 +20,7 @@ use walkdir::WalkDir;
 pub const IMAGE_SQUASHFS_VERSION: u64 = 1;
 
 pub struct ImageInfo {
-    pub squashfs: PathBuf,
+    pub image_squashfs: PathBuf,
     pub manifest: ImageManifest,
     pub config: ImageConfiguration,
 }
@@ -32,7 +32,7 @@ impl ImageInfo {
         config: ImageConfiguration,
     ) -> Result<ImageInfo> {
         Ok(ImageInfo {
-            squashfs,
+            image_squashfs: squashfs,
             manifest,
             config,
         })

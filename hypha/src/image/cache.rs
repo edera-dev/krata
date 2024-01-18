@@ -55,7 +55,7 @@ impl ImageCache {
         squashfs_path.push(format!("{}.squashfs", digest));
         manifest_path.push(format!("{}.manifest.json", digest));
         config_path.push(format!("{}.config.json", digest));
-        fs::copy(&info.squashfs, &squashfs_path)?;
+        fs::copy(&info.image_squashfs, &squashfs_path)?;
         let manifest_text = serde_json::to_string_pretty(&info.manifest)?;
         fs::write(&manifest_path, manifest_text)?;
         let config_text = serde_json::to_string_pretty(&info.config)?;
