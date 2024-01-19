@@ -1,3 +1,3 @@
-# xen-rs
+# hypha
 
-Xen bindings for Rust.
+The Mycelium hypervisor.
