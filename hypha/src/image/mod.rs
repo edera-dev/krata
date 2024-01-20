@@ -7,13 +7,15 @@ use crate::image::cache::ImageCache;
 use crate::image::fetch::RegistryClient;
 use crate::image::name::ImageName;
 use backhand::{FilesystemWriter, NodeHeader};
+use flate2::read::GzDecoder;
 use log::{debug, trace};
-use oci_spec::image::{ImageConfiguration, ImageManifest, MediaType};
+use oci_spec::image::{Descriptor, ImageConfiguration, ImageManifest, MediaType};
 use std::fs;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{copy, BufReader, Seek, SeekFrom, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tar::Entry;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -52,24 +54,31 @@ impl ImageCompiler<'_> {
         debug!("ImageCompiler compile image={image}");
         let mut tmp_dir = std::env::temp_dir().clone();
         tmp_dir.push(format!("hypha-compile-{}", Uuid::new_v4()));
+
         let mut image_dir = tmp_dir.clone();
         image_dir.push("image");
         fs::create_dir_all(&image_dir)?;
+
+        let mut layer_dir = tmp_dir.clone();
+        layer_dir.push("layer");
+        fs::create_dir_all(&layer_dir)?;
+
         let mut squash_file = tmp_dir.clone();
         squash_file.push("image.squashfs");
-        let info = self.download_and_compile(image, &image_dir, &squash_file)?;
-        fs::remove_dir_all(tmp_dir)?;
+        let info = self.download_and_compile(image, &layer_dir, &image_dir, &squash_file)?;
+        fs::remove_dir_all(&tmp_dir)?;
         Ok(info)
     }
 
     fn download_and_compile(
         &self,
         image: &ImageName,
+        layer_dir: &Path,
         image_dir: &PathBuf,
         squash_file: &PathBuf,
     ) -> Result<ImageInfo> {
         debug!(
-            "ImageCompiler download image={image}, image_dir={}",
+            "ImageCompiler download manifest image={image}, image_dir={}",
             image_dir.to_str().unwrap()
         );
         let mut client = RegistryClient::new(image.registry_url()?)?;
@@ -85,43 +94,163 @@ impl ImageCompiler<'_> {
             return Ok(cached);
         }
 
+        debug!(
+            "ImageCompiler download config digest={} size={}",
+            manifest.config().digest(),
+            manifest.config().size(),
+        );
         let config_bytes = client.get_blob(&image.name, manifest.config())?;
         let config: ImageConfiguration = serde_json::from_slice(&config_bytes)?;
 
+        let mut layers: Vec<PathBuf> = Vec::new();
         for layer in manifest.layers() {
-            debug!(
-                "ImageCompiler download start digest={} size={}",
-                layer.digest(),
-                layer.size()
-            );
+            let layer_path = self.download_layer(image, layer, layer_dir, &mut client)?;
+            layers.push(layer_path);
+        }
 
-            let blob = client.get_blob(&image.name, layer)?;
-            match layer.media_type() {
-                MediaType::ImageLayerGzip => {}
-                MediaType::Other(ty) => {
-                    if !ty.ends_with("tar.gzip") {
-                        continue;
+        for layer in layers {
+            let mut file = File::open(&layer)?;
+            self.process_whiteout_entries(&file, image_dir)?;
+            file.seek(SeekFrom::Start(0))?;
+            self.process_write_entries(&file, image_dir)?;
+            drop(file);
+            fs::remove_file(&layer)?;
+        }
+
+        self.squash(image_dir, squash_file)?;
+        let info = ImageInfo::new(squash_file.clone(), manifest.clone(), config)?;
+        self.cache.store(&cache_digest, &info)
+    }
+
+    fn process_whiteout_entries(&self, file: &File, image_dir: &PathBuf) -> Result<()> {
+        let mut archive = tar::Archive::new(file);
+        for entry in archive.entries()? {
+            let entry = entry?;
+            let dst = self.check_safe_entry(&entry, image_dir)?;
+            let Some(name) = dst.file_name() else {
+                return Err(HyphaError::new("unable to get file name"));
+            };
+            let Some(name) = name.to_str() else {
+                return Err(HyphaError::new("unable to get file name as string"));
+            };
+            if !name.starts_with(".wh.") {
+                continue;
+            }
+            let mut dst = dst.clone();
+            dst.pop();
+
+            let opaque = name == ".wh..wh..opq";
+
+            if !opaque {
+                dst.push(name);
+                self.check_safe_path(&dst, image_dir)?;
+            }
+
+            if opaque {
+                for entry in fs::read_dir(dst)? {
+                    let entry = entry?;
+                    let path = entry.path();
+                    if path.is_file() {
+                        fs::remove_file(&path)?;
+                    } else {
+                        fs::remove_dir_all(&path)?;
                     }
                 }
-                _ => continue,
+            } else if dst.is_file() {
+                fs::remove_file(&dst)?;
+            } else {
+                fs::remove_dir(&dst)?;
             }
-            debug!(
-                "ImageCompiler download unpack digest={} size={}",
-                layer.digest(),
-                layer.size()
-            );
-            let buf = flate2::read::GzDecoder::new(blob.as_slice());
-            tar::Archive::new(buf).unpack(image_dir)?;
-            debug!(
-                "ImageCompiler download end digest={} size={}",
-                layer.digest(),
-                layer.size()
-            );
-            self.squash(image_dir, squash_file)?;
-            let info = ImageInfo::new(squash_file.clone(), manifest.clone(), config)?;
-            return self.cache.store(&cache_digest, &info);
         }
-        Err(HyphaError::new("unable to find image layer"))
+        Ok(())
+    }
+
+    fn process_write_entries(&self, file: &File, image_dir: &PathBuf) -> Result<()> {
+        let mut archive = tar::Archive::new(file);
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let dst = self.check_safe_entry(&entry, image_dir)?;
+            let Some(name) = dst.file_name() else {
+                return Err(HyphaError::new("unable to get file name"));
+            };
+            let Some(name) = name.to_str() else {
+                return Err(HyphaError::new("unable to get file name as string"));
+            };
+            if name.starts_with(".wh.") {
+                continue;
+            }
+            entry.unpack(dst)?;
+        }
+        Ok(())
+    }
+
+    fn check_safe_entry(&self, entry: &Entry<&File>, image_dir: &PathBuf) -> Result<PathBuf> {
+        let mut dst = image_dir.clone();
+        dst.push(entry.path()?);
+        self.check_safe_path(&dst, image_dir)?;
+        Ok(dst)
+    }
+
+    fn check_safe_path(&self, dst: &PathBuf, image_dir: &PathBuf) -> Result<()> {
+        let resolved = path_clean::clean(dst);
+        if !resolved.starts_with(image_dir) {
+            return Err(HyphaError::new("layer attempts to work outside image dir"));
+        }
+        Ok(())
+    }
+
+    fn download_layer(
+        &self,
+        image: &ImageName,
+        layer: &Descriptor,
+        layer_dir: &Path,
+        client: &mut RegistryClient,
+    ) -> Result<PathBuf> {
+        debug!(
+            "ImageCompiler download layer digest={} size={}",
+            layer.digest(),
+            layer.size()
+        );
+        let mut layer_path = layer_dir.to_path_buf();
+        layer_path.push(layer.digest());
+        let mut tmp_path = layer_dir.to_path_buf();
+        tmp_path.push(format!("{}.tmp", layer.digest()));
+
+        {
+            let mut file = File::create(&layer_path)?;
+            let size = client.write_blob(&image.name, layer, &mut file)?;
+            if layer.size() as u64 != size {
+                return Err(HyphaError::new(
+                    "downloaded layer size differs from size in manifest",
+                ));
+            }
+        }
+
+        let compressed = match layer.media_type() {
+            MediaType::ImageLayer => false,
+            MediaType::ImageLayerGzip => {
+                let reader = File::open(&layer_path)?;
+                let mut decoder = GzDecoder::new(&reader);
+                let mut writer = File::create(&tmp_path)?;
+                copy(&mut decoder, &mut writer)?;
+                writer.flush()?;
+                true
+            }
+            MediaType::ImageLayerZstd => {
+                let reader = File::open(&layer_path)?;
+                let mut decoder = zstd::Decoder::new(&reader)?;
+                let mut writer = File::create(&tmp_path)?;
+                copy(&mut decoder, &mut writer)?;
+                writer.flush()?;
+                true
+            }
+            _ => return Err(HyphaError::new("found layer with unknown media type")),
+        };
+
+        if compressed {
+            fs::rename(tmp_path, &layer_path)?;
+        }
+        Ok(layer_path)
     }
 
     fn squash(&self, image_dir: &PathBuf, squash_file: &PathBuf) -> Result<()> {

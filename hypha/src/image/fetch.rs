@@ -1,6 +1,8 @@
 use crate::error::{HyphaError, Result};
 use oci_spec::image::{Arch, Descriptor, ImageIndex, ImageManifest, MediaType, Os, ToDockerV2S2};
-use std::io::Read;
+use std::io::copy;
+use std::io::{Read, Write};
+use std::ops::DerefMut;
 use ureq::{Agent, Request, Response};
 use url::Url;
 
@@ -29,6 +31,20 @@ impl RegistryClient {
         let mut buffer: Vec<u8> = Vec::new();
         response.into_reader().read_to_end(&mut buffer)?;
         Ok(buffer)
+    }
+
+    pub fn write_blob(
+        &mut self,
+        name: &str,
+        descriptor: &Descriptor,
+        dest: &mut dyn Write,
+    ) -> Result<u64> {
+        let url = self
+            .url
+            .join(&format!("/v2/{}/blobs/{}", name, descriptor.digest()))?;
+        let response = self.call(self.agent.get(url.as_str()))?;
+        let mut reader = response.into_reader();
+        Ok(copy(reader.deref_mut(), dest)?)
     }
 
     pub fn get_manifest(&mut self, name: &str, reference: &str) -> Result<ImageManifest> {
