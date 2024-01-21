@@ -10,7 +10,7 @@ use crate::sys::{
     XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_GETVCPUCONTEXT,
     XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION, XEN_DOMCTL_MAX_MEM,
     XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
-    XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_MEMORY_MAP,
+    XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP,
     XEN_MEM_POPULATE_PHYSMAP,
 };
 use libc::{c_int, mmap, usleep, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
@@ -642,6 +642,28 @@ impl XenCall {
         }
         let extents = extent_starts[0..code as usize].to_vec();
         Ok(extents)
+    }
+
+    pub fn claim_pages(&self, domid: u32, pages: u64) -> Result<(), XenCallError> {
+        trace!(
+            "memory fd={} claim_pages domid={} pages={}",
+            self.handle.as_raw_fd(),
+            domid,
+            pages
+        );
+        let mut reservation = MemoryReservation {
+            extent_start: 0,
+            nr_extents: pages,
+            extent_order: 0,
+            mem_flags: 0,
+            domid: domid as u16,
+        };
+        self.hypercall2(
+            HYPERVISOR_MEMORY_OP,
+            XEN_MEM_CLAIM_PAGES as c_ulong,
+            addr_of_mut!(reservation) as c_ulong,
+        )?;
+        Ok(())
     }
 
     pub fn mmuext(

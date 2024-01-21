@@ -478,6 +478,7 @@ impl ArchBootSetup for X86BootSetup {
     }
 
     fn meminit(&mut self, setup: &mut BootSetup, total_pages: u64) -> Result<(), XenClientError> {
+        setup.call.claim_pages(setup.domid, total_pages)?;
         let mut vmemranges: Vec<VmemRange> = Vec::new();
         let stub = VmemRange {
             start: 0,
@@ -584,6 +585,7 @@ impl ArchBootSetup for X86BootSetup {
         }
 
         setup.phys.load_p2m(p2m);
+        setup.call.claim_pages(setup.domid, 0)?;
         Ok(())
     }
 
