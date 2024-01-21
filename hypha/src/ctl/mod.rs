@@ -7,8 +7,11 @@ use crate::image::cache::ImageCache;
 use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
 use loopdev::LoopControl;
-use std::fs;
+use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::process::exit;
+use std::{fs, io, thread};
+use termion::raw::IntoRawMode;
 use uuid::Uuid;
 use xenclient::{DomainConfig, DomainDisk, XenClient};
 use xenstore::client::{XsdClient, XsdInterface};
@@ -17,12 +20,10 @@ pub struct Controller {
     image_cache: ImageCache,
     autoloop: AutoLoop,
     client: XenClient,
-    kernel_path: String,
-    initrd_path: String,
 }
 
 impl Controller {
-    pub fn new(store_path: String, kernel_path: String, initrd_path: String) -> Result<Controller> {
+    pub fn new(store_path: String) -> Result<Controller> {
         let mut image_cache_path = PathBuf::from(store_path);
         image_cache_path.push("cache");
         fs::create_dir_all(&image_cache_path)?;
@@ -35,8 +36,6 @@ impl Controller {
             image_cache,
             autoloop: AutoLoop::new(LoopControl::open()?),
             client,
-            kernel_path,
-            initrd_path,
         })
     }
 
@@ -46,7 +45,14 @@ impl Controller {
         compiler.compile(&image)
     }
 
-    pub fn launch(&mut self, image: &str, vcpus: u32, mem: u64) -> Result<u32> {
+    pub fn launch(
+        &mut self,
+        kernel_path: &str,
+        initrd_path: &str,
+        image: &str,
+        vcpus: u32,
+        mem: u64,
+    ) -> Result<u32> {
         let uuid = Uuid::new_v4();
         let name = format!("hypha-{uuid}");
         let image_info = self.compile(image)?;
@@ -64,8 +70,8 @@ impl Controller {
             name: &name,
             max_vcpus: vcpus,
             mem_mb: mem,
-            kernel_path: self.kernel_path.as_str(),
-            initrd_path: self.initrd_path.as_str(),
+            kernel_path,
+            initrd_path,
             cmdline: "quiet elevator=noop",
             disks: vec![
                 DomainDisk {
@@ -129,5 +135,46 @@ impl Controller {
             self.autoloop.unloop(lop)?;
         }
         Ok(uuid)
+    }
+
+    pub fn console(&mut self, domid: u32) -> Result<()> {
+        let (mut read, mut write) = self.client.open_console(domid)?;
+        let mut stdin = io::stdin();
+        let is_tty = termion::is_tty(&stdin);
+        let mut stdout_for_exit = io::stdout().into_raw_mode()?;
+        thread::spawn(move || {
+            let mut buffer = vec![0u8; 60];
+            loop {
+                let size = stdin.read(&mut buffer).expect("failed to read stdin");
+                if is_tty && size == 1 && buffer[0] == 0x1d {
+                    stdout_for_exit
+                        .suspend_raw_mode()
+                        .expect("failed to disable raw mode");
+                    stdout_for_exit.flush().expect("failed to flush stdout");
+                    exit(0);
+                }
+                write
+                    .write_all(&buffer[0..size])
+                    .expect("failed to write to domain console");
+                write.flush().expect("failed to flush domain console");
+            }
+        });
+
+        let mut buffer = vec![0u8; 256];
+        if is_tty {
+            let mut stdout = io::stdout().into_raw_mode()?;
+            loop {
+                let size = read.read(&mut buffer)?;
+                stdout.write_all(&buffer[0..size])?;
+                stdout.flush()?;
+            }
+        } else {
+            let mut stdout = io::stdout();
+            loop {
+                let size = read.read(&mut buffer)?;
+                stdout.write_all(&buffer[0..size])?;
+                stdout.flush()?;
+            }
+        }
     }
 }

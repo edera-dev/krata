@@ -6,12 +6,6 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(version, about)]
 struct ControllerArgs {
-    #[arg(short, long)]
-    kernel: String,
-
-    #[arg(short = 'r', long)]
-    initrd: String,
-
     #[arg(short, long, default_value = "auto")]
     store: String,
 
@@ -23,6 +17,10 @@ struct ControllerArgs {
 enum Commands {
     Launch {
         #[arg(short, long)]
+        kernel: String,
+        #[arg(short = 'r', long)]
+        initrd: String,
+        #[arg(short, long)]
         image: String,
         #[arg(short, long, default_value_t = 1)]
         cpus: u32,
@@ -30,6 +28,10 @@ enum Commands {
         mem: u64,
     },
     Destroy {
+        #[arg(short, long)]
+        domain: u32,
+    },
+    Console {
         #[arg(short, long)]
         domain: u32,
     },
@@ -51,15 +53,26 @@ fn main() -> Result<()> {
         .map(|x| x.to_string())
         .ok_or_else(|| HyphaError::new("unable to convert store path to string"))?;
 
-    let mut controller = Controller::new(store_path, args.kernel, args.initrd)?;
+    let mut controller = Controller::new(store_path)?;
 
     match args.command {
-        Commands::Launch { image, cpus, mem } => {
-            let domid = controller.launch(image.as_str(), cpus, mem)?;
+        Commands::Launch {
+            kernel,
+            initrd,
+            image,
+            cpus,
+            mem,
+        } => {
+            let domid = controller.launch(&kernel, &initrd, &image, cpus, mem)?;
             println!("launched domain: {}", domid);
         }
+
         Commands::Destroy { domain } => {
             controller.destroy(domain)?;
+        }
+
+        Commands::Console { domain } => {
+            controller.console(domain)?;
         }
     }
     Ok(())

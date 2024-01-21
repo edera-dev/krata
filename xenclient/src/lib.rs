@@ -10,7 +10,7 @@ use crate::x86::X86BootSetup;
 use log::warn;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::fs::read;
+use std::fs::{read, File, OpenOptions};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::string::FromUtf8Error;
@@ -560,5 +560,23 @@ impl XenClient {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    pub fn open_console(&mut self, domid: u32) -> Result<(File, File), XenClientError> {
+        let dom_path = self.store.get_domain_path(domid)?;
+        let console_tty_path = format!("{}/console/tty", dom_path);
+        let tty = self
+            .store
+            .read_string_optional(&console_tty_path)?
+            .unwrap_or("".to_string());
+        if tty.is_empty() {
+            return Err(XenClientError::new(&format!(
+                "domain {} does not have a tty",
+                domid
+            )));
+        }
+        let read = OpenOptions::new().read(true).write(false).open(&tty)?;
+        let write = OpenOptions::new().read(false).write(true).open(&tty)?;
+        Ok((read, write))
     }
 }

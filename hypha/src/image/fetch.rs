@@ -52,16 +52,19 @@ impl RegistryClient {
             .url
             .join(&format!("/v2/{}/manifests/{}", name, reference))?;
         let accept = format!(
-            "{}, {}, {}",
+            "{}, {}, {}, {}",
             MediaType::ImageManifest.to_docker_v2s2()?,
             MediaType::ImageManifest,
             MediaType::ImageIndex,
+            MediaType::ImageIndex.to_docker_v2s2()?,
         );
         let response = self.call(self.agent.get(url.as_str()).set("Accept", &accept))?;
         let content_type = response.header("Content-Type").ok_or_else(|| {
             HyphaError::new("registry response did not have a Content-Type header")
         })?;
-        if content_type == MediaType::ImageIndex.to_string() {
+        if content_type == MediaType::ImageIndex.to_string()
+            || content_type == MediaType::ImageIndex.to_docker_v2s2()?
+        {
             let index = ImageIndex::from_reader(response.into_reader())?;
             let descriptor = self
                 .pick_manifest(index)
