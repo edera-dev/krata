@@ -86,7 +86,14 @@ impl XsdClient {
 
     fn rm(&mut self, tx: u32, path: &str) -> Result<bool, XsdBusError> {
         trace!("rm tx={tx} path={path}");
-        self.socket.send_single(tx, XSD_RM, path)?.parse_bool()
+        let result = self.socket.send_single(tx, XSD_RM, path);
+        if let Err(error) = result {
+            if error.to_string() == "ENOENT" {
+                return Ok(true);
+            }
+            return Err(error);
+        }
+        result.unwrap().parse_bool()
     }
 
     fn set_perms(

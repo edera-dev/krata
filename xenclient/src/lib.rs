@@ -110,6 +110,23 @@ impl XenClient {
             ..Default::default()
         };
         let domid = self.call.create_domain(domain)?;
+        match self.init(domid, &domain, config) {
+            Ok(_) => Ok(domid),
+            Err(err) => {
+                // ignore since destroying a domain is best
+                // effort when an error occurs
+                let _ = self.call.destroy_domain(domid);
+                Err(err)
+            }
+        }
+    }
+
+    fn init(
+        &mut self,
+        domid: u32,
+        domain: &CreateDomain,
+        config: &DomainConfig,
+    ) -> Result<(), XenClientError> {
         let backend_dom_path = self.store.get_domain_path(0)?;
         let dom_path = self.store.get_domain_path(domid)?;
         let uuid_string = Uuid::from_bytes(domain.handle).to_string();
@@ -281,8 +298,7 @@ impl XenClient {
             )?;
         }
         self.call.unpause_domain(domid)?;
-
-        Ok(domid)
+        Ok(())
     }
 
     fn disk_device_add(

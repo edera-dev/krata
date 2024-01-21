@@ -13,7 +13,7 @@ use crate::sys::{
     XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_MEMORY_MAP,
     XEN_MEM_POPULATE_PHYSMAP,
 };
-use libc::{c_int, mmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
+use libc::{c_int, mmap, usleep, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use log::trace;
 use nix::errno::Errno;
 use std::error::Error;
@@ -224,8 +224,62 @@ impl XenCall {
                 mfns: mfns.as_mut_ptr(),
                 errors: errors.as_mut_ptr(),
             };
-            let result = sys::mmapbatch(self.handle.as_raw_fd(), &mut batch)?;
-            Ok(result as c_long)
+
+            let result = sys::mmapbatch(self.handle.as_raw_fd(), &mut batch);
+            if let Err(errno) = result {
+                if errno != Errno::ENOENT {
+                    return Err(errno)?;
+                }
+
+                usleep(100);
+
+                let mut i: usize = 0;
+                let mut paged: usize = 0;
+                loop {
+                    if errors[i] != libc::ENOENT {
+                        i += 1;
+                        continue;
+                    }
+
+                    paged += 1;
+                    let mut batch = MmapBatch {
+                        num: 1,
+                        domid: domid as u16,
+                        addr: addr + ((i as u64) << 12),
+                        mfns: mfns.as_mut_ptr().add(i),
+                        errors: errors.as_mut_ptr().add(i),
+                    };
+
+                    loop {
+                        i += 1;
+                        if i < num as usize {
+                            if errors[i] != libc::ENOENT {
+                                break;
+                            }
+                            batch.num += 1;
+                        }
+                    }
+
+                    let result = sys::mmapbatch(self.handle.as_raw_fd(), &mut batch);
+                    if let Err(n) = result {
+                        if n != Errno::ENOENT {
+                            return Err(n)?;
+                        }
+                    }
+
+                    if i < num as usize {
+                        break;
+                    }
+
+                    let count = result.unwrap();
+                    if count <= 0 {
+                        break;
+                    }
+                }
+
+                return Ok(paged as c_long);
+            }
+            Ok(result.unwrap() as c_long)
         }
     }
 
