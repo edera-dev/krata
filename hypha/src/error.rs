@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 use std::num::ParseIntError;
 use std::path::StripPrefixError;
 use xenclient::XenClientError;
+use xenstore::bus::XsdBusError;
 
 pub type Result<T> = std::result::Result<T, HyphaError>;
 
@@ -95,6 +96,18 @@ impl From<url::ParseError> for HyphaError {
 
 impl From<std::fmt::Error> for HyphaError {
     fn from(value: std::fmt::Error) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
+
+impl From<uuid::Error> for HyphaError {
+    fn from(value: uuid::Error) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
+
+impl From<XsdBusError> for HyphaError {
+    fn from(value: XsdBusError) -> Self {
         HyphaError::new(value.to_string().as_str())
     }
 }

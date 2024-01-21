@@ -49,6 +49,32 @@ pub trait XsdInterface {
         let result2 = self.set_perms(path, perms)?;
         Ok(result1 && result2)
     }
+
+    fn read_string_optional(&mut self, path: &str) -> Result<Option<String>, XsdBusError> {
+        Ok(match self.read_string(path) {
+            Ok(value) => Some(value),
+            Err(error) => {
+                if error.to_string() == "ENOENT" {
+                    None
+                } else {
+                    return Err(error);
+                }
+            }
+        })
+    }
+
+    fn list_any(&mut self, path: &str) -> Result<Vec<String>, XsdBusError> {
+        Ok(match self.list(path) {
+            Ok(value) => value,
+            Err(error) => {
+                if error.to_string() == "ENOENT" {
+                    Vec::new()
+                } else {
+                    return Err(error);
+                }
+            }
+        })
+    }
 }
 
 impl XsdClient {
@@ -225,7 +251,7 @@ impl XsdTransaction<'_> {
     pub fn end(&mut self, abort: bool) -> Result<bool, XsdBusError> {
         let abort_str = if abort { "F" } else { "T" };
 
-        trace!("transaction end abort={abort_str}");
+        trace!("transaction end abort={}", abort);
         self.client
             .socket
             .send_single(self.tx, XSD_TRANSACTION_END, abort_str)?

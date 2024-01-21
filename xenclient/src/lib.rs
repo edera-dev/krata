@@ -7,10 +7,15 @@ mod x86;
 use crate::boot::BootSetup;
 use crate::elfloader::ElfImageLoader;
 use crate::x86::X86BootSetup;
+use log::warn;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::read;
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::string::FromUtf8Error;
+use std::thread;
+use std::time::Duration;
 use uuid::Uuid;
 use xencall::sys::CreateDomain;
 use xencall::{XenCall, XenCallError};
@@ -21,7 +26,7 @@ use xenstore::client::{
 };
 
 pub struct XenClient {
-    store: XsdClient,
+    pub store: XsdClient,
     call: XenCall,
 }
 
@@ -101,6 +106,7 @@ pub struct DomainConfig<'a> {
     pub initrd_path: &'a str,
     pub cmdline: &'a str,
     pub disks: Vec<DomainDisk<'a>>,
+    pub extra_keys: Vec<(String, String)>,
 }
 
 impl XenClient {
@@ -121,10 +127,99 @@ impl XenClient {
             Err(err) => {
                 // ignore since destroying a domain is best
                 // effort when an error occurs
-                let _ = self.call.destroy_domain(domid);
+                let _ = self.destroy(domid);
                 Err(err)
             }
         }
+    }
+
+    pub fn destroy(&mut self, domid: u32) -> Result<(), XenClientError> {
+        if let Err(err) = self.destroy_store(domid) {
+            warn!("failed to destroy store for domain {}: {}", domid, err);
+        }
+        self.call.destroy_domain(domid)?;
+        Ok(())
+    }
+
+    fn destroy_store(&mut self, domid: u32) -> Result<(), XenClientError> {
+        let dom_path = self.store.get_domain_path(domid)?;
+        let vm_path = self.store.read_string(&format!("{}/vm", dom_path))?;
+        if vm_path.is_empty() {
+            return Err(XenClientError::new(
+                "cannot destroy domain that doesn't exist",
+            ));
+        }
+
+        let mut backend_paths: Vec<String> = Vec::new();
+        let console_frontend_path = format!("{}/console", dom_path);
+        let console_backend_path = self
+            .store
+            .read_string_optional(format!("{}/backend", console_frontend_path).as_str())?;
+
+        for device_category in self
+            .store
+            .list_any(format!("{}/device", dom_path).as_str())?
+        {
+            for device_id in self
+                .store
+                .list_any(format!("{}/device/{}", dom_path, device_category).as_str())?
+            {
+                let device_path = format!("{}/device/{}/{}", dom_path, device_category, device_id);
+                let backend_path = self
+                    .store
+                    .read_string(format!("{}/backend", device_path).as_str())?;
+                backend_paths.push(backend_path);
+            }
+        }
+
+        for backend in &backend_paths {
+            let state_path = format!("{}/state", backend);
+            let online_path = format!("{}/online", backend);
+            let mut tx = self.store.transaction()?;
+            let state = tx.read_string(&state_path)?;
+            if state.is_empty() {
+                break;
+            }
+            tx.write_string(&online_path, "0")?;
+            if !state.is_empty() && u32::from_str(&state).unwrap_or(0) != 6 {
+                tx.write_string(&state_path, "5")?;
+            }
+            tx.commit()?;
+
+            let mut count: u32 = 0;
+            loop {
+                if count >= 100 {
+                    return Err(XenClientError::new("unable to destroy device"));
+                }
+                let state = self.store.read_string(&state_path)?;
+                let state = i64::from_str(&state).unwrap_or(-1);
+                if state == 6 {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+                count += 1;
+            }
+        }
+
+        let mut tx = self.store.transaction()?;
+        let mut backend_removals: Vec<String> = Vec::new();
+        backend_removals.extend_from_slice(backend_paths.as_slice());
+        if let Some(backend) = console_backend_path {
+            backend_removals.push(backend);
+        }
+        for path in &backend_removals {
+            let path = PathBuf::from(path);
+            let parent = path
+                .parent()
+                .ok_or(XenClientError::new("unable to get parent of backend path"))?;
+            tx.rm(parent
+                .to_str()
+                .ok_or(XenClientError::new("unable to convert parent to string"))?)?;
+        }
+        tx.rm(&vm_path)?;
+        tx.rm(&dom_path)?;
+        tx.commit()?;
+        Ok(())
     }
 
     fn init(
@@ -205,6 +300,11 @@ impl XenClient {
             )?;
             tx.write_string(format!("{}/name", dom_path).as_str(), config.name)?;
             tx.write_string(format!("{}/name", vm_path).as_str(), config.name)?;
+
+            for (key, value) in &config.extra_keys {
+                tx.write_string(format!("{}/{}", dom_path, key).as_str(), value)?;
+            }
+
             tx.commit()?;
         }
 
@@ -332,7 +432,7 @@ impl XenClient {
             ("physical-device-path", disk.block.path.to_string()),
             (
                 "physical-device",
-                format!("{:2x}:{:2x}", disk.block.major, disk.block.minor),
+                format!("{:02x}:{:02x}", disk.block.major, disk.block.minor),
             ),
         ];
 

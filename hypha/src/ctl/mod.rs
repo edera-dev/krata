@@ -2,7 +2,7 @@ pub mod cfgblk;
 
 use crate::autoloop::AutoLoop;
 use crate::ctl::cfgblk::ConfigBlock;
-use crate::error::Result;
+use crate::error::{HyphaError, Result};
 use crate::image::cache::ImageCache;
 use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
@@ -11,27 +11,18 @@ use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
 use xenclient::{DomainConfig, DomainDisk, XenClient};
+use xenstore::client::{XsdClient, XsdInterface};
 
 pub struct Controller {
     image_cache: ImageCache,
     autoloop: AutoLoop,
-    image: String,
     client: XenClient,
     kernel_path: String,
     initrd_path: String,
-    vcpus: u32,
-    mem: u64,
 }
 
 impl Controller {
-    pub fn new(
-        store_path: String,
-        kernel_path: String,
-        initrd_path: String,
-        image: String,
-        vcpus: u32,
-        mem: u64,
-    ) -> Result<Controller> {
+    pub fn new(store_path: String, kernel_path: String, initrd_path: String) -> Result<Controller> {
         let mut image_cache_path = PathBuf::from(store_path);
         image_cache_path.push("cache");
         fs::create_dir_all(&image_cache_path)?;
@@ -43,25 +34,22 @@ impl Controller {
         Ok(Controller {
             image_cache,
             autoloop: AutoLoop::new(LoopControl::open()?),
-            image,
             client,
             kernel_path,
             initrd_path,
-            vcpus,
-            mem,
         })
     }
 
-    fn compile(&mut self) -> Result<ImageInfo> {
-        let image = ImageName::parse(&self.image)?;
+    fn compile(&mut self, image: &str) -> Result<ImageInfo> {
+        let image = ImageName::parse(image)?;
         let compiler = ImageCompiler::new(&self.image_cache)?;
         compiler.compile(&image)
     }
 
-    pub fn launch(&mut self) -> Result<u32> {
+    pub fn launch(&mut self, image: &str, vcpus: u32, mem: u64) -> Result<u32> {
         let uuid = Uuid::new_v4();
         let name = format!("hypha-{uuid}");
-        let image_info = self.compile()?;
+        let image_info = self.compile(image)?;
         let cfgblk = ConfigBlock::new(&uuid, &image_info)?;
         cfgblk.build()?;
 
@@ -74,8 +62,8 @@ impl Controller {
         let config = DomainConfig {
             backend_domid: 0,
             name: &name,
-            max_vcpus: self.vcpus,
-            mem_mb: self.mem,
+            max_vcpus: vcpus,
+            mem_mb: mem,
             kernel_path: self.kernel_path.as_str(),
             initrd_path: self.initrd_path.as_str(),
             cmdline: "quiet elevator=noop",
@@ -91,6 +79,16 @@ impl Controller {
                     writable: false,
                 },
             ],
+            extra_keys: vec![
+                ("hypha/uuid".to_string(), uuid.to_string()),
+                (
+                    "hypha/loops".to_string(),
+                    format!(
+                        "{},{}",
+                        &image_squashfs_loop.path, &cfgblk_squashfs_loop.path
+                    ),
+                ),
+            ],
         };
         match self.client.create(&config) {
             Ok(domid) => Ok(domid),
@@ -101,5 +99,35 @@ impl Controller {
                 Err(error.into())
             }
         }
+    }
+
+    pub fn destroy(&mut self, domid: u32) -> Result<Uuid> {
+        let mut store = XsdClient::open()?;
+        let dom_path = store.get_domain_path(domid)?;
+        let uuid = match store.read_string_optional(format!("{}/hypha/uuid", dom_path).as_str())? {
+            None => {
+                return Err(HyphaError::new(&format!(
+                    "domain {} was not found or not created by hypha",
+                    domid
+                )))
+            }
+            Some(value) => value,
+        };
+        if uuid.is_empty() {
+            return Err(HyphaError::new(
+                "unable to find hypha uuid based on the domain",
+            ));
+        }
+        let uuid = Uuid::parse_str(&uuid)?;
+        let loops = store.read_string(format!("{}/hypha/loops", dom_path).as_str())?;
+        let loops = loops
+            .split(',')
+            .map(|x| x.to_string())
+            .collect::<Vec<String>>();
+        self.client.destroy(domid)?;
+        for lop in &loops {
+            self.autoloop.unloop(lop)?;
+        }
+        Ok(uuid)
     }
 }

@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use hypha::ctl::Controller;
 use hypha::error::{HyphaError, Result};
 use std::path::PathBuf;
@@ -12,17 +12,27 @@ struct ControllerArgs {
     #[arg(short = 'r', long)]
     initrd: String,
 
-    #[arg(short, long)]
-    image: String,
-
-    #[arg(short, long, default_value_t = 1)]
-    cpus: u32,
-
-    #[arg(short, long, default_value_t = 512)]
-    mem: u64,
-
     #[arg(short, long, default_value = "auto")]
     store: String,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Launch {
+        #[arg(short, long)]
+        image: String,
+        #[arg(short, long, default_value_t = 1)]
+        cpus: u32,
+        #[arg(short, long, default_value_t = 512)]
+        mem: u64,
+    },
+    Destroy {
+        #[arg(short, long)]
+        domain: u32,
+    },
 }
 
 fn main() -> Result<()> {
@@ -41,16 +51,17 @@ fn main() -> Result<()> {
         .map(|x| x.to_string())
         .ok_or_else(|| HyphaError::new("unable to convert store path to string"))?;
 
-    let mut controller = Controller::new(
-        store_path,
-        args.kernel,
-        args.initrd,
-        args.image,
-        args.cpus,
-        args.mem,
-    )?;
-    let domid = controller.launch()?;
-    println!("launched domain: {}", domid);
+    let mut controller = Controller::new(store_path, args.kernel, args.initrd)?;
+
+    match args.command {
+        Commands::Launch { image, cpus, mem } => {
+            let domid = controller.launch(image.as_str(), cpus, mem)?;
+            println!("launched domain: {}", domid);
+        }
+        Commands::Destroy { domain } => {
+            controller.destroy(domain)?;
+        }
+    }
     Ok(())
 }
 
