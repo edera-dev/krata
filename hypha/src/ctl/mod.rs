@@ -1,10 +1,12 @@
-mod cfgblk;
+pub mod cfgblk;
 
+use crate::autoloop::AutoLoop;
 use crate::ctl::cfgblk::ConfigBlock;
-use crate::error::{HyphaError, Result};
+use crate::error::Result;
 use crate::image::cache::ImageCache;
 use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
+use loopdev::LoopControl;
 use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -12,6 +14,7 @@ use xenclient::{DomainConfig, DomainDisk, XenClient};
 
 pub struct Controller {
     image_cache: ImageCache,
+    autoloop: AutoLoop,
     image: String,
     client: XenClient,
     kernel_path: String,
@@ -39,6 +42,7 @@ impl Controller {
         let image_cache = ImageCache::new(&image_cache_path)?;
         Ok(Controller {
             image_cache,
+            autoloop: AutoLoop::new(LoopControl::open()?),
             image,
             client,
             kernel_path,
@@ -60,14 +64,13 @@ impl Controller {
         let image_info = self.compile()?;
         let cfgblk = ConfigBlock::new(&uuid, &image_info)?;
         cfgblk.build()?;
-        let cfgblk_squashfs_path = cfgblk
-            .file
-            .to_str()
-            .ok_or_else(|| HyphaError::new("failed to convert config squashfs path to string"))?;
-        let image_squashfs_path = image_info
-            .image_squashfs
-            .to_str()
-            .ok_or_else(|| HyphaError::new("failed to convert image squashfs path to string"))?;
+
+        let image_squashfs_path = image_info.image_squashfs.clone();
+        let cfgblk_squashfs_path = cfgblk.file.clone();
+
+        let image_squashfs_loop = self.autoloop.loopify(&image_squashfs_path)?;
+        let cfgblk_squashfs_loop = self.autoloop.loopify(&cfgblk_squashfs_path)?;
+
         let config = DomainConfig {
             backend_domid: 0,
             name: &name,
@@ -79,17 +82,24 @@ impl Controller {
             disks: vec![
                 DomainDisk {
                     vdev: "xvda",
-                    pdev: image_squashfs_path,
+                    block: &image_squashfs_loop,
                     writable: false,
                 },
                 DomainDisk {
                     vdev: "xvdb",
-                    pdev: cfgblk_squashfs_path,
+                    block: &cfgblk_squashfs_loop,
                     writable: false,
                 },
             ],
         };
-        let domid = self.client.create(&config)?;
-        Ok(domid)
+        match self.client.create(&config) {
+            Ok(domid) => Ok(domid),
+            Err(error) => {
+                let _ = self.autoloop.unloop(&image_squashfs_loop.path);
+                let _ = self.autoloop.unloop(&cfgblk_squashfs_loop.path);
+                let _ = fs::remove_dir(&cfgblk.dir);
+                Err(error.into())
+            }
+        }
     }
 }

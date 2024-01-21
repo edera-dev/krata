@@ -7,6 +7,9 @@ resolver = "2"
 [dependencies.xenclient]
 path = "../xenclient"
 
+[dependencies.loopdev]
+path = "../loopdev"
+
 [dependencies]
 log = "0.4.20"
 env_logger = "0.11.0"

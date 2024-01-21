@@ -9,15 +9,21 @@ use uuid::Uuid;
 pub struct ConfigBlock<'a> {
     pub image_info: &'a ImageInfo,
     pub file: PathBuf,
+    pub dir: PathBuf,
 }
 
 impl ConfigBlock<'_> {
     pub fn new<'a>(uuid: &Uuid, image_info: &'a ImageInfo) -> Result<ConfigBlock<'a>> {
-        let mut file = std::env::temp_dir().clone();
-        file.push(format!("hypha-cfg-{}", uuid));
-        fs::create_dir_all(&file)?;
+        let mut dir = std::env::temp_dir().clone();
+        dir.push(format!("hypha-cfg-{}", uuid));
+        fs::create_dir_all(&dir)?;
+        let mut file = dir.clone();
         file.push("config.squashfs");
-        Ok(ConfigBlock { image_info, file })
+        Ok(ConfigBlock {
+            image_info,
+            file,
+            dir,
+        })
     }
 
     pub fn build(&self) -> Result<()> {

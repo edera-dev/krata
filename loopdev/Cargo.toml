@@ -1,0 +1,20 @@
+# This package is from https://github.com/stratis-storage/loopdev-3
+# Mycelium maintains an in-tree version because the goals of hypha mean that
+# there is as little binding generation as possible, especially bindings which
+# prevent development from macOS, like the original library.
+[package]
+name = "loopdev"
+version = "0.0.1"
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "loopdev"
+
+[dependencies]
+errno = "0.3.0"
+libc = "0.2.105"
+
+[dependencies.nix]
+version = "0.27.1"
+features = ["ioctl"]

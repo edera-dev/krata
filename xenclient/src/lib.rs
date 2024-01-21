@@ -80,9 +80,15 @@ impl From<EventChannelError> for XenClientError {
     }
 }
 
+pub struct BlockDeviceRef {
+    pub path: String,
+    pub major: u32,
+    pub minor: u32,
+}
+
 pub struct DomainDisk<'a> {
     pub vdev: &'a str,
-    pub pdev: &'a str,
+    pub block: &'a BlockDeviceRef,
     pub writable: bool,
 }
 
@@ -313,8 +319,6 @@ impl XenClient {
         let id = (202 << 8) | (index << 4) as u64;
         let backend_items: Vec<(&str, String)> = vec![
             ("frontend-id", domid.to_string()),
-            ("params", disk.pdev.to_string()),
-            ("script", "/etc/xen/scripts/block".to_string()),
             ("online", "1".to_string()),
             ("removable", "0".to_string()),
             ("bootable", "1".to_string()),
@@ -325,6 +329,11 @@ impl XenClient {
             ("device-type", "disk".to_string()),
             ("discard-enable", "0".to_string()),
             ("specification", "xen".to_string()),
+            ("physical-device-path", disk.block.path.to_string()),
+            (
+                "physical-device",
+                format!("{:2x}:{:2x}", disk.block.major, disk.block.minor),
+            ),
         ];
 
         let frontend_items: Vec<(&str, String)> = vec![
