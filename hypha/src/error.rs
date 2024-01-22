@@ -1,4 +1,5 @@
 use backhand::BackhandError;
+use cli_tables::TableError;
 use oci_spec::OciSpecError;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -108,6 +109,12 @@ impl From<uuid::Error> for HyphaError {
 
 impl From<XsdBusError> for HyphaError {
     fn from(value: XsdBusError) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
+
+impl From<TableError> for HyphaError {
+    fn from(value: TableError) -> Self {
         HyphaError::new(value.to_string().as_str())
     }
 }

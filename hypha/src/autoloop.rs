@@ -1,6 +1,5 @@
 use crate::error::{HyphaError, Result};
 use loopdev::{LoopControl, LoopDevice};
-use std::path::Path;
 use xenclient::BlockDeviceRef;
 
 pub struct AutoLoop {
@@ -12,7 +11,7 @@ impl AutoLoop {
         AutoLoop { control }
     }
 
-    pub fn loopify(&self, file: &Path) -> Result<BlockDeviceRef> {
+    pub fn loopify(&self, file: &str) -> Result<BlockDeviceRef> {
         let device = self.control.next_free()?;
         device.with().read_only(true).attach(file)?;
         let path = device

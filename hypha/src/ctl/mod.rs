@@ -10,6 +10,7 @@ use loopdev::LoopControl;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::exit;
+use std::str::FromStr;
 use std::{fs, io, thread};
 use termion::raw::IntoRawMode;
 use uuid::Uuid;
@@ -20,6 +21,19 @@ pub struct Controller {
     image_cache: ImageCache,
     autoloop: AutoLoop,
     client: XenClient,
+}
+
+pub struct ContainerLoopInfo {
+    pub device: String,
+    pub file: String,
+    pub delete: Option<String>,
+}
+
+pub struct ContainerInfo {
+    pub uuid: Uuid,
+    pub domid: u32,
+    pub image: String,
+    pub loops: Vec<ContainerLoopInfo>,
 }
 
 impl Controller {
@@ -59,11 +73,22 @@ impl Controller {
         let cfgblk = ConfigBlock::new(&uuid, &image_info)?;
         cfgblk.build()?;
 
-        let image_squashfs_path = image_info.image_squashfs.clone();
-        let cfgblk_squashfs_path = cfgblk.file.clone();
+        let image_squashfs_path = image_info
+            .image_squashfs
+            .to_str()
+            .ok_or_else(|| HyphaError::new("failed to convert image squashfs path to string"))?;
 
-        let image_squashfs_loop = self.autoloop.loopify(&image_squashfs_path)?;
-        let cfgblk_squashfs_loop = self.autoloop.loopify(&cfgblk_squashfs_path)?;
+        let cfgblk_dir_path = cfgblk
+            .dir
+            .to_str()
+            .ok_or_else(|| HyphaError::new("failed to convert cfgblk directory path to string"))?;
+        let cfgblk_squashfs_path = cfgblk
+            .file
+            .to_str()
+            .ok_or_else(|| HyphaError::new("failed to convert cfgblk squashfs path to string"))?;
+
+        let image_squashfs_loop = self.autoloop.loopify(image_squashfs_path)?;
+        let cfgblk_squashfs_loop = self.autoloop.loopify(cfgblk_squashfs_path)?;
 
         let config = DomainConfig {
             backend_domid: 0,
@@ -90,10 +115,15 @@ impl Controller {
                 (
                     "hypha/loops".to_string(),
                     format!(
-                        "{},{}",
-                        &image_squashfs_loop.path, &cfgblk_squashfs_loop.path
+                        "{}:{}:none,{}:{}:{}",
+                        &image_squashfs_loop.path,
+                        image_squashfs_path,
+                        &cfgblk_squashfs_loop.path,
+                        cfgblk_squashfs_path,
+                        cfgblk_dir_path,
                     ),
                 ),
+                ("hypha/image".to_string(), image.to_string()),
             ],
         };
         match self.client.create(&config) {
@@ -126,13 +156,21 @@ impl Controller {
         }
         let uuid = Uuid::parse_str(&uuid)?;
         let loops = store.read_string(format!("{}/hypha/loops", dom_path).as_str())?;
-        let loops = loops
-            .split(',')
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>();
+        let loops = Controller::parse_loop_set(&loops);
         self.client.destroy(domid)?;
-        for lop in &loops {
-            self.autoloop.unloop(lop)?;
+        for info in &loops {
+            self.autoloop.unloop(&info.device)?;
+            match &info.delete {
+                None => {}
+                Some(delete) => {
+                    let delete_path = PathBuf::from(delete);
+                    if delete_path.is_file() || delete_path.is_symlink() {
+                        fs::remove_file(&delete_path)?;
+                    } else if delete_path.is_dir() {
+                        fs::remove_dir_all(&delete_path)?;
+                    }
+                }
+            }
         }
         Ok(uuid)
     }
@@ -176,5 +214,61 @@ impl Controller {
                 stdout.flush()?;
             }
         }
+    }
+
+    pub fn list(&mut self) -> Result<Vec<ContainerInfo>> {
+        let mut containers: Vec<ContainerInfo> = Vec::new();
+        for domid_candidate in self.client.store.list_any("/local/domain")? {
+            let dom_path = format!("/local/domain/{}", domid_candidate);
+            let uuid_string = match self
+                .client
+                .store
+                .read_string_optional(&format!("{}/hypha/uuid", &dom_path))?
+            {
+                None => continue,
+                Some(value) => value,
+            };
+            let domid = u32::from_str(&domid_candidate)
+                .map_err(|_| HyphaError::new("failed to parse domid"))?;
+            let uuid = Uuid::from_str(&uuid_string)?;
+            let image = self
+                .client
+                .store
+                .read_string_optional(&format!("{}/hypha/image", &dom_path))?
+                .unwrap_or("unknown".to_string());
+            let loops = self
+                .client
+                .store
+                .read_string_optional(&format!("{}/hypha/loops", &dom_path))?
+                .unwrap_or("".to_string());
+            let loops = Controller::parse_loop_set(&loops);
+            containers.push(ContainerInfo {
+                uuid,
+                domid,
+                image,
+                loops,
+            });
+        }
+        Ok(containers)
+    }
+
+    fn parse_loop_set(input: &str) -> Vec<ContainerLoopInfo> {
+        let sets = input
+            .split(',')
+            .map(|x| x.to_string())
+            .map(|x| x.split(':').map(|v| v.to_string()).collect::<Vec<String>>())
+            .map(|x| (x[0].clone(), x[1].clone(), x[2].clone()))
+            .collect::<Vec<(String, String, String)>>();
+        sets.iter()
+            .map(|(device, file, delete)| ContainerLoopInfo {
+                device: device.clone(),
+                file: file.clone(),
+                delete: if delete == "none" {
+                    None
+                } else {
+                    Some(delete.clone())
+                },
+            })
+            .collect::<Vec<ContainerLoopInfo>>()
     }
 }

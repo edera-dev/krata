@@ -15,10 +15,12 @@ struct ControllerArgs {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    List {},
+
     Launch {
-        #[arg(short, long)]
+        #[arg(short, long, default_value = "auto")]
         kernel: String,
-        #[arg(short = 'r', long)]
+        #[arg(short = 'r', long, default_value = "auto")]
         initrd: String,
         #[arg(short, long)]
         image: String,
@@ -53,7 +55,7 @@ fn main() -> Result<()> {
         .map(|x| x.to_string())
         .ok_or_else(|| HyphaError::new("unable to convert store path to string"))?;
 
-    let mut controller = Controller::new(store_path)?;
+    let mut controller = Controller::new(store_path.clone())?;
 
     match args.command {
         Commands::Launch {
@@ -63,6 +65,8 @@ fn main() -> Result<()> {
             cpus,
             mem,
         } => {
+            let kernel = map_kernel_path(&store_path, kernel);
+            let initrd = map_initrd_path(&store_path, initrd);
             let domid = controller.launch(&kernel, &initrd, &image, cpus, mem)?;
             println!("launched domain: {}", domid);
         }
@@ -74,8 +78,38 @@ fn main() -> Result<()> {
         Commands::Console { domain } => {
             controller.console(domain)?;
         }
+
+        Commands::List { .. } => {
+            let containers = controller.list()?;
+            let mut table = cli_tables::Table::new();
+            let header = vec!["domain", "uuid", "image"];
+            table.push_row(&header)?;
+            for container in containers {
+                let row = vec![
+                    container.domid.to_string(),
+                    container.uuid.to_string(),
+                    container.image,
+                ];
+                table.push_row_string(&row)?;
+            }
+            println!("{}", table.to_string());
+        }
     }
     Ok(())
+}
+
+fn map_kernel_path(store: &str, value: String) -> String {
+    if value == "auto" {
+        return format!("{}/default/kernel", store);
+    }
+    value
+}
+
+fn map_initrd_path(store: &str, value: String) -> String {
+    if value == "auto" {
+        return format!("{}/default/initrd", store);
+    }
+    value
 }
 
 fn default_store_path() -> Option<PathBuf> {

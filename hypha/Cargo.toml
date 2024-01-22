@@ -25,6 +25,7 @@ url = "2.5.0"
 ureq = "2.9.1"
 path-clean = "1.0.1"
 termion = "3.0.0"
+cli-tables = "0.2.1"
 
 [dependencies.xenstore]
 path = "../xenstore"
