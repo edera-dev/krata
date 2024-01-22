@@ -1,5 +1,6 @@
 use crate::error::Result;
 use crate::hypha_err;
+use crate::shared::LaunchInfo;
 use log::trace;
 use nix::libc::dup2;
 use nix::unistd::execve;
@@ -27,6 +28,7 @@ const OVERLAY_UPPER_PATH: &str = "/overlay/upper";
 
 const NEW_ROOT_PATH: &str = "/newroot";
 const IMAGE_CONFIG_JSON_PATH: &str = "/config/image/config.json";
+const LAUNCH_CONFIG_JSON_PATH: &str = "/config/launch.json";
 
 pub struct ContainerInit {}
 
@@ -49,12 +51,13 @@ impl ContainerInit {
 
         self.mount_squashfs_images()?;
         let config = self.parse_image_config()?;
+        let launch = self.parse_launch_config()?;
         self.mount_new_root()?;
         self.nuke_initrd()?;
         self.bind_new_root()?;
         self.map_console(console)?;
         if let Some(cfg) = config.config() {
-            self.run(cfg)?;
+            self.run(cfg, &launch)?;
         } else {
             return hypha_err!("unable to determine what to execute, image config doesn't tell us");
         }
@@ -131,6 +134,12 @@ impl ContainerInit {
         Ok(config)
     }
 
+    fn parse_launch_config(&mut self) -> Result<LaunchInfo> {
+        trace!("parsing launch config");
+        let launch_config = Path::new(LAUNCH_CONFIG_JSON_PATH);
+        Ok(serde_json::from_str(&fs::read_to_string(launch_config)?)?)
+    }
+
     fn nuke_initrd(&mut self) -> Result<()> {
         trace!("nuking initrd");
         let initrd_dev = fs::metadata("/")?.st_dev();
@@ -189,14 +198,20 @@ impl ContainerInit {
         Ok(())
     }
 
-    fn run(&mut self, config: &Config) -> Result<()> {
+    fn run(&mut self, config: &Config, launch: &LaunchInfo) -> Result<()> {
         let mut cmd = match config.cmd() {
             None => vec![],
             Some(value) => value.clone(),
         };
+
+        if launch.run.is_some() {
+            cmd = launch.run.as_ref().unwrap().clone();
+        }
+
         if cmd.is_empty() {
             cmd.push("/bin/sh".to_string());
         }
+
         trace!("running container command: {}", cmd.join(" "));
         let path = cmd.remove(0);
         let mut env = match config.env() {
@@ -205,10 +220,8 @@ impl ContainerInit {
         };
         env.push("HYPHA_CONTAINER=1".to_string());
         let path_cstr = CString::new(path)?;
-        let mut cmd_cstr = ContainerInit::strings_as_cstrings(cmd)?;
-        cmd_cstr.push(CString::new("")?);
-        let mut env_cstr = ContainerInit::strings_as_cstrings(env)?;
-        env_cstr.push(CString::new("")?);
+        let cmd_cstr = ContainerInit::strings_as_cstrings(cmd)?;
+        let env_cstr = ContainerInit::strings_as_cstrings(env)?;
         let mut working_dir = config
             .working_dir()
             .as_ref()

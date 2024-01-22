@@ -1,5 +1,6 @@
 use crate::error::Result;
 use crate::image::ImageInfo;
+use crate::shared::LaunchInfo;
 use backhand::{FilesystemWriter, NodeHeader};
 use std::fs;
 use std::fs::File;
@@ -32,12 +33,13 @@ impl ConfigBlock<'_> {
         })
     }
 
-    pub fn build(&self) -> Result<()> {
+    pub fn build(&self, launch_config: &LaunchInfo) -> Result<()> {
         let config_bundle_content = match self.config_bundle {
             None => None,
             Some(path) => Some(fs::read(path)?),
         };
         let manifest = self.image_info.config.to_string()?;
+        let launch = serde_json::to_string(launch_config)?;
         let mut writer = FilesystemWriter::default();
         writer.push_dir(
             "/image",
@@ -51,6 +53,16 @@ impl ConfigBlock<'_> {
         writer.push_file(
             manifest.as_bytes(),
             "/image/config.json",
+            NodeHeader {
+                permissions: 384,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
+            },
+        )?;
+        writer.push_file(
+            launch.as_bytes(),
+            "/launch.json",
             NodeHeader {
                 permissions: 384,
                 uid: 0,

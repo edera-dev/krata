@@ -6,6 +6,7 @@ use crate::error::{HyphaError, Result};
 use crate::image::cache::ImageCache;
 use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
+use crate::shared::LaunchInfo;
 use loopdev::LoopControl;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -59,6 +60,7 @@ impl Controller {
         compiler.compile(&image)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn launch(
         &mut self,
         kernel_path: &str,
@@ -67,12 +69,15 @@ impl Controller {
         image: &str,
         vcpus: u32,
         mem: u64,
+        run: Option<Vec<String>>,
     ) -> Result<u32> {
         let uuid = Uuid::new_v4();
         let name = format!("hypha-{uuid}");
         let image_info = self.compile(image)?;
+        let launch_config = LaunchInfo { run };
+
         let cfgblk = ConfigBlock::new(&uuid, &image_info, config_bundle_path)?;
-        cfgblk.build()?;
+        cfgblk.build(&launch_config)?;
 
         let image_squashfs_path = image_info
             .image_squashfs

@@ -30,6 +30,8 @@ enum Commands {
         mem: u64,
         #[arg(long)]
         config_bundle: Option<String>,
+        #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
+        run: Vec<String>,
     },
     Destroy {
         #[arg(short, long)]
@@ -67,6 +69,7 @@ fn main() -> Result<()> {
             cpus,
             mem,
             config_bundle,
+            run,
         } => {
             let kernel = map_kernel_path(&store_path, kernel);
             let initrd = map_initrd_path(&store_path, initrd);
@@ -77,6 +80,7 @@ fn main() -> Result<()> {
                 &image,
                 cpus,
                 mem,
+                if run.is_empty() { None } else { Some(run) },
             )?;
             println!("launched domain: {}", domid);
         }
