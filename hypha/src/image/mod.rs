@@ -6,7 +6,8 @@ use crate::error::{HyphaError, Result};
 use crate::image::cache::ImageCache;
 use crate::image::fetch::RegistryClient;
 use crate::image::name::ImageName;
-use backhand::{FilesystemWriter, NodeHeader};
+use backhand::compression::Compressor;
+use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader};
 use flate2::read::GzDecoder;
 use log::{debug, trace, warn};
 use oci_spec::image::{Descriptor, ImageConfiguration, ImageManifest, MediaType, ToDockerV2S2};
@@ -125,11 +126,10 @@ impl ImageCompiler<'_> {
             image_dir.to_str().unwrap()
         );
         let mut client = RegistryClient::new(image.registry_url()?)?;
-        let manifest = client.get_manifest(&image.name, &image.reference)?;
-        let manifest_serialized = serde_json::to_string(&manifest)?;
+        let (manifest, digest) = client.get_manifest_with_digest(&image.name, &image.reference)?;
         let cache_key = format!(
-            "manifest\n{}squashfs-version\n{}\n",
-            manifest_serialized, IMAGE_SQUASHFS_VERSION
+            "manifest={}:squashfs-version={}\n",
+            digest, IMAGE_SQUASHFS_VERSION
         );
         let cache_digest = sha256::digest(cache_key);
 
@@ -338,6 +338,7 @@ impl ImageCompiler<'_> {
 
     fn squash(&self, image_dir: &PathBuf, squash_file: &PathBuf) -> Result<()> {
         let mut writer = FilesystemWriter::default();
+        writer.set_compressor(FilesystemCompressor::new(Compressor::Gzip, None)?);
         let walk = WalkDir::new(image_dir).follow_links(false);
         for entry in walk {
             let entry = entry?;

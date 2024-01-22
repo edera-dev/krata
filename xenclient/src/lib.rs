@@ -195,7 +195,8 @@ impl XenClient {
             let mut count: u32 = 0;
             loop {
                 if count >= 100 {
-                    return Err(XenClientError::new("unable to destroy device"));
+                    warn!("unable to safely destroy backend: {}", backend);
+                    break;
                 }
                 let state = self.store.read_string(&state_path)?;
                 let state = i64::from_str(&state).unwrap_or(-1);

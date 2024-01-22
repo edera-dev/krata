@@ -47,7 +47,11 @@ impl RegistryClient {
         Ok(copy(reader.deref_mut(), dest)?)
     }
 
-    pub fn get_manifest(&mut self, name: &str, reference: &str) -> Result<ImageManifest> {
+    pub fn get_manifest_with_digest(
+        &mut self,
+        name: &str,
+        reference: &str,
+    ) -> Result<(ImageManifest, String)> {
         let url = self
             .url
             .join(&format!("/v2/{}/manifests/{}", name, reference))?;
@@ -69,10 +73,14 @@ impl RegistryClient {
             let descriptor = self
                 .pick_manifest(index)
                 .ok_or_else(|| HyphaError::new("unable to pick manifest from index"))?;
-            return self.get_manifest(name, descriptor.digest());
+            return self.get_manifest_with_digest(name, descriptor.digest());
         }
+        let digest = response
+            .header("Docker-Content-Digest")
+            .ok_or_else(|| HyphaError::new("fetching manifest did not yield a content digest"))?
+            .to_string();
         let manifest = ImageManifest::from_reader(response.into_reader())?;
-        Ok(manifest)
+        Ok((manifest, digest))
     }
 
     fn pick_manifest(&mut self, index: ImageIndex) -> Option<Descriptor> {
