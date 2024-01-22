@@ -21,6 +21,7 @@ fn main() -> Result<(), XenClientError> {
         initrd_path: initrd_path.as_str(),
         cmdline: "debug elevator=noop",
         disks: vec![],
+        filesystems: vec![],
         extra_keys: vec![],
     };
     let domid = client.create(&config)?;

@@ -28,6 +28,8 @@ enum Commands {
         cpus: u32,
         #[arg(short, long, default_value_t = 512)]
         mem: u64,
+        #[arg(long)]
+        config_bundle: Option<String>,
     },
     Destroy {
         #[arg(short, long)]
@@ -64,10 +66,18 @@ fn main() -> Result<()> {
             image,
             cpus,
             mem,
+            config_bundle,
         } => {
             let kernel = map_kernel_path(&store_path, kernel);
             let initrd = map_initrd_path(&store_path, initrd);
-            let domid = controller.launch(&kernel, &initrd, &image, cpus, mem)?;
+            let domid = controller.launch(
+                &kernel,
+                &initrd,
+                config_bundle.as_deref(),
+                &image,
+                cpus,
+                mem,
+            )?;
             println!("launched domain: {}", domid);
         }
 
@@ -92,7 +102,12 @@ fn main() -> Result<()> {
                 ];
                 table.push_row_string(&row)?;
             }
-            println!("{}", table.to_string());
+
+            if table.num_records() == 1 {
+                println!("no containers have been launched");
+            } else {
+                println!("{}", table.to_string());
+            }
         }
     }
     Ok(())

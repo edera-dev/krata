@@ -97,6 +97,11 @@ pub struct DomainDisk<'a> {
     pub writable: bool,
 }
 
+pub struct DomainFilesystem<'a> {
+    pub path: &'a str,
+    pub tag: &'a str,
+}
+
 pub struct DomainConfig<'a> {
     pub backend_domid: u32,
     pub name: &'a str,
@@ -106,6 +111,7 @@ pub struct DomainConfig<'a> {
     pub initrd_path: &'a str,
     pub cmdline: &'a str,
     pub disks: Vec<DomainDisk<'a>>,
+    pub filesystems: Vec<DomainFilesystem<'a>>,
     pub extra_keys: Vec<(String, String)>,
 }
 
@@ -403,6 +409,16 @@ impl XenClient {
                 disk,
             )?;
         }
+        for (index, filesystem) in config.filesystems.iter().enumerate() {
+            self.fs_9p_device_add(
+                &dom_path,
+                &backend_dom_path,
+                config.backend_domid,
+                domid,
+                index,
+                filesystem,
+            )?;
+        }
         self.call.unpause_domain(domid)?;
         Ok(())
     }
@@ -493,6 +509,43 @@ impl XenClient {
             domid,
             frontend_entries,
             backend_entries,
+        )?;
+        Ok(())
+    }
+
+    fn fs_9p_device_add(
+        &mut self,
+        dom_path: &str,
+        backend_dom_path: &str,
+        backend_domid: u32,
+        domid: u32,
+        index: usize,
+        filesystem: &DomainFilesystem,
+    ) -> Result<(), XenClientError> {
+        let id = 90 + index as u64;
+        let backend_items: Vec<(&str, String)> = vec![
+            ("frontend-id", domid.to_string()),
+            ("online", "1".to_string()),
+            ("state", "1".to_string()),
+            ("path", filesystem.path.to_string()),
+            ("security-model", "none".to_string()),
+        ];
+
+        let frontend_items: Vec<(&str, String)> = vec![
+            ("backend-id", backend_domid.to_string()),
+            ("state", "1".to_string()),
+            ("tag", filesystem.tag.to_string()),
+        ];
+
+        self.device_add(
+            "9pfs",
+            id,
+            dom_path,
+            backend_dom_path,
+            backend_domid,
+            domid,
+            frontend_items,
+            backend_items,
         )?;
         Ok(())
     }

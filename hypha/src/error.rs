@@ -35,6 +35,15 @@ impl Error for HyphaError {
     }
 }
 
+#[macro_export]
+macro_rules! hypha_err {
+    ($($arg:tt)*) => {{
+        use $crate::error::HyphaError;
+        let text = std::fmt::format(format_args!($($arg)*));
+        Err(HyphaError::new(text.as_str()))
+    }}
+}
+
 impl From<std::io::Error> for HyphaError {
     fn from(value: std::io::Error) -> Self {
         HyphaError::new(value.to_string().as_str())

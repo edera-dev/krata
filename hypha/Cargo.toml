@@ -44,6 +44,10 @@ version = "0.14.2"
 version = "1.6.1"
 features = ["v4"]
 
+[dependencies.sys-mount]
+default-features = false
+version = "2.1.1"
+
 [lib]
 path = "src/lib.rs"
 
@@ -52,5 +56,5 @@ name = "hyphactl"
 path = "bin/controller.rs"
 
 [[bin]]
-name = "hyphad"
+name = "hyphactr"
 path = "bin/container.rs"

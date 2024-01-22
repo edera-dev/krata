@@ -63,6 +63,7 @@ impl Controller {
         &mut self,
         kernel_path: &str,
         initrd_path: &str,
+        config_bundle_path: Option<&str>,
         image: &str,
         vcpus: u32,
         mem: u64,
@@ -70,7 +71,7 @@ impl Controller {
         let uuid = Uuid::new_v4();
         let name = format!("hypha-{uuid}");
         let image_info = self.compile(image)?;
-        let cfgblk = ConfigBlock::new(&uuid, &image_info)?;
+        let cfgblk = ConfigBlock::new(&uuid, &image_info, config_bundle_path)?;
         cfgblk.build()?;
 
         let image_squashfs_path = image_info
@@ -110,6 +111,7 @@ impl Controller {
                     writable: false,
                 },
             ],
+            filesystems: vec![],
             extra_keys: vec![
                 ("hypha/uuid".to_string(), uuid.to_string()),
                 (
