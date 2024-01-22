@@ -2,6 +2,7 @@ use backhand::BackhandError;
 use cli_tables::TableError;
 use oci_spec::OciSpecError;
 use std::error::Error;
+use std::ffi::NulError;
 use std::fmt::{Display, Formatter};
 use std::num::ParseIntError;
 use std::path::StripPrefixError;
@@ -124,6 +125,18 @@ impl From<XsdBusError> for HyphaError {
 
 impl From<TableError> for HyphaError {
     fn from(value: TableError) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
+
+impl From<NulError> for HyphaError {
+    fn from(value: NulError) -> Self {
+        HyphaError::new(value.to_string().as_str())
+    }
+}
+
+impl From<nix::Error> for HyphaError {
+    fn from(value: nix::Error) -> Self {
         HyphaError::new(value.to_string().as_str())
     }
 }
