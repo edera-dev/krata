@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "xenstore",
-    "xenevtchn",
-    "xencall",
-    "xenclient",
+    "xen/xenstore",
+    "xen/xenevtchn",
+    "xen/xencall",
+    "xen/xenclient",
     "hypha",
     "loopdev",
 ]

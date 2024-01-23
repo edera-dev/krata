@@ -5,7 +5,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies.xenclient]
-path = "../xenclient"
+path = "../xen/xenclient"
 
 [dependencies.loopdev]
 path = "../loopdev"
@@ -28,7 +28,7 @@ termion = "3.0.0"
 cli-tables = "0.2.1"
 
 [dependencies.xenstore]
-path = "../xenstore"
+path = "../xen/xenstore"
 
 [dependencies.clap]
 version = "4.4.18"
