@@ -2,6 +2,7 @@ use crate::error::Result;
 use crate::image::ImageInfo;
 use crate::shared::LaunchInfo;
 use backhand::{FilesystemWriter, NodeHeader};
+use log::trace;
 use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
@@ -34,6 +35,7 @@ impl ConfigBlock<'_> {
     }
 
     pub fn build(&self, launch_config: &LaunchInfo) -> Result<()> {
+        trace!("ConfigBlock build launch_config={:?}", launch_config);
         let config_bundle_content = match self.config_bundle {
             None => None,
             Some(path) => Some(fs::read(path)?),
@@ -83,7 +85,9 @@ impl ConfigBlock<'_> {
             )?;
         }
         let mut file = File::create(&self.file)?;
+        trace!("ConfigBlock build write sqaushfs");
         writer.write(&mut file)?;
+        trace!("ConfigBlock build complete");
         Ok(())
     }
 }
