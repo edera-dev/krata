@@ -7,10 +7,10 @@ use nix::unistd::execve;
 use oci_spec::image::{Config, ImageConfiguration};
 use std::ffi::CString;
 use std::fs;
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, Permissions};
 use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
-use std::os::unix::fs::chroot;
+use std::os::unix::fs::{chroot, PermissionsExt};
 use std::path::Path;
 use sys_mount::{FilesystemType, Mount, MountFlags};
 use walkdir::WalkDir;
@@ -26,7 +26,15 @@ const OVERLAY_IMAGE_BIND_PATH: &str = "/overlay/image";
 const OVERLAY_WORK_PATH: &str = "/overlay/work";
 const OVERLAY_UPPER_PATH: &str = "/overlay/upper";
 
+const SYS_PATH: &str = "/sys";
+const PROC_PATH: &str = "/proc";
+const DEV_PATH: &str = "/dev";
+
 const NEW_ROOT_PATH: &str = "/newroot";
+const NEW_ROOT_SYS_PATH: &str = "/newroot/sys";
+const NEW_ROOT_PROC_PATH: &str = "/newroot/proc";
+const NEW_ROOT_DEV_PATH: &str = "/newroot/dev";
+
 const IMAGE_CONFIG_JSON_PATH: &str = "/config/image/config.json";
 const LAUNCH_CONFIG_JSON_PATH: &str = "/config/launch.json";
 
@@ -44,6 +52,8 @@ impl ContainerInit {
     }
 
     pub fn init(&mut self) -> Result<()> {
+        self.early_init()?;
+
         let console = OpenOptions::new()
             .read(true)
             .write(true)
@@ -60,6 +70,49 @@ impl ContainerInit {
             self.run(cfg, &launch)?;
         } else {
             return hypha_err!("unable to determine what to execute, image config doesn't tell us");
+        }
+        Ok(())
+    }
+
+    fn early_init(&mut self) -> Result<()> {
+        trace!("early init");
+        self.create_dir("/dev", Some(0o0755))?;
+        self.create_dir("/proc", None)?;
+        self.create_dir("/sys", None)?;
+        self.create_dir("/root", Some(0o0700))?;
+        self.create_dir("/tmp", None)?;
+        self.mount_kernel_fs("devtmpfs", "/dev")?;
+        self.mount_kernel_fs("proc", "/proc")?;
+        self.mount_kernel_fs("sysfs", "/sys")?;
+        Ok(())
+    }
+
+    fn create_dir(&mut self, path: &str, mode: Option<u32>) -> Result<()> {
+        let path = Path::new(path);
+        if !path.is_dir() {
+            trace!("creating directory {:?}", path);
+            fs::create_dir(path)?;
+        }
+        if let Some(mode) = mode {
+            let permissions = Permissions::from_mode(mode);
+            trace!(
+                "setting directory {:?} permissions to {:?}",
+                path,
+                permissions
+            );
+            fs::set_permissions(path, permissions)?;
+        }
+        Ok(())
+    }
+
+    fn mount_kernel_fs(&mut self, fstype: &str, path: &str) -> Result<()> {
+        let metadata = fs::metadata(path)?;
+        if metadata.st_dev() == fs::metadata("/")?.st_dev() {
+            trace!("mounting kernel fs {} to {}", fstype, path);
+            Mount::builder()
+                .fstype(FilesystemType::Manual(fstype))
+                .flags(MountFlags::NODEV | MountFlags::NOEXEC | MountFlags::NOSUID)
+                .mount(fstype, path)?;
         }
         Ok(())
     }
@@ -81,6 +134,18 @@ impl ContainerInit {
         Mount::builder()
             .fstype(FilesystemType::Manual("squashfs"))
             .flags(MountFlags::RDONLY)
+            .mount(from, to)?;
+        Ok(())
+    }
+
+    fn mount_move_subtree(&mut self, from: &Path, to: &Path) -> Result<()> {
+        trace!("moving subtree {:?} to {:?}", from, to);
+        if !to.is_dir() {
+            fs::create_dir(to)?;
+        }
+        Mount::builder()
+            .fstype(FilesystemType::Manual("none"))
+            .flags(MountFlags::MOVE)
             .mount(from, to)?;
         Ok(())
     }
@@ -175,6 +240,9 @@ impl ContainerInit {
     }
 
     fn bind_new_root(&mut self) -> Result<()> {
+        self.mount_move_subtree(Path::new(SYS_PATH), Path::new(NEW_ROOT_SYS_PATH))?;
+        self.mount_move_subtree(Path::new(PROC_PATH), Path::new(NEW_ROOT_PROC_PATH))?;
+        self.mount_move_subtree(Path::new(DEV_PATH), Path::new(NEW_ROOT_DEV_PATH))?;
         trace!("binding new root");
         Mount::builder()
             .fstype(FilesystemType::Manual("none"))
