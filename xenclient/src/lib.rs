@@ -7,7 +7,7 @@ mod x86;
 use crate::boot::BootSetup;
 use crate::elfloader::ElfImageLoader;
 use crate::x86::X86BootSetup;
-use log::warn;
+use log::{trace, warn};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::{read, File, OpenOptions};
@@ -85,23 +85,27 @@ impl From<EventChannelError> for XenClientError {
     }
 }
 
+#[derive(Debug)]
 pub struct BlockDeviceRef {
     pub path: String,
     pub major: u32,
     pub minor: u32,
 }
 
+#[derive(Debug)]
 pub struct DomainDisk<'a> {
     pub vdev: &'a str,
     pub block: &'a BlockDeviceRef,
     pub writable: bool,
 }
 
+#[derive(Debug)]
 pub struct DomainFilesystem<'a> {
     pub path: &'a str,
     pub tag: &'a str,
 }
 
+#[derive(Debug)]
 pub struct DomainConfig<'a> {
     pub backend_domid: u32,
     pub name: &'a str,
@@ -235,6 +239,12 @@ impl XenClient {
         domain: &CreateDomain,
         config: &DomainConfig,
     ) -> Result<(), XenClientError> {
+        trace!(
+            "XenClient init domid={} domain={:?} config={:?}",
+            domid,
+            domain,
+            config
+        );
         let backend_dom_path = self.store.get_domain_path(0)?;
         let dom_path = self.store.get_domain_path(domid)?;
         let uuid_string = Uuid::from_bytes(domain.handle).to_string();
