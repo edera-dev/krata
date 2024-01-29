@@ -1,6 +1,6 @@
 [package]
 name = "xenclient"
-version = "0.0.1"
+version.workspace = true
 edition = "2021"
 resolver = "2"
 

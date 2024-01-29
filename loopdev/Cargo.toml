@@ -4,7 +4,7 @@
 # prevent development from macOS, like the original library.
 [package]
 name = "loopdev"
-version = "0.0.1"
+version.workspace = true
 license = "MIT"
 edition = "2021"
 
