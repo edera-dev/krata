@@ -8,11 +8,11 @@ resolver = "2"
 path = "src/lib.rs"
 
 [dependencies]
-libc = "0.2"
-log = "0.4.20"
+libc = { workspace = true }
+log = { workspace = true }
 
 [dependencies.bytemuck]
-version = "1.14.0"
+workspace = true
 features = ["derive"]
 
 [[example]]

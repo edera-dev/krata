@@ -5,10 +5,10 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-log = "0.4.20"
+log = { workspace = true }
 
 [dependencies.nix]
-version = "0.27.1"
+workspace = true
 features = ["ioctl"]
 
 [lib]

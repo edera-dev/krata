@@ -5,13 +5,14 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-libc = "0.2"
-elf = "0.7.4"
-flate2 = "1.0"
-xz2 = "0.1"
-memchr = "2"
-slice-copy = "0.3.0"
-log = "0.4.20"
+libc = { workspace = true }
+elf = { workspace = true }
+flate2 = { workspace = true }
+xz2 = { workspace = true }
+memchr = { workspace = true }
+slice-copy = { workspace = true }
+log = { workspace = true }
+uuid = { workspace = true }
 
 [dependencies.xencall]
 path = "../xencall"
@@ -22,12 +23,8 @@ path = "../xenstore"
 [dependencies.xenevtchn]
 path = "../xenevtchn"
 
-[dependencies.uuid]
-version = "1.6.1"
-features = ["v4"]
-
 [dev-dependencies]
-env_logger = "0.11.1"
+env_logger = { workspace = true }
 
 [lib]
 path = "src/lib.rs"

@@ -12,9 +12,9 @@ edition = "2021"
 name = "loopdev"
 
 [dependencies]
-errno = "0.3.0"
-libc = "0.2.105"
+errno = { workspace = true }
+libc = { workspace = true }
 
 [dependencies.nix]
-version = "0.27.1"
+workspace = true
 features = ["ioctl"]
