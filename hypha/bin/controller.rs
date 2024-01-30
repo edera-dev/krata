@@ -1,6 +1,6 @@
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use hypha::ctl::Controller;
-use hypha::error::{HyphaError, Result};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -48,8 +48,7 @@ fn main() -> Result<()> {
 
     let args = ControllerArgs::parse();
     let store_path = if args.store == "auto" {
-        default_store_path()
-            .ok_or_else(|| HyphaError::new("unable to determine default store path"))
+        default_store_path().ok_or_else(|| anyhow!("unable to determine default store path"))
     } else {
         Ok(PathBuf::from(args.store))
     }?;
@@ -57,7 +56,7 @@ fn main() -> Result<()> {
     let store_path = store_path
         .to_str()
         .map(|x| x.to_string())
-        .ok_or_else(|| HyphaError::new("unable to convert store path to string"))?;
+        .ok_or_else(|| anyhow!("unable to convert store path to string"))?;
 
     let mut controller = Controller::new(store_path.clone())?;
 

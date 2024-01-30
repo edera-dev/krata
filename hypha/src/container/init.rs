@@ -1,6 +1,5 @@
-use crate::error::Result;
-use crate::hypha_err;
 use crate::shared::LaunchInfo;
+use anyhow::{anyhow, Result};
 use log::trace;
 use nix::libc::dup2;
 use nix::unistd::execve;
@@ -69,7 +68,9 @@ impl ContainerInit {
         if let Some(cfg) = config.config() {
             self.run(cfg, &launch)?;
         } else {
-            return hypha_err!("unable to determine what to execute, image config doesn't tell us");
+            return Err(anyhow!(
+                "unable to determine what to execute, image config doesn't tell us"
+            ));
         }
         Ok(())
     }

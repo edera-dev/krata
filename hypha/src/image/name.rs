@@ -1,4 +1,4 @@
-use crate::error::Result;
+use anyhow::Result;
 use std::fmt;
 use url::Url;
 

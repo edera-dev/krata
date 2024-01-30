@@ -1,4 +1,4 @@
-use crate::error::{HyphaError, Result};
+use anyhow::{anyhow, Result};
 use loopdev::{LoopControl, LoopDevice};
 use xenclient::BlockDeviceRef;
 
@@ -16,11 +16,9 @@ impl AutoLoop {
         device.with().read_only(true).attach(file)?;
         let path = device
             .path()
-            .ok_or(HyphaError::new("unable to get loop device path"))?
+            .ok_or(anyhow!("unable to get loop device path"))?
             .to_str()
-            .ok_or(HyphaError::new(
-                "unable to convert loop device path to string",
-            ))?
+            .ok_or(anyhow!("unable to convert loop device path to string",))?
             .to_string();
         let major = device.major()?;
         let minor = device.minor()?;

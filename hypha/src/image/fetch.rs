@@ -1,4 +1,4 @@
-use crate::error::{HyphaError, Result};
+use anyhow::{anyhow, Result};
 use oci_spec::image::{Arch, Descriptor, ImageIndex, ImageManifest, MediaType, Os, ToDockerV2S2};
 use std::io::copy;
 use std::io::{Read, Write};
@@ -63,21 +63,21 @@ impl RegistryClient {
             MediaType::ImageIndex.to_docker_v2s2()?,
         );
         let response = self.call(self.agent.get(url.as_str()).set("Accept", &accept))?;
-        let content_type = response.header("Content-Type").ok_or_else(|| {
-            HyphaError::new("registry response did not have a Content-Type header")
-        })?;
+        let content_type = response
+            .header("Content-Type")
+            .ok_or_else(|| anyhow!("registry response did not have a Content-Type header"))?;
         if content_type == MediaType::ImageIndex.to_string()
             || content_type == MediaType::ImageIndex.to_docker_v2s2()?
         {
             let index = ImageIndex::from_reader(response.into_reader())?;
             let descriptor = self
                 .pick_manifest(index)
-                .ok_or_else(|| HyphaError::new("unable to pick manifest from index"))?;
+                .ok_or_else(|| anyhow!("unable to pick manifest from index"))?;
             return self.get_manifest_with_digest(name, descriptor.digest());
         }
         let digest = response
             .header("Docker-Content-Digest")
-            .ok_or_else(|| HyphaError::new("fetching manifest did not yield a content digest"))?
+            .ok_or_else(|| anyhow!("fetching manifest did not yield a content digest"))?
             .to_string();
         let manifest = ImageManifest::from_reader(response.into_reader())?;
         Ok((manifest, digest))

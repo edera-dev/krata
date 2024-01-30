@@ -5,6 +5,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
+anyhow = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 zstd = { workspace = true }

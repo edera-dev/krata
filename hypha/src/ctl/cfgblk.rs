@@ -1,6 +1,6 @@
-use crate::error::Result;
 use crate::image::ImageInfo;
 use crate::shared::LaunchInfo;
+use anyhow::Result;
 use backhand::{FilesystemWriter, NodeHeader};
 use log::trace;
 use std::fs;

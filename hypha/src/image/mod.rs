@@ -2,10 +2,10 @@ pub mod cache;
 pub mod fetch;
 pub mod name;
 
-use crate::error::{HyphaError, Result};
 use crate::image::cache::ImageCache;
 use crate::image::fetch::RegistryClient;
 use crate::image::name::ImageName;
+use anyhow::{anyhow, Result};
 use backhand::compression::Compressor;
 use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader};
 use flate2::read::GzDecoder;
@@ -160,10 +160,10 @@ impl ImageCompiler<'_> {
                 let mut entry = entry?;
                 let path = entry.path()?;
                 let Some(name) = path.file_name() else {
-                    return Err(HyphaError::new("unable to get file name"));
+                    return Err(anyhow!("unable to get file name"));
                 };
                 let Some(name) = name.to_str() else {
-                    return Err(HyphaError::new("unable to get file name as string"));
+                    return Err(anyhow!("unable to get file name as string"));
                 };
 
                 if name.starts_with(".wh.") {
@@ -214,7 +214,7 @@ impl ImageCompiler<'_> {
                     } else if path.is_dir() {
                         fs::remove_dir_all(&path)?;
                     } else {
-                        return Err(HyphaError::new("opaque whiteout entry did not exist"));
+                        return Err(anyhow!("opaque whiteout entry did not exist"));
                     }
                 }
             } else {
@@ -280,7 +280,7 @@ impl ImageCompiler<'_> {
     fn check_safe_path(&self, dst: &PathBuf, image_dir: &PathBuf) -> Result<()> {
         let resolved = path_clean::clean(dst);
         if !resolved.starts_with(image_dir) {
-            return Err(HyphaError::new("layer attempts to work outside image dir"));
+            return Err(anyhow!("layer attempts to work outside image dir"));
         }
         Ok(())
     }
@@ -306,7 +306,7 @@ impl ImageCompiler<'_> {
             let mut file = File::create(&layer_path)?;
             let size = client.write_blob(&image.name, layer, &mut file)?;
             if layer.size() as u64 != size {
-                return Err(HyphaError::new(
+                return Err(anyhow!(
                     "downloaded layer size differs from size in manifest",
                 ));
             }
@@ -323,11 +323,7 @@ impl ImageCompiler<'_> {
             MediaType::ImageLayer => LayerCompressionType::None,
             MediaType::ImageLayerGzip => LayerCompressionType::Gzip,
             MediaType::ImageLayerZstd => LayerCompressionType::Zstd,
-            other => {
-                return Err(HyphaError::new(
-                    format!("found layer with unknown media type: {}", other).as_str(),
-                ))
-            }
+            other => return Err(anyhow!("found layer with unknown media type: {}", other)),
         };
         Ok(LayerFile {
             digest: layer.digest().clone(),
@@ -346,7 +342,7 @@ impl ImageCompiler<'_> {
                 .path()
                 .strip_prefix(image_dir)?
                 .to_str()
-                .ok_or_else(|| HyphaError::new("failed to strip prefix of tmpdir"))?;
+                .ok_or_else(|| anyhow!("failed to strip prefix of tmpdir"))?;
             let rel = format!("/{}", rel);
             trace!("ImageCompiler squash write {}", rel);
             let typ = entry.file_type();
@@ -373,7 +369,7 @@ impl ImageCompiler<'_> {
                 let symlink = fs::read_link(entry.path())?;
                 let symlink = symlink
                     .to_str()
-                    .ok_or_else(|| HyphaError::new("failed to read symlink"))?;
+                    .ok_or_else(|| anyhow!("failed to read symlink"))?;
                 writer.push_symlink(symlink, rel, header)?;
             } else if typ.is_dir() {
                 writer.push_dir(rel, header)?;
@@ -393,7 +389,7 @@ impl ImageCompiler<'_> {
                 let device = metadata.dev();
                 writer.push_char_device(device as u32, rel, header)?;
             } else {
-                return Err(HyphaError::new("invalid file type"));
+                return Err(anyhow!("invalid file type"));
             }
         }
 
@@ -401,7 +397,7 @@ impl ImageCompiler<'_> {
 
         let squash_file_path = squash_file
             .to_str()
-            .ok_or_else(|| HyphaError::new("failed to convert squashfs string"))?;
+            .ok_or_else(|| anyhow!("failed to convert squashfs string"))?;
 
         let mut file = File::create(squash_file)?;
         trace!("ImageCompiler squash generate: {}", squash_file_path);

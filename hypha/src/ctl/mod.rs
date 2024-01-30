@@ -2,11 +2,11 @@ pub mod cfgblk;
 
 use crate::autoloop::AutoLoop;
 use crate::ctl::cfgblk::ConfigBlock;
-use crate::error::{HyphaError, Result};
 use crate::image::cache::ImageCache;
 use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
 use crate::shared::LaunchInfo;
+use anyhow::{anyhow, Result};
 use loopdev::LoopControl;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -82,16 +82,16 @@ impl Controller {
         let image_squashfs_path = image_info
             .image_squashfs
             .to_str()
-            .ok_or_else(|| HyphaError::new("failed to convert image squashfs path to string"))?;
+            .ok_or_else(|| anyhow!("failed to convert image squashfs path to string"))?;
 
         let cfgblk_dir_path = cfgblk
             .dir
             .to_str()
-            .ok_or_else(|| HyphaError::new("failed to convert cfgblk directory path to string"))?;
+            .ok_or_else(|| anyhow!("failed to convert cfgblk directory path to string"))?;
         let cfgblk_squashfs_path = cfgblk
             .file
             .to_str()
-            .ok_or_else(|| HyphaError::new("failed to convert cfgblk squashfs path to string"))?;
+            .ok_or_else(|| anyhow!("failed to convert cfgblk squashfs path to string"))?;
 
         let image_squashfs_loop = self.autoloop.loopify(image_squashfs_path)?;
         let cfgblk_squashfs_loop = self.autoloop.loopify(cfgblk_squashfs_path)?;
@@ -149,17 +149,15 @@ impl Controller {
         let dom_path = store.get_domain_path(domid)?;
         let uuid = match store.read_string_optional(format!("{}/hypha/uuid", dom_path).as_str())? {
             None => {
-                return Err(HyphaError::new(&format!(
+                return Err(anyhow!(
                     "domain {} was not found or not created by hypha",
                     domid
-                )))
+                ))
             }
             Some(value) => value,
         };
         if uuid.is_empty() {
-            return Err(HyphaError::new(
-                "unable to find hypha uuid based on the domain",
-            ));
+            return Err(anyhow!("unable to find hypha uuid based on the domain",));
         }
         let uuid = Uuid::parse_str(&uuid)?;
         let loops = store.read_string(format!("{}/hypha/loops", dom_path).as_str())?;
@@ -235,8 +233,8 @@ impl Controller {
                 None => continue,
                 Some(value) => value,
             };
-            let domid = u32::from_str(&domid_candidate)
-                .map_err(|_| HyphaError::new("failed to parse domid"))?;
+            let domid =
+                u32::from_str(&domid_candidate).map_err(|_| anyhow!("failed to parse domid"))?;
             let uuid = Uuid::from_str(&uuid_string)?;
             let image = self
                 .client
