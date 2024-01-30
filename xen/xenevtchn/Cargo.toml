@@ -5,6 +5,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
+thiserror = { workspace = true }
 log = { workspace = true }
 
 [dependencies.nix]

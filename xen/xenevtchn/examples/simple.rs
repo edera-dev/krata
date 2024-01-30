@@ -1,6 +1,7 @@
-use xenevtchn::{EventChannel, EventChannelError};
+use xenevtchn::error::Result;
+use xenevtchn::EventChannel;
 
-fn main() -> Result<(), EventChannelError> {
+fn main() -> Result<()> {
     let mut channel = EventChannel::open()?;
     println!("Channel opened.");
     let port = channel.bind_unbound_port(1)?;

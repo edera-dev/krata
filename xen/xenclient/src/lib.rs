@@ -19,7 +19,6 @@ use std::time::Duration;
 use uuid::Uuid;
 use xencall::sys::CreateDomain;
 use xencall::{XenCall, XenCallError};
-use xenevtchn::EventChannelError;
 use xenstore::client::{
     XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
 };
@@ -78,8 +77,8 @@ impl From<FromUtf8Error> for XenClientError {
     }
 }
 
-impl From<EventChannelError> for XenClientError {
-    fn from(value: EventChannelError) -> Self {
+impl From<xenevtchn::error::Error> for XenClientError {
+    fn from(value: xenevtchn::error::Error) -> Self {
         XenClientError::new(value.to_string().as_str())
     }
 }
