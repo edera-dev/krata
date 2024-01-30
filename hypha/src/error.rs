@@ -7,7 +7,6 @@ use std::fmt::{Display, Formatter};
 use std::num::ParseIntError;
 use std::path::StripPrefixError;
 use xenclient::XenClientError;
-use xenstore::bus::XsdBusError;
 
 pub type Result<T> = std::result::Result<T, HyphaError>;
 
@@ -117,8 +116,8 @@ impl From<uuid::Error> for HyphaError {
     }
 }
 
-impl From<XsdBusError> for HyphaError {
-    fn from(value: XsdBusError) -> Self {
+impl From<xenstore::error::Error> for HyphaError {
+    fn from(value: xenstore::error::Error) -> Self {
         HyphaError::new(value.to_string().as_str())
     }
 }

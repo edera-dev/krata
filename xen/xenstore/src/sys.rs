@@ -1,6 +1,6 @@
-use bytemuck::{Pod, Zeroable};
 /// Handwritten protocol definitions for XenStore.
 /// Used xen/include/public/io/xs_wire.h as a reference.
+use bytemuck::{Pod, Zeroable};
 use libc;
 
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]

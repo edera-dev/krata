@@ -20,7 +20,6 @@ use uuid::Uuid;
 use xencall::sys::CreateDomain;
 use xencall::{XenCall, XenCallError};
 use xenevtchn::EventChannelError;
-use xenstore::bus::XsdBusError;
 use xenstore::client::{
     XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
 };
@@ -61,8 +60,8 @@ impl From<std::io::Error> for XenClientError {
     }
 }
 
-impl From<XsdBusError> for XenClientError {
-    fn from(value: XsdBusError) -> Self {
+impl From<xenstore::error::Error> for XenClientError {
+    fn from(value: xenstore::error::Error) -> Self {
         XenClientError::new(value.to_string().as_str())
     }
 }

@@ -1,8 +1,8 @@
-use xenstore::bus::XsdBusError;
 use xenstore::client::{XsdClient, XsdInterface};
+use xenstore::error::Result;
 use xenstore::sys::XSD_ERROR_EINVAL;
 
-fn list_recursive(client: &mut XsdClient, level: usize, path: &str) -> Result<(), XsdBusError> {
+fn list_recursive(client: &mut XsdClient, level: usize, path: &str) -> Result<()> {
     let children = match client.list(path) {
         Ok(children) => children,
         Err(error) => {
@@ -28,7 +28,7 @@ fn list_recursive(client: &mut XsdClient, level: usize, path: &str) -> Result<()
     Ok(())
 }
 
-fn main() -> Result<(), XsdBusError> {
+fn main() -> Result<()> {
     let mut client = XsdClient::open()?;
     list_recursive(&mut client, 0, "/")?;
     Ok(())
