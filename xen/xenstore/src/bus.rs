@@ -1,7 +1,7 @@
 use crate::sys::{XsdMessageHeader, XSD_ERROR};
-use std::error::Error;
 use std::ffi::{CString, FromVecWithNulError, IntoStringError, NulError};
 use std::fs::metadata;
+use std::io;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::net::Shutdown;
@@ -9,6 +9,7 @@ use std::num::ParseIntError;
 use std::os::unix::net::UnixStream;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
+use thiserror::Error;
 
 const XEN_BUS_PATHS: &[&str] = &["/var/run/xenstored/socket"];
 
@@ -22,71 +23,28 @@ fn find_bus_path() -> Option<String> {
     None
 }
 
-#[derive(Debug)]
-pub struct XsdBusError {
-    message: String,
-}
-
-impl XsdBusError {
-    pub fn new(msg: &str) -> XsdBusError {
-        XsdBusError {
-            message: msg.to_string(),
-        }
-    }
-}
-
-impl std::fmt::Display for XsdBusError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl Error for XsdBusError {
-    fn description(&self) -> &str {
-        &self.message
-    }
-}
-
-impl From<std::io::Error> for XsdBusError {
-    fn from(value: std::io::Error) -> Self {
-        XsdBusError::new(value.to_string().as_str())
-    }
-}
-
-impl From<NulError> for XsdBusError {
-    fn from(_: NulError) -> Self {
-        XsdBusError::new("Unable to coerce data into a C string.")
-    }
-}
-
-impl From<FromVecWithNulError> for XsdBusError {
-    fn from(_: FromVecWithNulError) -> Self {
-        XsdBusError::new("Unable to coerce data into a C string.")
-    }
-}
-
-impl From<Utf8Error> for XsdBusError {
-    fn from(_: Utf8Error) -> Self {
-        XsdBusError::new("Unable to coerce data into a UTF8 string.")
-    }
-}
-
-impl From<FromUtf8Error> for XsdBusError {
-    fn from(_: FromUtf8Error) -> Self {
-        XsdBusError::new("Unable to coerce data into a UTF8 string.")
-    }
-}
-
-impl From<ParseIntError> for XsdBusError {
-    fn from(_: ParseIntError) -> Self {
-        XsdBusError::new("Unable to coerce data into an integer.")
-    }
-}
-
-impl From<IntoStringError> for XsdBusError {
-    fn from(_: IntoStringError) -> Self {
-        XsdBusError::new("Unable to coerce data into a string.")
-    }
+#[derive(Error, Debug)]
+pub enum XsdBusError {
+    #[error("io issue encountered")]
+    Io(#[from] io::Error),
+    #[error("utf8 string decode failed")]
+    Utf8DecodeString(#[from] FromUtf8Error),
+    #[error("utf8 str decode failed")]
+    Utf8DecodeStr(#[from] Utf8Error),
+    #[error("unable to decode cstring as utf8")]
+    Utf8DecodeCstring(#[from] IntoStringError),
+    #[error("nul byte found in string")]
+    NulByteFoundString(#[from] NulError),
+    #[error("unable to find nul byte in vec")]
+    VecNulByteNotFound(#[from] FromVecWithNulError),
+    #[error("unable to parse integer")]
+    ParseInt(#[from] ParseIntError),
+    #[error("bus was not found on any available path")]
+    BusNotFound,
+    #[error("store responded with error: `{0}`")]
+    ResponseError(String),
+    #[error("invalid permissions provided")]
+    InvalidPermissions,
 }
 
 pub struct XsdSocket {
@@ -128,7 +86,7 @@ impl XsdSocket {
     pub fn dial() -> Result<XsdSocket, XsdBusError> {
         let path = match find_bus_path() {
             Some(path) => path,
-            None => return Err(XsdBusError::new("Failed to find valid bus path.")),
+            None => return Err(XsdBusError::BusNotFound),
         };
         let stream = UnixStream::connect(path)?;
         Ok(XsdSocket { handle: stream })
@@ -150,7 +108,7 @@ impl XsdSocket {
         self.handle.read_exact(payload.as_mut_slice())?;
         if result_header.typ == XSD_ERROR {
             let error = CString::from_vec_with_nul(payload)?;
-            return Err(XsdBusError::new(error.to_str()?));
+            return Err(XsdBusError::ResponseError(error.into_string()?));
         }
         let response = XsdResponse { header, payload };
         Ok(response)

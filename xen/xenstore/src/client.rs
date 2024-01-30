@@ -28,7 +28,7 @@ impl XsPermission {
             XS_PERM_WRITE => 'w',
             XS_PERM_READ => 'r',
             XS_PERM_NONE => 'n',
-            _ => return Err(XsdBusError::new("invalid permissions")),
+            _ => return Err(XsdBusError::InvalidPermissions),
         };
         Ok(format!("{}{}", c, self.id))
     }

@@ -13,6 +13,7 @@ resolver = "2"
 version = "0.0.1"
 
 [workspace.dependencies]
+thiserror = "1.0"
 log = "0.4.20"
 libc = "0.2"
 nix = "0.27.1"
