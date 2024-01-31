@@ -1,4 +1,3 @@
-use std::env;
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use hypha::ctl::Controller;
@@ -47,7 +46,6 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    env::set_var("RUST_BACKTRACE", "1");
     env_logger::init();
 
     let args = ControllerArgs::parse();

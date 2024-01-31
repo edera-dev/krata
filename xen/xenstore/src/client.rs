@@ -55,7 +55,7 @@ pub trait XsdInterface {
         Ok(match self.read_string(path) {
             Ok(value) => Some(value),
             Err(error) => {
-                if error.to_string() == "ENOENT" {
+                if error.is_noent_response() {
                     None
                 } else {
                     return Err(error);
@@ -68,7 +68,7 @@ pub trait XsdInterface {
         Ok(match self.list(path) {
             Ok(value) => value,
             Err(error) => {
-                if error.to_string() == "ENOENT" {
+                if error.is_noent_response() {
                     Vec::new()
                 } else {
                     return Err(error);
@@ -115,7 +115,7 @@ impl XsdClient {
         trace!("rm tx={tx} path={path}");
         let result = self.socket.send_single(tx, XSD_RM, path);
         if let Err(error) = result {
-            if error.to_string() == "ENOENT" {
+            if error.is_noent_response() {
                 return Ok(true);
             }
             return Err(error);

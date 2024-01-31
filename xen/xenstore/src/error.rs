@@ -28,4 +28,13 @@ pub enum Error {
     InvalidPermissions,
 }
 
+impl Error {
+    pub fn is_noent_response(&self) -> bool {
+        match self {
+            Error::ResponseError(message) => message == "ENOENT",
+            _ => false,
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;

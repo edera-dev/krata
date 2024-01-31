@@ -273,8 +273,8 @@ impl BootImageLoader for ElfImageLoader {
                 copy_slice.len()
             );
             copy(segment_dst, copy_slice);
-            if memsz - filesz > 0 {
-                let remaining = &mut segment_dst[filesz as usize..(memsz - filesz) as usize];
+            if (memsz - filesz) > 0 {
+                let remaining = &mut segment_dst[filesz as usize..memsz as usize];
                 debug!(
                     "ElfImageLoader load fill_zero hdr={:?} dst={:#x} len={}",
                     header.p_offset,

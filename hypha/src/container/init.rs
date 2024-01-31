@@ -1,16 +1,19 @@
 use crate::shared::LaunchInfo;
 use anyhow::{anyhow, Result};
 use log::trace;
-use nix::libc::dup2;
-use nix::unistd::execve;
+use nix::libc::{c_int, dup2, wait};
+use nix::unistd::{execve, fork, ForkResult, Pid};
 use oci_spec::image::{Config, ImageConfiguration};
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs;
 use std::fs::{File, OpenOptions, Permissions};
 use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::fs::{chroot, PermissionsExt};
 use std::path::Path;
+use std::ptr::addr_of_mut;
+use std::thread::sleep;
+use std::time::Duration;
 use sys_mount::{FilesystemType, Mount, MountFlags};
 use walkdir::WalkDir;
 
@@ -65,9 +68,8 @@ impl ContainerInit {
         self.mount_new_root()?;
         self.nuke_initrd()?;
         self.bind_new_root()?;
-        self.map_console(console)?;
         if let Some(cfg) = config.config() {
-            self.run(cfg, &launch)?;
+            self.run(console, cfg, &launch)?;
         } else {
             return Err(anyhow!(
                 "unable to determine what to execute, image config doesn't tell us"
@@ -254,7 +256,7 @@ impl ContainerInit {
     }
 
     fn map_console(&mut self, console: File) -> Result<()> {
-        trace!("map console");
+        trace!("mapping console");
         unsafe {
             dup2(console.as_raw_fd(), 0);
             dup2(console.as_raw_fd(), 1);
@@ -264,7 +266,7 @@ impl ContainerInit {
         Ok(())
     }
 
-    fn run(&mut self, config: &Config, launch: &LaunchInfo) -> Result<()> {
+    fn run(&mut self, console: File, config: &Config, launch: &LaunchInfo) -> Result<()> {
         let mut cmd = match config.cmd() {
             None => vec![],
             Some(value) => value.clone(),
@@ -278,7 +280,6 @@ impl ContainerInit {
             cmd.push("/bin/sh".to_string());
         }
 
-        trace!("running container command: {}", cmd.join(" "));
         let path = cmd.remove(0);
         let mut env = match config.env() {
             None => vec![],
@@ -288,6 +289,9 @@ impl ContainerInit {
         if let Some(extra_env) = &launch.env {
             env.extend_from_slice(extra_env.as_slice());
         }
+
+        trace!("running container command: {}", cmd.join(" "));
+
         let path_cstr = CString::new(path)?;
         let cmd_cstr = ContainerInit::strings_as_cstrings(cmd)?;
         let env_cstr = ContainerInit::strings_as_cstrings(env)?;
@@ -302,7 +306,7 @@ impl ContainerInit {
         }
 
         std::env::set_current_dir(&working_dir)?;
-        execve(&path_cstr, &cmd_cstr, &env_cstr)?;
+        self.fork_and_exec(console, &path_cstr, cmd_cstr, env_cstr)?;
         Ok(())
     }
 
@@ -312,5 +316,40 @@ impl ContainerInit {
             results.push(CString::new(value.as_bytes().to_vec())?);
         }
         Ok(results)
+    }
+
+    fn fork_and_exec(
+        &mut self,
+        console: File,
+        path: &CStr,
+        cmd: Vec<CString>,
+        env: Vec<CString>,
+    ) -> Result<()> {
+        match unsafe { fork()? } {
+            ForkResult::Parent { child } => self.background(child),
+            ForkResult::Child => {
+                self.map_console(console)?;
+                execve(path, &cmd, &env)?;
+                Ok(())
+            }
+        }
+    }
+
+    fn background(&mut self, executed: Pid) -> Result<()> {
+        loop {
+            let mut status: c_int = 0;
+            let pid = unsafe { wait(addr_of_mut!(status)) };
+            if executed.as_raw() == pid {
+                return self.death(status);
+            }
+        }
+    }
+
+    fn death(&mut self, code: c_int) -> Result<()> {
+        println!("[hypha] container process exited: status = {}", code);
+        println!("[hypha] looping forever");
+        loop {
+            sleep(Duration::from_secs(1));
+        }
     }
 }
