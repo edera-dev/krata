@@ -1,6 +1,7 @@
-use xencall::{XenCall, XenCallError};
+use xencall::error::Result;
+use xencall::XenCall;
 
-fn main() -> Result<(), XenCallError> {
+fn main() -> Result<()> {
     env_logger::init();
 
     let call = XenCall::open()?;

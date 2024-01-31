@@ -8,6 +8,7 @@ resolver = "2"
 path = "src/lib.rs"
 
 [dependencies]
+thiserror = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 uuid = { workspace = true }

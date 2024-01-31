@@ -1,5 +1,7 @@
+pub mod error;
 pub mod sys;
 
+use crate::error::{Error, Result};
 use crate::sys::{
     AddressSize, ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
     EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, Hypercall, HypercallInit, MaxMem,
@@ -16,9 +18,8 @@ use crate::sys::{
 use libc::{c_int, mmap, usleep, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use log::trace;
 use nix::errno::Errno;
-use std::error::Error;
 use std::ffi::{c_long, c_uint, c_ulong, c_void};
-use std::fmt::{Display, Formatter};
+
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
 use std::ptr::addr_of_mut;
@@ -28,45 +29,8 @@ pub struct XenCall {
     pub handle: File,
 }
 
-#[derive(Debug)]
-pub struct XenCallError {
-    message: String,
-}
-
-impl XenCallError {
-    pub fn new(msg: &str) -> XenCallError {
-        XenCallError {
-            message: msg.to_string(),
-        }
-    }
-}
-
-impl Display for XenCallError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl Error for XenCallError {
-    fn description(&self) -> &str {
-        &self.message
-    }
-}
-
-impl From<std::io::Error> for XenCallError {
-    fn from(value: std::io::Error) -> Self {
-        XenCallError::new(value.to_string().as_str())
-    }
-}
-
-impl From<Errno> for XenCallError {
-    fn from(value: Errno) -> Self {
-        XenCallError::new(value.to_string().as_str())
-    }
-}
-
 impl XenCall {
-    pub fn open() -> Result<XenCall, XenCallError> {
+    pub fn open() -> Result<XenCall> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -98,7 +62,7 @@ impl XenCall {
         }
     }
 
-    pub fn hypercall(&self, op: c_ulong, arg: [c_ulong; 5]) -> Result<c_long, XenCallError> {
+    pub fn hypercall(&self, op: c_ulong, arg: [c_ulong; 5]) -> Result<c_long> {
         trace!(
             "call fd={} hypercall op={:#x}, arg={:?}",
             self.handle.as_raw_fd(),
@@ -112,20 +76,15 @@ impl XenCall {
         }
     }
 
-    pub fn hypercall0(&self, op: c_ulong) -> Result<c_long, XenCallError> {
+    pub fn hypercall0(&self, op: c_ulong) -> Result<c_long> {
         self.hypercall(op, [0, 0, 0, 0, 0])
     }
 
-    pub fn hypercall1(&self, op: c_ulong, arg1: c_ulong) -> Result<c_long, XenCallError> {
+    pub fn hypercall1(&self, op: c_ulong, arg1: c_ulong) -> Result<c_long> {
         self.hypercall(op, [arg1, 0, 0, 0, 0])
     }
 
-    pub fn hypercall2(
-        &self,
-        op: c_ulong,
-        arg1: c_ulong,
-        arg2: c_ulong,
-    ) -> Result<c_long, XenCallError> {
+    pub fn hypercall2(&self, op: c_ulong, arg1: c_ulong, arg2: c_ulong) -> Result<c_long> {
         self.hypercall(op, [arg1, arg2, 0, 0, 0])
     }
 
@@ -135,7 +94,7 @@ impl XenCall {
         arg1: c_ulong,
         arg2: c_ulong,
         arg3: c_ulong,
-    ) -> Result<c_long, XenCallError> {
+    ) -> Result<c_long> {
         self.hypercall(op, [arg1, arg2, arg3, 0, 0])
     }
 
@@ -146,7 +105,7 @@ impl XenCall {
         arg2: c_ulong,
         arg3: c_ulong,
         arg4: c_ulong,
-    ) -> Result<c_long, XenCallError> {
+    ) -> Result<c_long> {
         self.hypercall(op, [arg1, arg2, arg3, arg4, 0])
     }
 
@@ -158,11 +117,11 @@ impl XenCall {
         arg3: c_ulong,
         arg4: c_ulong,
         arg5: c_ulong,
-    ) -> Result<c_long, XenCallError> {
+    ) -> Result<c_long> {
         self.hypercall(op, [arg1, arg2, arg3, arg4, arg5])
     }
 
-    pub fn multicall(&self, calls: &mut [MultiCallEntry]) -> Result<(), XenCallError> {
+    pub fn multicall(&self, calls: &mut [MultiCallEntry]) -> Result<()> {
         trace!(
             "call fd={} multicall calls={:?}",
             self.handle.as_raw_fd(),
@@ -184,7 +143,7 @@ impl XenCall {
         idx: u32,
         num: u64,
         addr: u64,
-    ) -> Result<(), XenCallError> {
+    ) -> Result<()> {
         let mut resource = MmapResource {
             dom: domid as u16,
             typ,
@@ -199,13 +158,7 @@ impl XenCall {
         Ok(())
     }
 
-    pub fn mmap_batch(
-        &self,
-        domid: u32,
-        num: u64,
-        addr: u64,
-        mfns: Vec<u64>,
-    ) -> Result<c_long, XenCallError> {
+    pub fn mmap_batch(&self, domid: u32, num: u64, addr: u64, mfns: Vec<u64>) -> Result<c_long> {
         trace!(
             "call fd={} mmap_batch domid={} num={} addr={:#x} mfns={:?}",
             self.handle.as_raw_fd(),
@@ -283,7 +236,7 @@ impl XenCall {
         }
     }
 
-    pub fn get_version_capabilities(&self) -> Result<XenCapabilitiesInfo, XenCallError> {
+    pub fn get_version_capabilities(&self) -> Result<XenCapabilitiesInfo> {
         trace!(
             "call fd={} get_version_capabilities",
             self.handle.as_raw_fd()
@@ -299,12 +252,12 @@ impl XenCall {
         Ok(info)
     }
 
-    pub fn evtchn_op(&self, cmd: c_int, arg: u64) -> Result<(), XenCallError> {
+    pub fn evtchn_op(&self, cmd: c_int, arg: u64) -> Result<()> {
         self.hypercall2(HYPERVISOR_EVENT_CHANNEL_OP, cmd as c_ulong, arg)?;
         Ok(())
     }
 
-    pub fn evtchn_alloc_unbound(&self, domid: u32, remote_domid: u32) -> Result<u32, XenCallError> {
+    pub fn evtchn_alloc_unbound(&self, domid: u32, remote_domid: u32) -> Result<u32> {
         let mut alloc_unbound = EvtChnAllocUnbound {
             dom: domid as u16,
             remote_dom: remote_domid as u16,
@@ -314,7 +267,7 @@ impl XenCall {
         Ok(alloc_unbound.port)
     }
 
-    pub fn get_domain_info(&self, domid: u32) -> Result<GetDomainInfo, XenCallError> {
+    pub fn get_domain_info(&self, domid: u32) -> Result<GetDomainInfo> {
         trace!(
             "domctl fd={} get_domain_info domid={}",
             self.handle.as_raw_fd(),
@@ -354,7 +307,7 @@ impl XenCall {
         Ok(unsafe { domctl.value.get_domain_info })
     }
 
-    pub fn create_domain(&self, create_domain: CreateDomain) -> Result<u32, XenCallError> {
+    pub fn create_domain(&self, create_domain: CreateDomain) -> Result<u32> {
         trace!(
             "domctl fd={} create_domain create_domain={:?}",
             self.handle.as_raw_fd(),
@@ -370,7 +323,7 @@ impl XenCall {
         Ok(domctl.domid)
     }
 
-    pub fn pause_domain(&self, domid: u32) -> Result<(), XenCallError> {
+    pub fn pause_domain(&self, domid: u32) -> Result<()> {
         trace!(
             "domctl fd={} pause_domain domid={:?}",
             self.handle.as_raw_fd(),
@@ -386,7 +339,7 @@ impl XenCall {
         Ok(())
     }
 
-    pub fn unpause_domain(&self, domid: u32) -> Result<(), XenCallError> {
+    pub fn unpause_domain(&self, domid: u32) -> Result<()> {
         trace!(
             "domctl fd={} unpause_domain domid={:?}",
             self.handle.as_raw_fd(),
@@ -402,7 +355,7 @@ impl XenCall {
         Ok(())
     }
 
-    pub fn set_max_mem(&self, domid: u32, memkb: u64) -> Result<(), XenCallError> {
+    pub fn set_max_mem(&self, domid: u32, memkb: u64) -> Result<()> {
         trace!(
             "domctl fd={} set_max_mem domid={} memkb={}",
             self.handle.as_raw_fd(),
@@ -421,7 +374,7 @@ impl XenCall {
         Ok(())
     }
 
-    pub fn set_max_vcpus(&self, domid: u32, max_vcpus: u32) -> Result<(), XenCallError> {
+    pub fn set_max_vcpus(&self, domid: u32, max_vcpus: u32) -> Result<()> {
         trace!(
             "domctl fd={} set_max_vcpus domid={} max_vcpus={}",
             self.handle.as_raw_fd(),
@@ -440,7 +393,7 @@ impl XenCall {
         Ok(())
     }
 
-    pub fn set_address_size(&self, domid: u32, size: u32) -> Result<(), XenCallError> {
+    pub fn set_address_size(&self, domid: u32, size: u32) -> Result<()> {
         trace!(
             "domctl fd={} set_address_size domid={} size={}",
             self.handle.as_raw_fd(),
@@ -459,11 +412,7 @@ impl XenCall {
         Ok(())
     }
 
-    pub fn get_vcpu_context(
-        &self,
-        domid: u32,
-        vcpu: u32,
-    ) -> Result<VcpuGuestContext, XenCallError> {
+    pub fn get_vcpu_context(&self, domid: u32, vcpu: u32) -> Result<VcpuGuestContext> {
         trace!(
             "domctl fd={} get_vcpu_context domid={}",
             self.handle.as_raw_fd(),
@@ -492,7 +441,7 @@ impl XenCall {
         domid: u32,
         vcpu: u32,
         context: &VcpuGuestContext,
-    ) -> Result<(), XenCallError> {
+    ) -> Result<()> {
         trace!(
             "domctl fd={} set_vcpu_context domid={} context={:?}",
             self.handle.as_raw_fd(),
@@ -516,11 +465,7 @@ impl XenCall {
         Ok(())
     }
 
-    pub fn get_page_frame_info(
-        &self,
-        domid: u32,
-        frames: &[u64],
-    ) -> Result<Vec<u64>, XenCallError> {
+    pub fn get_page_frame_info(&self, domid: u32, frames: &[u64]) -> Result<Vec<u64>> {
         let mut buffer: Vec<u64> = frames.to_vec();
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_GETPAGEFRAMEINFO3,
@@ -543,7 +488,7 @@ impl XenCall {
         Ok(slice.to_vec())
     }
 
-    pub fn hypercall_init(&self, domid: u32, gmfn: u64) -> Result<(), XenCallError> {
+    pub fn hypercall_init(&self, domid: u32, gmfn: u64) -> Result<()> {
         trace!(
             "domctl fd={} hypercall_init domid={} gmfn={}",
             self.handle.as_raw_fd(),
@@ -562,7 +507,7 @@ impl XenCall {
         Ok(())
     }
 
-    pub fn destroy_domain(&self, domid: u32) -> Result<(), XenCallError> {
+    pub fn destroy_domain(&self, domid: u32) -> Result<()> {
         trace!(
             "domctl fd={} destroy_domain domid={}",
             self.handle.as_raw_fd(),
@@ -578,7 +523,7 @@ impl XenCall {
         Ok(())
     }
 
-    pub fn get_memory_map(&self, size_of_entry: usize) -> Result<Vec<u8>, XenCallError> {
+    pub fn get_memory_map(&self, size_of_entry: usize) -> Result<Vec<u8>> {
         let mut memory_map = MemoryMap {
             count: 0,
             buffer: 0,
@@ -605,7 +550,7 @@ impl XenCall {
         extent_order: u32,
         mem_flags: u32,
         extent_starts: &[u64],
-    ) -> Result<Vec<u64>, XenCallError> {
+    ) -> Result<Vec<u64>> {
         trace!("memory fd={} populate_physmap domid={} nr_extents={} extent_order={} mem_flags={} extent_starts={:?}", self.handle.as_raw_fd(), domid, nr_extents, extent_order, mem_flags, extent_starts);
         let mut extent_starts = extent_starts.to_vec();
         let ptr = extent_starts.as_mut_ptr();
@@ -633,18 +578,16 @@ impl XenCall {
         self.multicall(calls)?;
         let code = calls[0].result;
         if code > !0xfff {
-            return Err(XenCallError::new(
-                format!("failed to populate physmap: {:#x}", code).as_str(),
-            ));
+            return Err(Error::PopulatePhysmapFailed);
         }
         if code as usize > extent_starts.len() {
-            return Err(XenCallError::new("failed to populate physmap"));
+            return Err(Error::PopulatePhysmapFailed);
         }
         let extents = extent_starts[0..code as usize].to_vec();
         Ok(extents)
     }
 
-    pub fn claim_pages(&self, domid: u32, pages: u64) -> Result<(), XenCallError> {
+    pub fn claim_pages(&self, domid: u32, pages: u64) -> Result<()> {
         trace!(
             "memory fd={} claim_pages domid={} pages={}",
             self.handle.as_raw_fd(),
@@ -666,13 +609,7 @@ impl XenCall {
         Ok(())
     }
 
-    pub fn mmuext(
-        &self,
-        domid: u32,
-        cmd: c_uint,
-        arg1: u64,
-        arg2: u64,
-    ) -> Result<(), XenCallError> {
+    pub fn mmuext(&self, domid: u32, cmd: c_uint, arg1: u64, arg2: u64) -> Result<()> {
         let mut ops = MmuExtOp { cmd, arg1, arg2 };
 
         self.hypercall4(

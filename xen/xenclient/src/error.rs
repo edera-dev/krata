@@ -7,7 +7,7 @@ pub enum Error {
     #[error("xenstore issue encountered")]
     XenStore(#[from] xenstore::error::Error),
     #[error("xencall issue encountered")]
-    XenCall(#[from] xencall::XenCallError),
+    XenCall(#[from] xencall::error::Error),
     #[error("domain does not have a tty")]
     TtyNotFound,
     #[error("introducing the domain failed")]
