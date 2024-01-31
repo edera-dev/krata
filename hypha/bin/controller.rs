@@ -30,6 +30,8 @@ enum Commands {
         mem: u64,
         #[arg(long)]
         config_bundle: Option<String>,
+        #[arg[short, long]]
+        env: Option<Vec<String>>,
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
         run: Vec<String>,
     },
@@ -68,20 +70,22 @@ fn main() -> Result<()> {
             cpus,
             mem,
             config_bundle,
+            env,
             run,
         } => {
             let kernel = map_kernel_path(&store_path, kernel);
             let initrd = map_initrd_path(&store_path, initrd);
-            let domid = controller.launch(
+            let (uuid, _domid) = controller.launch(
                 &kernel,
                 &initrd,
                 config_bundle.as_deref(),
                 &image,
                 cpus,
                 mem,
+                env,
                 if run.is_empty() { None } else { Some(run) },
             )?;
-            println!("launched domain: {}", domid);
+            println!("launched container: {}", uuid);
         }
 
         Commands::Destroy { domain } => {

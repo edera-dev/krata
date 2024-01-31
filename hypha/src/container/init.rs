@@ -288,6 +288,9 @@ impl ContainerInit {
             Some(value) => value.clone(),
         };
         env.push("HYPHA_CONTAINER=1".to_string());
+        if let Some(extra_env) = &launch.env {
+            env.extend_from_slice(extra_env.as_slice());
+        }
         let path_cstr = CString::new(path)?;
         let cmd_cstr = ContainerInit::strings_as_cstrings(cmd)?;
         let env_cstr = ContainerInit::strings_as_cstrings(env)?;

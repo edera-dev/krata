@@ -69,12 +69,13 @@ impl Controller {
         image: &str,
         vcpus: u32,
         mem: u64,
+        env: Option<Vec<String>>,
         run: Option<Vec<String>>,
-    ) -> Result<u32> {
+    ) -> Result<(Uuid, u32)> {
         let uuid = Uuid::new_v4();
         let name = format!("hypha-{uuid}");
         let image_info = self.compile(image)?;
-        let launch_config = LaunchInfo { run };
+        let launch_config = LaunchInfo { env, run };
 
         let cfgblk = ConfigBlock::new(&uuid, &image_info, config_bundle_path)?;
         cfgblk.build(&launch_config)?;
@@ -134,7 +135,7 @@ impl Controller {
             ],
         };
         match self.client.create(&config) {
-            Ok(domid) => Ok(domid),
+            Ok(domid) => Ok((uuid, domid)),
             Err(error) => {
                 let _ = self.autoloop.unloop(&image_squashfs_loop.path);
                 let _ = self.autoloop.unloop(&cfgblk_squashfs_loop.path);
