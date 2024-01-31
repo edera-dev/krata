@@ -1,6 +1,7 @@
+use crate::error::Result;
 use crate::mem::PhysicalPages;
 use crate::sys::{GrantEntry, XEN_PAGE_SHIFT};
-use crate::XenClientError;
+use crate::Error;
 use libc::munmap;
 use log::debug;
 use slice_copy::copy;
@@ -10,8 +11,8 @@ use std::slice;
 use xencall::XenCall;
 
 pub trait BootImageLoader {
-    fn parse(&self) -> Result<BootImageInfo, XenClientError>;
-    fn load(&self, image_info: &BootImageInfo, dst: &mut [u8]) -> Result<(), XenClientError>;
+    fn parse(&self) -> Result<BootImageInfo>;
+    fn load(&self, image_info: &BootImageInfo, dst: &mut [u8]) -> Result<()>;
 }
 
 pub const XEN_UNSET_ADDR: u64 = -1i64 as u64;
@@ -77,11 +78,7 @@ impl BootSetup<'_> {
         }
     }
 
-    fn initialize_memory(
-        &mut self,
-        arch: &mut dyn ArchBootSetup,
-        total_pages: u64,
-    ) -> Result<(), XenClientError> {
+    fn initialize_memory(&mut self, arch: &mut dyn ArchBootSetup, total_pages: u64) -> Result<()> {
         self.call.set_address_size(self.domid, 64)?;
         arch.meminit(self, total_pages)?;
         Ok(())
@@ -94,7 +91,7 @@ impl BootSetup<'_> {
         initrd: &[u8],
         max_vcpus: u32,
         mem_mb: u64,
-    ) -> Result<BootState, XenClientError> {
+    ) -> Result<BootState> {
         debug!(
             "BootSetup initialize max_vcpus={:?} mem_mb={:?}",
             max_vcpus, mem_mb
@@ -164,7 +161,7 @@ impl BootSetup<'_> {
         arch: &mut dyn ArchBootSetup,
         state: &mut BootState,
         cmdline: &str,
-    ) -> Result<(), XenClientError> {
+    ) -> Result<()> {
         let domain_info = self.call.get_domain_info(self.domid)?;
         let shared_info_frame = domain_info.shared_info_frame;
         state.shared_info_frame = shared_info_frame;
@@ -179,13 +176,13 @@ impl BootSetup<'_> {
         Ok(())
     }
 
-    fn gnttab_seed(&mut self, state: &mut BootState) -> Result<(), XenClientError> {
+    fn gnttab_seed(&mut self, state: &mut BootState) -> Result<()> {
         let console_gfn = self.phys.p2m[state.console_segment.pfn as usize];
         let xenstore_gfn = self.phys.p2m[state.xenstore_segment.pfn as usize];
         let addr = self
             .call
             .mmap(0, 1 << XEN_PAGE_SHIFT)
-            .ok_or(XenClientError::new("failed to mmap for resource"))?;
+            .ok_or(Error::new("failed to mmap for resource"))?;
         self.call.map_resource(self.domid, 1, 0, 0, 1, addr)?;
         let entries = unsafe { slice::from_raw_parts_mut(addr as *mut GrantEntry, 2) };
         entries[0].flags = 1 << 0;
@@ -197,7 +194,7 @@ impl BootSetup<'_> {
         unsafe {
             let result = munmap(addr as *mut c_void, 1 << XEN_PAGE_SHIFT);
             if result != 0 {
-                return Err(XenClientError::new("failed to unmap resource"));
+                return Err(Error::new("failed to unmap resource"));
             }
         }
         Ok(())
@@ -208,7 +205,7 @@ impl BootSetup<'_> {
         arch: &mut dyn ArchBootSetup,
         image_loader: &dyn BootImageLoader,
         image_info: &BootImageInfo,
-    ) -> Result<DomainSegment, XenClientError> {
+    ) -> Result<DomainSegment> {
         let kernel_segment = self.alloc_segment(
             arch,
             image_info.virt_kstart,
@@ -234,7 +231,7 @@ impl BootSetup<'_> {
         arch: &mut dyn ArchBootSetup,
         start: u64,
         size: u64,
-    ) -> Result<DomainSegment, XenClientError> {
+    ) -> Result<DomainSegment> {
         if start > 0 {
             self.alloc_padding_pages(arch, start)?;
         }
@@ -268,10 +265,7 @@ impl BootSetup<'_> {
         Ok(segment)
     }
 
-    fn alloc_page(
-        &mut self,
-        arch: &mut dyn ArchBootSetup,
-    ) -> Result<DomainSegment, XenClientError> {
+    fn alloc_page(&mut self, arch: &mut dyn ArchBootSetup) -> Result<DomainSegment> {
         let start = self.virt_alloc_end;
         let pfn = self.pfn_alloc_end;
 
@@ -291,26 +285,22 @@ impl BootSetup<'_> {
         &mut self,
         arch: &mut dyn ArchBootSetup,
         buffer: &[u8],
-    ) -> Result<DomainSegment, XenClientError> {
+    ) -> Result<DomainSegment> {
         let segment = self.alloc_segment(arch, 0, buffer.len() as u64)?;
         let slice = unsafe { slice::from_raw_parts_mut(segment.addr as *mut u8, buffer.len()) };
         copy(slice, buffer);
         Ok(segment)
     }
 
-    fn alloc_padding_pages(
-        &mut self,
-        arch: &mut dyn ArchBootSetup,
-        boundary: u64,
-    ) -> Result<(), XenClientError> {
+    fn alloc_padding_pages(&mut self, arch: &mut dyn ArchBootSetup, boundary: u64) -> Result<()> {
         if (boundary & (arch.page_size() - 1)) != 0 {
-            return Err(XenClientError::new(
+            return Err(Error::new(
                 format!("segment boundary isn't page aligned: {:#x}", boundary).as_str(),
             ));
         }
 
         if boundary < self.virt_alloc_end {
-            return Err(XenClientError::new(
+            return Err(Error::new(
                 format!("segment boundary too low: {:#x})", boundary).as_str(),
             ));
         }
@@ -319,16 +309,12 @@ impl BootSetup<'_> {
         Ok(())
     }
 
-    fn chk_alloc_pages(
-        &mut self,
-        arch: &mut dyn ArchBootSetup,
-        pages: u64,
-    ) -> Result<(), XenClientError> {
+    fn chk_alloc_pages(&mut self, arch: &mut dyn ArchBootSetup, pages: u64) -> Result<()> {
         if pages > self.total_pages
             || self.pfn_alloc_end > self.total_pages
             || pages > self.total_pages - self.pfn_alloc_end
         {
-            return Err(XenClientError::new(
+            return Err(Error::new(
                 format!(
                     "segment too large: pages={} total_pages={} pfn_alloc_end={}",
                     pages, self.total_pages, self.pfn_alloc_end
@@ -351,44 +337,32 @@ pub trait ArchBootSetup {
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
-    ) -> Result<DomainSegment, XenClientError>;
+    ) -> Result<DomainSegment>;
 
     fn alloc_page_tables(
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
-    ) -> Result<DomainSegment, XenClientError>;
+    ) -> Result<DomainSegment>;
 
-    fn setup_page_tables(
-        &mut self,
-        setup: &mut BootSetup,
-        state: &mut BootState,
-    ) -> Result<(), XenClientError>;
+    fn setup_page_tables(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()>;
 
     fn setup_start_info(
         &mut self,
         setup: &mut BootSetup,
         state: &BootState,
         cmdline: &str,
-    ) -> Result<(), XenClientError>;
+    ) -> Result<()>;
 
-    fn setup_shared_info(
-        &mut self,
-        setup: &mut BootSetup,
-        shared_info_frame: u64,
-    ) -> Result<(), XenClientError>;
+    fn setup_shared_info(&mut self, setup: &mut BootSetup, shared_info_frame: u64) -> Result<()>;
 
     fn setup_hypercall_page(
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
-    ) -> Result<(), XenClientError>;
+    ) -> Result<()>;
 
-    fn meminit(&mut self, setup: &mut BootSetup, total_pages: u64) -> Result<(), XenClientError>;
-    fn bootlate(
-        &mut self,
-        setup: &mut BootSetup,
-        state: &mut BootState,
-    ) -> Result<(), XenClientError>;
-    fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<(), XenClientError>;
+    fn meminit(&mut self, setup: &mut BootSetup, total_pages: u64) -> Result<()>;
+    fn bootlate(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()>;
+    fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()>;
 }

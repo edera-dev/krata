@@ -1,9 +1,10 @@
 use crate::boot::{BootImageInfo, BootImageLoader, XEN_UNSET_ADDR};
+use crate::error::Result;
 use crate::sys::{
     XEN_ELFNOTE_ENTRY, XEN_ELFNOTE_HYPERCALL_PAGE, XEN_ELFNOTE_INIT_P2M, XEN_ELFNOTE_MOD_START_PFN,
     XEN_ELFNOTE_PADDR_OFFSET, XEN_ELFNOTE_TYPES, XEN_ELFNOTE_VIRT_BASE,
 };
-use crate::XenClientError;
+use crate::Error;
 use elf::abi::{PF_R, PF_W, PF_X, PT_LOAD, SHT_NOTE};
 use elf::endian::AnyEndian;
 use elf::note::Note;
@@ -18,21 +19,21 @@ use std::io::{BufReader, Read};
 use std::mem::size_of;
 use xz2::bufread::XzDecoder;
 
-impl From<ParseError> for XenClientError {
+impl From<ParseError> for Error {
     fn from(value: ParseError) -> Self {
-        XenClientError::new(value.to_string().as_str())
+        Error::new(value.to_string().as_str())
     }
 }
 
-impl From<FromVecWithNulError> for XenClientError {
+impl From<FromVecWithNulError> for Error {
     fn from(value: FromVecWithNulError) -> Self {
-        XenClientError::new(value.to_string().as_str())
+        Error::new(value.to_string().as_str())
     }
 }
 
-impl From<IntoStringError> for XenClientError {
+impl From<IntoStringError> for Error {
     fn from(value: IntoStringError) -> Self {
-        XenClientError::new(value.to_string().as_str())
+        Error::new(value.to_string().as_str())
     }
 }
 
@@ -80,24 +81,24 @@ impl ElfImageLoader {
         ElfImageLoader { data }
     }
 
-    pub fn load_file(path: &str) -> Result<ElfImageLoader, XenClientError> {
+    pub fn load_file(path: &str) -> Result<ElfImageLoader> {
         let data = std::fs::read(path)?;
         Ok(ElfImageLoader::new(data))
     }
 
-    pub fn load_gz(data: &[u8]) -> Result<ElfImageLoader, XenClientError> {
+    pub fn load_gz(data: &[u8]) -> Result<ElfImageLoader> {
         let buff = BufReader::new(data);
         let image = ElfImageLoader::read_one_stream(&mut GzDecoder::new(buff))?;
         Ok(ElfImageLoader::new(image))
     }
 
-    pub fn load_xz(data: &[u8]) -> Result<ElfImageLoader, XenClientError> {
+    pub fn load_xz(data: &[u8]) -> Result<ElfImageLoader> {
         let buff = BufReader::new(data);
         let image = ElfImageLoader::read_one_stream(&mut XzDecoder::new(buff))?;
         Ok(ElfImageLoader::new(image))
     }
 
-    fn read_one_stream(read: &mut dyn Read) -> Result<Vec<u8>, XenClientError> {
+    fn read_one_stream(read: &mut dyn Read) -> Result<Vec<u8>> {
         let mut result: Vec<u8> = Vec::new();
         let mut buffer = [0u8; 8192];
 
@@ -113,24 +114,24 @@ impl ElfImageLoader {
                     if !result.is_empty() {
                         break;
                     }
-                    return Err(XenClientError::from(error));
+                    return Err(Error::from(error));
                 }
             }
         }
         Ok(result)
     }
 
-    pub fn load_file_gz(path: &str) -> Result<ElfImageLoader, XenClientError> {
+    pub fn load_file_gz(path: &str) -> Result<ElfImageLoader> {
         let file = std::fs::read(path)?;
         ElfImageLoader::load_gz(file.as_slice())
     }
 
-    pub fn load_file_xz(path: &str) -> Result<ElfImageLoader, XenClientError> {
+    pub fn load_file_xz(path: &str) -> Result<ElfImageLoader> {
         let file = std::fs::read(path)?;
         ElfImageLoader::load_xz(file.as_slice())
     }
 
-    pub fn load_file_kernel(path: &str) -> Result<ElfImageLoader, XenClientError> {
+    pub fn load_file_kernel(path: &str) -> Result<ElfImageLoader> {
         let file = std::fs::read(path)?;
 
         for start in find_iter(file.as_slice(), &[0x1f, 0x8b]) {
@@ -145,7 +146,7 @@ impl ElfImageLoader {
             }
         }
 
-        Err(XenClientError::new(
+        Err(Error::new(
             "Unable to parse kernel image: unknown compression type",
         ))
     }
@@ -156,9 +157,9 @@ struct ElfNoteValue {
 }
 
 impl BootImageLoader for ElfImageLoader {
-    fn parse(&self) -> Result<BootImageInfo, XenClientError> {
+    fn parse(&self) -> Result<BootImageInfo> {
         let elf = ElfBytes::<AnyEndian>::minimal_parse(self.data.as_slice())?;
-        let headers = elf.section_headers().ok_or(XenClientError::new(
+        let headers = elf.section_headers().ok_or(Error::new(
             "Unable to parse kernel image: section headers not found.",
         ))?;
         let mut linux_notes: HashMap<u64, Vec<u8>> = HashMap::new();
@@ -197,56 +198,44 @@ impl BootImageLoader for ElfImageLoader {
         }
 
         if linux_notes.is_empty() {
-            return Err(XenClientError::new(
+            return Err(Error::new(
                 "Provided kernel does not appear to be a Linux kernel image.",
             ));
         }
 
         if xen_notes.is_empty() {
-            return Err(XenClientError::new(
-                "Provided kernel does not have Xen support.",
-            ));
+            return Err(Error::new("Provided kernel does not have Xen support."));
         }
 
         let paddr_offset = xen_notes
             .get(&XEN_ELFNOTE_PADDR_OFFSET)
-            .ok_or(XenClientError::new(
-                "Unable to find paddr_offset note in kernel.",
-            ))?
+            .ok_or(Error::new("Unable to find paddr_offset note in kernel."))?
             .value;
         let virt_base = xen_notes
             .get(&XEN_ELFNOTE_VIRT_BASE)
-            .ok_or(XenClientError::new(
-                "Unable to find virt_base note in kernel.",
-            ))?
+            .ok_or(Error::new("Unable to find virt_base note in kernel."))?
             .value;
         let entry = xen_notes
             .get(&XEN_ELFNOTE_ENTRY)
-            .ok_or(XenClientError::new("Unable to find entry note in kernel."))?
+            .ok_or(Error::new("Unable to find entry note in kernel."))?
             .value;
         let virt_hypercall = xen_notes
             .get(&XEN_ELFNOTE_HYPERCALL_PAGE)
-            .ok_or(XenClientError::new(
-                "Unable to find hypercall_page note in kernel.",
-            ))?
+            .ok_or(Error::new("Unable to find hypercall_page note in kernel."))?
             .value;
         let init_p2m = xen_notes
             .get(&XEN_ELFNOTE_INIT_P2M)
-            .ok_or(XenClientError::new(
-                "Unable to find init_p2m note in kernel.",
-            ))?
+            .ok_or(Error::new("Unable to find init_p2m note in kernel."))?
             .value;
         let mod_start_pfn = xen_notes
             .get(&XEN_ELFNOTE_MOD_START_PFN)
-            .ok_or(XenClientError::new(
-                "Unable to find mod_start_pfn note in kernel.",
-            ))?
+            .ok_or(Error::new("Unable to find mod_start_pfn note in kernel."))?
             .value;
 
         let mut start: u64 = u64::MAX;
         let mut end: u64 = 0;
 
-        let segments = elf.segments().ok_or(XenClientError::new(
+        let segments = elf.segments().ok_or(Error::new(
             "Unable to parse kernel image: segments not found.",
         ))?;
 
@@ -266,7 +255,7 @@ impl BootImageLoader for ElfImageLoader {
         }
 
         if paddr_offset != XEN_UNSET_ADDR && virt_base == XEN_UNSET_ADDR {
-            return Err(XenClientError::new(
+            return Err(Error::new(
                 "Unable to load kernel image: paddr_offset set but virt_base is unset.",
             ));
         }
@@ -289,9 +278,9 @@ impl BootImageLoader for ElfImageLoader {
         Ok(image_info)
     }
 
-    fn load(&self, image_info: &BootImageInfo, dst: &mut [u8]) -> Result<(), XenClientError> {
+    fn load(&self, image_info: &BootImageInfo, dst: &mut [u8]) -> Result<()> {
         let elf = ElfBytes::<AnyEndian>::minimal_parse(self.data.as_slice())?;
-        let segments = elf.segments().ok_or(XenClientError::new(
+        let segments = elf.segments().ok_or(Error::new(
             "Unable to parse kernel image: segments not found.",
         ))?;
 

@@ -1,24 +1,24 @@
 pub mod boot;
 pub mod elfloader;
+pub mod error;
 pub mod mem;
 pub mod sys;
-mod x86;
+pub mod x86;
 
 use crate::boot::BootSetup;
 use crate::elfloader::ElfImageLoader;
+use crate::error::{Error, Result};
 use crate::x86::X86BootSetup;
 use log::{trace, warn};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+
 use std::fs::{read, File, OpenOptions};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::string::FromUtf8Error;
 use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
 use xencall::sys::CreateDomain;
-use xencall::{XenCall, XenCallError};
+use xencall::XenCall;
 use xenstore::client::{
     XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
 };
@@ -26,61 +26,6 @@ use xenstore::client::{
 pub struct XenClient {
     pub store: XsdClient,
     call: XenCall,
-}
-
-#[derive(Debug)]
-pub struct XenClientError {
-    message: String,
-}
-
-impl XenClientError {
-    pub fn new(msg: &str) -> XenClientError {
-        XenClientError {
-            message: msg.to_string(),
-        }
-    }
-}
-
-impl Display for XenClientError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl Error for XenClientError {
-    fn description(&self) -> &str {
-        &self.message
-    }
-}
-
-impl From<std::io::Error> for XenClientError {
-    fn from(value: std::io::Error) -> Self {
-        XenClientError::new(value.to_string().as_str())
-    }
-}
-
-impl From<xenstore::error::Error> for XenClientError {
-    fn from(value: xenstore::error::Error) -> Self {
-        XenClientError::new(value.to_string().as_str())
-    }
-}
-
-impl From<XenCallError> for XenClientError {
-    fn from(value: XenCallError) -> Self {
-        XenClientError::new(value.to_string().as_str())
-    }
-}
-
-impl From<FromUtf8Error> for XenClientError {
-    fn from(value: FromUtf8Error) -> Self {
-        XenClientError::new(value.to_string().as_str())
-    }
-}
-
-impl From<xenevtchn::error::Error> for XenClientError {
-    fn from(value: xenevtchn::error::Error) -> Self {
-        XenClientError::new(value.to_string().as_str())
-    }
 }
 
 #[derive(Debug)]
@@ -118,13 +63,13 @@ pub struct DomainConfig<'a> {
 }
 
 impl XenClient {
-    pub fn open() -> Result<XenClient, XenClientError> {
+    pub fn open() -> Result<XenClient> {
         let store = XsdClient::open()?;
         let call = XenCall::open()?;
         Ok(XenClient { store, call })
     }
 
-    pub fn create(&mut self, config: &DomainConfig) -> Result<u32, XenClientError> {
+    pub fn create(&mut self, config: &DomainConfig) -> Result<u32> {
         let domain = CreateDomain {
             max_vcpus: config.max_vcpus,
             ..Default::default()
@@ -141,7 +86,7 @@ impl XenClient {
         }
     }
 
-    pub fn destroy(&mut self, domid: u32) -> Result<(), XenClientError> {
+    pub fn destroy(&mut self, domid: u32) -> Result<()> {
         if let Err(err) = self.destroy_store(domid) {
             warn!("failed to destroy store for domain {}: {}", domid, err);
         }
@@ -149,13 +94,11 @@ impl XenClient {
         Ok(())
     }
 
-    fn destroy_store(&mut self, domid: u32) -> Result<(), XenClientError> {
+    fn destroy_store(&mut self, domid: u32) -> Result<()> {
         let dom_path = self.store.get_domain_path(domid)?;
         let vm_path = self.store.read_string(&format!("{}/vm", dom_path))?;
         if vm_path.is_empty() {
-            return Err(XenClientError::new(
-                "cannot destroy domain that doesn't exist",
-            ));
+            return Err(Error::new("cannot destroy domain that doesn't exist"));
         }
 
         let mut backend_paths: Vec<String> = Vec::new();
@@ -220,10 +163,10 @@ impl XenClient {
             let path = PathBuf::from(path);
             let parent = path
                 .parent()
-                .ok_or(XenClientError::new("unable to get parent of backend path"))?;
+                .ok_or(Error::new("unable to get parent of backend path"))?;
             tx.rm(parent
                 .to_str()
-                .ok_or(XenClientError::new("unable to convert parent to string"))?)?;
+                .ok_or(Error::new("unable to convert parent to string"))?)?;
         }
         tx.rm(&vm_path)?;
         tx.rm(&dom_path)?;
@@ -231,12 +174,7 @@ impl XenClient {
         Ok(())
     }
 
-    fn init(
-        &mut self,
-        domid: u32,
-        domain: &CreateDomain,
-        config: &DomainConfig,
-    ) -> Result<(), XenClientError> {
+    fn init(&mut self, domid: u32, domain: &CreateDomain, config: &DomainConfig) -> Result<()> {
         trace!(
             "XenClient init domid={} domain={:?} config={:?}",
             domid,
@@ -398,7 +336,7 @@ impl XenClient {
             .store
             .introduce_domain(domid, xenstore_mfn, xenstore_evtchn)?
         {
-            return Err(XenClientError::new("failed to introduce domain"));
+            return Err(Error::new("failed to introduce domain"));
         }
         self.console_device_add(
             &dom_path,
@@ -440,7 +378,7 @@ impl XenClient {
         domid: u32,
         index: usize,
         disk: &DomainDisk,
-    ) -> Result<(), XenClientError> {
+    ) -> Result<()> {
         let id = (202 << 8) | (index << 4) as u64;
         let backend_items: Vec<(&str, String)> = vec![
             ("frontend-id", domid.to_string()),
@@ -491,7 +429,7 @@ impl XenClient {
         domid: u32,
         port: u32,
         mfn: u64,
-    ) -> Result<(), XenClientError> {
+    ) -> Result<()> {
         let backend_entries = vec![
             ("frontend-id", domid.to_string()),
             ("online", "1".to_string()),
@@ -530,7 +468,7 @@ impl XenClient {
         domid: u32,
         index: usize,
         filesystem: &DomainFilesystem,
-    ) -> Result<(), XenClientError> {
+    ) -> Result<()> {
         let id = 90 + index as u64;
         let backend_items: Vec<(&str, String)> = vec![
             ("frontend-id", domid.to_string()),
@@ -570,7 +508,7 @@ impl XenClient {
         domid: u32,
         frontend_items: Vec<(&str, String)>,
         backend_items: Vec<(&str, String)>,
-    ) -> Result<(), XenClientError> {
+    ) -> Result<()> {
         let console_zero = typ == "console" && id == 0;
 
         let frontend_path = if console_zero {
@@ -624,7 +562,7 @@ impl XenClient {
         Ok(())
     }
 
-    pub fn open_console(&mut self, domid: u32) -> Result<(File, File), XenClientError> {
+    pub fn open_console(&mut self, domid: u32) -> Result<(File, File)> {
         let dom_path = self.store.get_domain_path(domid)?;
         let console_tty_path = format!("{}/console/tty", dom_path);
         let tty = self
@@ -632,10 +570,7 @@ impl XenClient {
             .read_string_optional(&console_tty_path)?
             .unwrap_or("".to_string());
         if tty.is_empty() {
-            return Err(XenClientError::new(&format!(
-                "domain {} does not have a tty",
-                domid
-            )));
+            return Err(Error::new(&format!("domain {} does not have a tty", domid)));
         }
         let read = OpenOptions::new().read(true).write(false).open(&tty)?;
         let write = OpenOptions::new().read(false).write(true).open(&tty)?;

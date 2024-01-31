@@ -1,11 +1,12 @@
 use crate::boot::{
     ArchBootSetup, BootImageInfo, BootSetup, BootState, DomainSegment, XEN_UNSET_ADDR,
 };
+use crate::error::Result;
 use crate::sys::{
     SUPERPAGE_2MB_NR_PFNS, SUPERPAGE_2MB_SHIFT, SUPERPAGE_BATCH_SIZE, VGCF_IN_KERNEL, VGCF_ONLINE,
     XEN_PAGE_SHIFT,
 };
-use crate::XenClientError;
+use crate::Error;
 use libc::c_char;
 use log::{debug, trace};
 use slice_copy::copy;
@@ -139,6 +140,12 @@ struct VmemRange {
     _nid: u32,
 }
 
+impl Default for X86BootSetup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl X86BootSetup {
     pub fn new() -> X86BootSetup {
         X86BootSetup {
@@ -193,22 +200,22 @@ impl X86BootSetup {
         from: u64,
         to: u64,
         pfn: u64,
-    ) -> Result<usize, XenClientError> {
+    ) -> Result<usize> {
         debug!("counting pgtables from={} to={} pfn={}", from, to, pfn);
         if self.table.mappings_count == X86_PAGE_TABLE_MAX_MAPPINGS {
-            return Err(XenClientError::new("too many mappings"));
+            return Err(Error::new("too many mappings"));
         }
 
         let m = self.table.mappings_count;
 
         let pfn_end = pfn + ((to - from) >> X86_PAGE_SHIFT);
         if pfn_end >= setup.phys.p2m_size() {
-            return Err(XenClientError::new("not enough memory for initial mapping"));
+            return Err(Error::new("not enough memory for initial mapping"));
         }
 
         for idx in 0..self.table.mappings_count {
             if from < self.table.mappings[idx].area.to && to > self.table.mappings[idx].area.from {
-                return Err(XenClientError::new("overlapping mappings"));
+                return Err(Error::new("overlapping mappings"));
             }
         }
         let mut map = PageTableMapping::default();
@@ -284,7 +291,7 @@ impl ArchBootSetup for X86BootSetup {
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
-    ) -> Result<DomainSegment, XenClientError> {
+    ) -> Result<DomainSegment> {
         let mut p2m_alloc_size =
             ((setup.phys.p2m_size() * 8) + X86_PAGE_SIZE - 1) & !(X86_PAGE_SIZE - 1);
         let from = image_info.virt_p2m_base;
@@ -310,7 +317,7 @@ impl ArchBootSetup for X86BootSetup {
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
-    ) -> Result<DomainSegment, XenClientError> {
+    ) -> Result<DomainSegment> {
         let mut extra_pages = 1;
         extra_pages += (512 * 1024) / X86_PAGE_SIZE;
         let mut pages = extra_pages;
@@ -341,11 +348,7 @@ impl ArchBootSetup for X86BootSetup {
         Ok(segment)
     }
 
-    fn setup_page_tables(
-        &mut self,
-        setup: &mut BootSetup,
-        state: &mut BootState,
-    ) -> Result<(), XenClientError> {
+    fn setup_page_tables(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
         let p2m_guest = unsafe {
             slice::from_raw_parts_mut(
                 state.p2m_segment.addr as *mut u64,
@@ -407,7 +410,7 @@ impl ArchBootSetup for X86BootSetup {
         setup: &mut BootSetup,
         state: &BootState,
         cmdline: &str,
-    ) -> Result<(), XenClientError> {
+    ) -> Result<()> {
         let ptr = setup.phys.pfn_to_ptr(state.start_info_segment.pfn, 1)?;
         let byte_slice =
             unsafe { slice::from_raw_parts_mut(ptr as *mut u8, X86_PAGE_SIZE as usize) };
@@ -441,11 +444,7 @@ impl ArchBootSetup for X86BootSetup {
         Ok(())
     }
 
-    fn setup_shared_info(
-        &mut self,
-        setup: &mut BootSetup,
-        shared_info_frame: u64,
-    ) -> Result<(), XenClientError> {
+    fn setup_shared_info(&mut self, setup: &mut BootSetup, shared_info_frame: u64) -> Result<()> {
         let info = setup
             .phys
             .map_foreign_pages(shared_info_frame, X86_PAGE_SIZE)?
@@ -466,7 +465,7 @@ impl ArchBootSetup for X86BootSetup {
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
-    ) -> Result<(), XenClientError> {
+    ) -> Result<()> {
         if image_info.virt_hypercall == XEN_UNSET_ADDR {
             return Ok(());
         }
@@ -477,7 +476,7 @@ impl ArchBootSetup for X86BootSetup {
         Ok(())
     }
 
-    fn meminit(&mut self, setup: &mut BootSetup, total_pages: u64) -> Result<(), XenClientError> {
+    fn meminit(&mut self, setup: &mut BootSetup, total_pages: u64) -> Result<()> {
         setup.call.claim_pages(setup.domid, total_pages)?;
         let mut vmemranges: Vec<VmemRange> = Vec::new();
         let stub = VmemRange {
@@ -495,9 +494,7 @@ impl ArchBootSetup for X86BootSetup {
         }
 
         if total != total_pages {
-            return Err(XenClientError::new(
-                "page count mismatch while calculating pages",
-            ));
+            return Err(Error::new("page count mismatch while calculating pages"));
         }
 
         setup.total_pages = total;
@@ -564,7 +561,7 @@ impl ArchBootSetup for X86BootSetup {
                         .populate_physmap(setup.domid, allocsz, 0, 0, input_extent_starts)?;
 
                 if result.len() != allocsz as usize {
-                    return Err(XenClientError::new(
+                    return Err(Error::new(
                         format!(
                             "failed to populate physmap: wanted={} received={} input_extents={}",
                             allocsz,
@@ -589,11 +586,7 @@ impl ArchBootSetup for X86BootSetup {
         Ok(())
     }
 
-    fn bootlate(
-        &mut self,
-        setup: &mut BootSetup,
-        state: &mut BootState,
-    ) -> Result<(), XenClientError> {
+    fn bootlate(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
         let pg_pfn = state.page_table_segment.pfn;
         let pg_mfn = setup.phys.p2m[pg_pfn as usize];
         setup.phys.unmap(pg_pfn)?;
@@ -604,7 +597,7 @@ impl ArchBootSetup for X86BootSetup {
         Ok(())
     }
 
-    fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<(), XenClientError> {
+    fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
         let pg_pfn = state.page_table_segment.pfn;
         let pg_mfn = setup.phys.p2m[pg_pfn as usize];
         let mut vcpu = VcpuGuestContext::default();

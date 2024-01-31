@@ -1,5 +1,6 @@
+use crate::error::Result;
 use crate::sys::{XEN_PAGE_SHIFT, XEN_PAGE_SIZE};
-use crate::XenClientError;
+use crate::Error;
 use libc::munmap;
 use log::debug;
 use std::ffi::c_void;
@@ -40,7 +41,7 @@ impl PhysicalPages<'_> {
         self.p2m.len() as u64
     }
 
-    pub fn pfn_to_ptr(&mut self, pfn: u64, count: u64) -> Result<u64, XenClientError> {
+    pub fn pfn_to_ptr(&mut self, pfn: u64, count: u64) -> Result<u64> {
         for page in &self.pages {
             if pfn >= page.pfn + page.count {
                 continue;
@@ -52,7 +53,7 @@ impl PhysicalPages<'_> {
                 }
 
                 if pfn < page.pfn || (pfn + count) > page.pfn + page.count {
-                    return Err(XenClientError::new("request overlaps allocated block"));
+                    return Err(Error::new("request overlaps allocated block"));
                 }
             } else {
                 if pfn < page.pfn {
@@ -68,7 +69,7 @@ impl PhysicalPages<'_> {
         }
 
         if count == 0 {
-            return Err(XenClientError::new(
+            return Err(Error::new(
                 "allocation is only allowed when a size is given",
             ));
         }
@@ -76,7 +77,7 @@ impl PhysicalPages<'_> {
         self.pfn_alloc(pfn, count)
     }
 
-    fn pfn_alloc(&mut self, pfn: u64, count: u64) -> Result<u64, XenClientError> {
+    fn pfn_alloc(&mut self, pfn: u64, count: u64) -> Result<u64> {
         let mut entries = vec![MmapEntry::default(); count as usize];
         for (i, entry) in entries.iter_mut().enumerate() {
             entry.mfn = self.p2m[pfn as usize + i];
@@ -95,11 +96,11 @@ impl PhysicalPages<'_> {
         let addr = self
             .call
             .mmap(0, actual_mmap_len)
-            .ok_or(XenClientError::new("failed to mmap address"))?;
+            .ok_or(Error::new("failed to mmap address"))?;
         debug!("mapped {:#x} foreign bytes at {:#x}", actual_mmap_len, addr);
         let result = self.call.mmap_batch(self.domid, num as u64, addr, pfns)?;
         if result != 0 {
-            return Err(XenClientError::new("mmap_batch call failed"));
+            return Err(Error::new("mmap_batch call failed"));
         }
         let page = PhysicalPage {
             pfn,
@@ -114,7 +115,7 @@ impl PhysicalPages<'_> {
         Ok(addr)
     }
 
-    pub fn map_foreign_pages(&mut self, mfn: u64, size: u64) -> Result<u64, XenClientError> {
+    pub fn map_foreign_pages(&mut self, mfn: u64, size: u64) -> Result<u64> {
         let num = ((size + XEN_PAGE_SIZE - 1) >> XEN_PAGE_SHIFT) as usize;
         let mut pfns = vec![u64::MAX; num];
         for (i, item) in pfns.iter_mut().enumerate().take(num) {
@@ -125,11 +126,11 @@ impl PhysicalPages<'_> {
         let addr = self
             .call
             .mmap(0, actual_mmap_len)
-            .ok_or(XenClientError::new("failed to mmap address"))?;
+            .ok_or(Error::new("failed to mmap address"))?;
         debug!("mapped {:#x} foreign bytes at {:#x}", actual_mmap_len, addr);
         let result = self.call.mmap_batch(self.domid, num as u64, addr, pfns)?;
         if result != 0 {
-            return Err(XenClientError::new("mmap_batch call failed"));
+            return Err(Error::new("mmap_batch call failed"));
         }
         let page = PhysicalPage {
             pfn: u64::MAX,
@@ -144,7 +145,7 @@ impl PhysicalPages<'_> {
         Ok(addr)
     }
 
-    pub fn unmap_all(&mut self) -> Result<(), XenClientError> {
+    pub fn unmap_all(&mut self) -> Result<()> {
         for page in &self.pages {
             unsafe {
                 let err = munmap(
@@ -152,7 +153,7 @@ impl PhysicalPages<'_> {
                     (page.count << X86_PAGE_SHIFT) as usize,
                 );
                 if err != 0 {
-                    return Err(XenClientError::new("failed to munmap all pages"));
+                    return Err(Error::new("failed to munmap all pages"));
                 }
             }
         }
@@ -160,10 +161,10 @@ impl PhysicalPages<'_> {
         Ok(())
     }
 
-    pub fn unmap(&mut self, pfn: u64) -> Result<(), XenClientError> {
+    pub fn unmap(&mut self, pfn: u64) -> Result<()> {
         let page = self.pages.iter().enumerate().find(|(_, x)| x.pfn == pfn);
         if page.is_none() {
-            return Err(XenClientError::new("unable to find page to unmap"));
+            return Err(Error::new("unable to find page to unmap"));
         }
         let (i, page) = page.unwrap();
 
@@ -178,7 +179,7 @@ impl PhysicalPages<'_> {
                 page.ptr
             );
             if err != 0 {
-                return Err(XenClientError::new("failed to munmap page"));
+                return Err(Error::new("failed to munmap page"));
             }
             self.pages.remove(i);
         }

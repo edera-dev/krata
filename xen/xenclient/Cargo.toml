@@ -5,6 +5,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
+thiserror = { workspace = true }
 libc = { workspace = true }
 elf = { workspace = true }
 flate2 = { workspace = true }

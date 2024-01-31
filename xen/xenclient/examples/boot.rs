@@ -1,7 +1,8 @@
 use std::{env, process};
-use xenclient::{DomainConfig, XenClient, XenClientError};
+use xenclient::error::Result;
+use xenclient::{DomainConfig, XenClient};
 
-fn main() -> Result<(), XenClientError> {
+fn main() -> Result<()> {
     env_logger::init();
 
     let args: Vec<String> = env::args().collect();
