@@ -98,7 +98,7 @@ impl XenClient {
         let dom_path = self.store.get_domain_path(domid)?;
         let vm_path = self.store.read_string(&format!("{}/vm", dom_path))?;
         if vm_path.is_empty() {
-            return Err(Error::new("cannot destroy domain that doesn't exist"));
+            return Err(Error::DomainNonExistent);
         }
 
         let mut backend_paths: Vec<String> = Vec::new();
@@ -161,12 +161,8 @@ impl XenClient {
         }
         for path in &backend_removals {
             let path = PathBuf::from(path);
-            let parent = path
-                .parent()
-                .ok_or(Error::new("unable to get parent of backend path"))?;
-            tx.rm(parent
-                .to_str()
-                .ok_or(Error::new("unable to convert parent to string"))?)?;
+            let parent = path.parent().ok_or(Error::PathParentNotFound)?;
+            tx.rm(parent.to_str().ok_or(Error::PathStringConversion)?)?;
         }
         tx.rm(&vm_path)?;
         tx.rm(&dom_path)?;
@@ -336,7 +332,7 @@ impl XenClient {
             .store
             .introduce_domain(domid, xenstore_mfn, xenstore_evtchn)?
         {
-            return Err(Error::new("failed to introduce domain"));
+            return Err(Error::IntroduceDomainFailed);
         }
         self.console_device_add(
             &dom_path,
@@ -570,7 +566,7 @@ impl XenClient {
             .read_string_optional(&console_tty_path)?
             .unwrap_or("".to_string());
         if tty.is_empty() {
-            return Err(Error::new(&format!("domain {} does not have a tty", domid)));
+            return Err(Error::TtyNotFound);
         }
         let read = OpenOptions::new().read(true).write(false).open(&tty)?;
         let write = OpenOptions::new().read(false).write(true).open(&tty)?;

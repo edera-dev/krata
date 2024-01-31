@@ -203,19 +203,19 @@ impl X86BootSetup {
     ) -> Result<usize> {
         debug!("counting pgtables from={} to={} pfn={}", from, to, pfn);
         if self.table.mappings_count == X86_PAGE_TABLE_MAX_MAPPINGS {
-            return Err(Error::new("too many mappings"));
+            return Err(Error::MemorySetupFailed);
         }
 
         let m = self.table.mappings_count;
 
         let pfn_end = pfn + ((to - from) >> X86_PAGE_SHIFT);
         if pfn_end >= setup.phys.p2m_size() {
-            return Err(Error::new("not enough memory for initial mapping"));
+            return Err(Error::MemorySetupFailed);
         }
 
         for idx in 0..self.table.mappings_count {
             if from < self.table.mappings[idx].area.to && to > self.table.mappings[idx].area.from {
-                return Err(Error::new("overlapping mappings"));
+                return Err(Error::MemorySetupFailed);
             }
         }
         let mut map = PageTableMapping::default();
@@ -494,7 +494,7 @@ impl ArchBootSetup for X86BootSetup {
         }
 
         if total != total_pages {
-            return Err(Error::new("page count mismatch while calculating pages"));
+            return Err(Error::MemorySetupFailed);
         }
 
         setup.total_pages = total;
@@ -561,14 +561,10 @@ impl ArchBootSetup for X86BootSetup {
                         .populate_physmap(setup.domid, allocsz, 0, 0, input_extent_starts)?;
 
                 if result.len() != allocsz as usize {
-                    return Err(Error::new(
-                        format!(
-                            "failed to populate physmap: wanted={} received={} input_extents={}",
-                            allocsz,
-                            result.len(),
-                            input_extent_starts.len()
-                        )
-                        .as_str(),
+                    return Err(Error::PopulatePhysmapFailed(
+                        allocsz as usize,
+                        result.len(),
+                        input_extent_starts.len(),
                     ));
                 }
 

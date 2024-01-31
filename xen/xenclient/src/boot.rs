@@ -182,7 +182,7 @@ impl BootSetup<'_> {
         let addr = self
             .call
             .mmap(0, 1 << XEN_PAGE_SHIFT)
-            .ok_or(Error::new("failed to mmap for resource"))?;
+            .ok_or(Error::MmapFailed)?;
         self.call.map_resource(self.domid, 1, 0, 0, 1, addr)?;
         let entries = unsafe { slice::from_raw_parts_mut(addr as *mut GrantEntry, 2) };
         entries[0].flags = 1 << 0;
@@ -194,7 +194,7 @@ impl BootSetup<'_> {
         unsafe {
             let result = munmap(addr as *mut c_void, 1 << XEN_PAGE_SHIFT);
             if result != 0 {
-                return Err(Error::new("failed to unmap resource"));
+                return Err(Error::UnmapFailed);
             }
         }
         Ok(())
@@ -294,15 +294,11 @@ impl BootSetup<'_> {
 
     fn alloc_padding_pages(&mut self, arch: &mut dyn ArchBootSetup, boundary: u64) -> Result<()> {
         if (boundary & (arch.page_size() - 1)) != 0 {
-            return Err(Error::new(
-                format!("segment boundary isn't page aligned: {:#x}", boundary).as_str(),
-            ));
+            return Err(Error::MemorySetupFailed);
         }
 
         if boundary < self.virt_alloc_end {
-            return Err(Error::new(
-                format!("segment boundary too low: {:#x})", boundary).as_str(),
-            ));
+            return Err(Error::MemorySetupFailed);
         }
         let pages = (boundary - self.virt_alloc_end) / arch.page_size();
         self.chk_alloc_pages(arch, pages)?;
@@ -314,13 +310,7 @@ impl BootSetup<'_> {
             || self.pfn_alloc_end > self.total_pages
             || pages > self.total_pages - self.pfn_alloc_end
         {
-            return Err(Error::new(
-                format!(
-                    "segment too large: pages={} total_pages={} pfn_alloc_end={}",
-                    pages, self.total_pages, self.pfn_alloc_end
-                )
-                .as_str(),
-            ));
+            return Err(Error::MemorySetupFailed);
         }
 
         self.pfn_alloc_end += pages;

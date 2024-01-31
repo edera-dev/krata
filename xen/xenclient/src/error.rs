@@ -1,60 +1,39 @@
-use std::fmt::{Display, Formatter};
-use std::string::FromUtf8Error;
-use xencall::XenCallError;
+use std::io;
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("io issue encountered")]
+    Io(#[from] io::Error),
+    #[error("xenstore issue encountered")]
+    XenStore(#[from] xenstore::error::Error),
+    #[error("xencall issue encountered")]
+    XenCall(#[from] xencall::XenCallError),
+    #[error("domain does not have a tty")]
+    TtyNotFound,
+    #[error("introducing the domain failed")]
+    IntroduceDomainFailed,
+    #[error("string conversion of a path failed")]
+    PathStringConversion,
+    #[error("parent of path not found")]
+    PathParentNotFound,
+    #[error("domain does not exist")]
+    DomainNonExistent,
+    #[error("elf parse failed")]
+    ElfParseFailed(#[from] elf::ParseError),
+    #[error("mmap failed")]
+    MmapFailed,
+    #[error("munmap failed")]
+    UnmapFailed,
+    #[error("memory setup failed")]
+    MemorySetupFailed,
+    #[error("populate physmap failed: wanted={0}, received={1}, input_extents={2}")]
+    PopulatePhysmapFailed(usize, usize, usize),
+    #[error("unknown elf compression method")]
+    ElfCompressionUnknown,
+    #[error("expected elf image format not found")]
+    ElfInvalidImage,
+    #[error("provided elf image does not contain xen support")]
+    ElfXenSupportMissing,
+}
 
 pub type Result<T> = std::result::Result<T, Error>;
-
-#[derive(Debug)]
-pub struct Error {
-    message: String,
-}
-
-impl Error {
-    pub fn new(msg: &str) -> Error {
-        Error {
-            message: msg.to_string(),
-        }
-    }
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for Error {
-    fn description(&self) -> &str {
-        &self.message
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self {
-        Error::new(value.to_string().as_str())
-    }
-}
-
-impl From<xenstore::error::Error> for Error {
-    fn from(value: xenstore::error::Error) -> Self {
-        Error::new(value.to_string().as_str())
-    }
-}
-
-impl From<XenCallError> for Error {
-    fn from(value: XenCallError) -> Self {
-        Error::new(value.to_string().as_str())
-    }
-}
-
-impl From<FromUtf8Error> for Error {
-    fn from(value: FromUtf8Error) -> Self {
-        Error::new(value.to_string().as_str())
-    }
-}
-
-impl From<xenevtchn::error::Error> for Error {
-    fn from(value: xenevtchn::error::Error) -> Self {
-        Error::new(value.to_string().as_str())
-    }
-}

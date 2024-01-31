@@ -8,34 +8,15 @@ use crate::Error;
 use elf::abi::{PF_R, PF_W, PF_X, PT_LOAD, SHT_NOTE};
 use elf::endian::AnyEndian;
 use elf::note::Note;
-use elf::{ElfBytes, ParseError};
+use elf::ElfBytes;
 use flate2::bufread::GzDecoder;
 use log::debug;
 use memchr::memmem::find_iter;
 use slice_copy::copy;
 use std::collections::HashMap;
-use std::ffi::{FromVecWithNulError, IntoStringError};
 use std::io::{BufReader, Read};
 use std::mem::size_of;
 use xz2::bufread::XzDecoder;
-
-impl From<ParseError> for Error {
-    fn from(value: ParseError) -> Self {
-        Error::new(value.to_string().as_str())
-    }
-}
-
-impl From<FromVecWithNulError> for Error {
-    fn from(value: FromVecWithNulError) -> Self {
-        Error::new(value.to_string().as_str())
-    }
-}
-
-impl From<IntoStringError> for Error {
-    fn from(value: IntoStringError) -> Self {
-        Error::new(value.to_string().as_str())
-    }
-}
 
 pub struct ElfImageLoader {
     data: Vec<u8>,
@@ -146,9 +127,7 @@ impl ElfImageLoader {
             }
         }
 
-        Err(Error::new(
-            "Unable to parse kernel image: unknown compression type",
-        ))
+        Err(Error::ElfCompressionUnknown)
     }
 }
 
@@ -159,9 +138,7 @@ struct ElfNoteValue {
 impl BootImageLoader for ElfImageLoader {
     fn parse(&self) -> Result<BootImageInfo> {
         let elf = ElfBytes::<AnyEndian>::minimal_parse(self.data.as_slice())?;
-        let headers = elf.section_headers().ok_or(Error::new(
-            "Unable to parse kernel image: section headers not found.",
-        ))?;
+        let headers = elf.section_headers().ok_or(Error::ElfInvalidImage)?;
         let mut linux_notes: HashMap<u64, Vec<u8>> = HashMap::new();
         let mut xen_notes: HashMap<u64, ElfNoteValue> = HashMap::new();
 
@@ -198,46 +175,42 @@ impl BootImageLoader for ElfImageLoader {
         }
 
         if linux_notes.is_empty() {
-            return Err(Error::new(
-                "Provided kernel does not appear to be a Linux kernel image.",
-            ));
+            return Err(Error::ElfInvalidImage);
         }
 
         if xen_notes.is_empty() {
-            return Err(Error::new("Provided kernel does not have Xen support."));
+            return Err(Error::ElfXenSupportMissing);
         }
 
         let paddr_offset = xen_notes
             .get(&XEN_ELFNOTE_PADDR_OFFSET)
-            .ok_or(Error::new("Unable to find paddr_offset note in kernel."))?
+            .ok_or(Error::ElfInvalidImage)?
             .value;
         let virt_base = xen_notes
             .get(&XEN_ELFNOTE_VIRT_BASE)
-            .ok_or(Error::new("Unable to find virt_base note in kernel."))?
+            .ok_or(Error::ElfInvalidImage)?
             .value;
         let entry = xen_notes
             .get(&XEN_ELFNOTE_ENTRY)
-            .ok_or(Error::new("Unable to find entry note in kernel."))?
+            .ok_or(Error::ElfInvalidImage)?
             .value;
         let virt_hypercall = xen_notes
             .get(&XEN_ELFNOTE_HYPERCALL_PAGE)
-            .ok_or(Error::new("Unable to find hypercall_page note in kernel."))?
+            .ok_or(Error::ElfInvalidImage)?
             .value;
         let init_p2m = xen_notes
             .get(&XEN_ELFNOTE_INIT_P2M)
-            .ok_or(Error::new("Unable to find init_p2m note in kernel."))?
+            .ok_or(Error::ElfInvalidImage)?
             .value;
         let mod_start_pfn = xen_notes
             .get(&XEN_ELFNOTE_MOD_START_PFN)
-            .ok_or(Error::new("Unable to find mod_start_pfn note in kernel."))?
+            .ok_or(Error::ElfInvalidImage)?
             .value;
 
         let mut start: u64 = u64::MAX;
         let mut end: u64 = 0;
 
-        let segments = elf.segments().ok_or(Error::new(
-            "Unable to parse kernel image: segments not found.",
-        ))?;
+        let segments = elf.segments().ok_or(Error::ElfInvalidImage)?;
 
         for header in segments {
             if (header.p_type != PT_LOAD) || (header.p_flags & (PF_R | PF_W | PF_X)) == 0 {
@@ -255,9 +228,7 @@ impl BootImageLoader for ElfImageLoader {
         }
 
         if paddr_offset != XEN_UNSET_ADDR && virt_base == XEN_UNSET_ADDR {
-            return Err(Error::new(
-                "Unable to load kernel image: paddr_offset set but virt_base is unset.",
-            ));
+            return Err(Error::ElfInvalidImage);
         }
 
         let virt_offset = virt_base - paddr_offset;
@@ -280,9 +251,7 @@ impl BootImageLoader for ElfImageLoader {
 
     fn load(&self, image_info: &BootImageInfo, dst: &mut [u8]) -> Result<()> {
         let elf = ElfBytes::<AnyEndian>::minimal_parse(self.data.as_slice())?;
-        let segments = elf.segments().ok_or(Error::new(
-            "Unable to parse kernel image: segments not found.",
-        ))?;
+        let segments = elf.segments().ok_or(Error::ElfInvalidImage)?;
 
         debug!(
             "ElfImageLoader load dst={:#x} segments={}",

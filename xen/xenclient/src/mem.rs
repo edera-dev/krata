@@ -53,7 +53,7 @@ impl PhysicalPages<'_> {
                 }
 
                 if pfn < page.pfn || (pfn + count) > page.pfn + page.count {
-                    return Err(Error::new("request overlaps allocated block"));
+                    return Err(Error::MemorySetupFailed);
                 }
             } else {
                 if pfn < page.pfn {
@@ -69,9 +69,7 @@ impl PhysicalPages<'_> {
         }
 
         if count == 0 {
-            return Err(Error::new(
-                "allocation is only allowed when a size is given",
-            ));
+            return Err(Error::MemorySetupFailed);
         }
 
         self.pfn_alloc(pfn, count)
@@ -96,11 +94,11 @@ impl PhysicalPages<'_> {
         let addr = self
             .call
             .mmap(0, actual_mmap_len)
-            .ok_or(Error::new("failed to mmap address"))?;
+            .ok_or(Error::MmapFailed)?;
         debug!("mapped {:#x} foreign bytes at {:#x}", actual_mmap_len, addr);
         let result = self.call.mmap_batch(self.domid, num as u64, addr, pfns)?;
         if result != 0 {
-            return Err(Error::new("mmap_batch call failed"));
+            return Err(Error::MmapFailed);
         }
         let page = PhysicalPage {
             pfn,
@@ -126,11 +124,11 @@ impl PhysicalPages<'_> {
         let addr = self
             .call
             .mmap(0, actual_mmap_len)
-            .ok_or(Error::new("failed to mmap address"))?;
+            .ok_or(Error::MmapFailed)?;
         debug!("mapped {:#x} foreign bytes at {:#x}", actual_mmap_len, addr);
         let result = self.call.mmap_batch(self.domid, num as u64, addr, pfns)?;
         if result != 0 {
-            return Err(Error::new("mmap_batch call failed"));
+            return Err(Error::MmapFailed);
         }
         let page = PhysicalPage {
             pfn: u64::MAX,
@@ -153,7 +151,7 @@ impl PhysicalPages<'_> {
                     (page.count << X86_PAGE_SHIFT) as usize,
                 );
                 if err != 0 {
-                    return Err(Error::new("failed to munmap all pages"));
+                    return Err(Error::UnmapFailed);
                 }
             }
         }
@@ -164,7 +162,7 @@ impl PhysicalPages<'_> {
     pub fn unmap(&mut self, pfn: u64) -> Result<()> {
         let page = self.pages.iter().enumerate().find(|(_, x)| x.pfn == pfn);
         if page.is_none() {
-            return Err(Error::new("unable to find page to unmap"));
+            return Err(Error::MemorySetupFailed);
         }
         let (i, page) = page.unwrap();
 
@@ -179,7 +177,7 @@ impl PhysicalPages<'_> {
                 page.ptr
             );
             if err != 0 {
-                return Err(Error::new("failed to munmap page"));
+                return Err(Error::UnmapFailed);
             }
             self.pages.remove(i);
         }
