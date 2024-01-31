@@ -53,6 +53,7 @@ impl ContainerInit {
     pub fn init(&mut self) -> Result<()> {
         self.early_init()?;
 
+        trace!("opening console descriptor");
         let console = OpenOptions::new()
             .read(true)
             .write(true)
@@ -96,11 +97,7 @@ impl ContainerInit {
         }
         if let Some(mode) = mode {
             let permissions = Permissions::from_mode(mode);
-            trace!(
-                "setting directory {:?} permissions to {:?}",
-                path,
-                permissions
-            );
+            trace!("setting directory {:?} permissions to {:?}", path, mode);
             fs::set_permissions(path, permissions)?;
         }
         Ok(())
