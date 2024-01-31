@@ -22,8 +22,6 @@ enum Commands {
         kernel: String,
         #[arg(short = 'r', long, default_value = "auto")]
         initrd: String,
-        #[arg(short, long)]
-        image: String,
         #[arg(short, long, default_value_t = 1)]
         cpus: u32,
         #[arg(short, long, default_value_t = 512)]
@@ -32,16 +30,18 @@ enum Commands {
         config_bundle: Option<String>,
         #[arg[short, long]]
         env: Option<Vec<String>>,
+        #[arg()]
+        image: String,
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
         run: Vec<String>,
     },
     Destroy {
-        #[arg(short, long)]
-        domain: u32,
+        #[arg()]
+        container: String,
     },
     Console {
-        #[arg(short, long)]
-        domain: u32,
+        #[arg()]
+        container: String,
     },
 }
 
@@ -88,12 +88,12 @@ fn main() -> Result<()> {
             println!("launched container: {}", uuid);
         }
 
-        Commands::Destroy { domain } => {
-            controller.destroy(domain)?;
+        Commands::Destroy { container } => {
+            controller.destroy(&container)?;
         }
 
-        Commands::Console { domain } => {
-            controller.console(domain)?;
+        Commands::Console { container } => {
+            controller.console(&container)?;
         }
 
         Commands::List { .. } => {

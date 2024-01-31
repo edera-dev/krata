@@ -145,7 +145,11 @@ impl Controller {
         }
     }
 
-    pub fn destroy(&mut self, domid: u32) -> Result<Uuid> {
+    pub fn destroy(&mut self, id: &str) -> Result<Uuid> {
+        let info = self
+            .resolve(id)?
+            .ok_or_else(|| anyhow!("unable to resolve container: {}", id))?;
+        let domid = info.domid;
         let mut store = XsdClient::open()?;
         let dom_path = store.get_domain_path(domid)?;
         let uuid = match store.read_string_optional(format!("{}/hypha/uuid", dom_path).as_str())? {
@@ -181,7 +185,11 @@ impl Controller {
         Ok(uuid)
     }
 
-    pub fn console(&mut self, domid: u32) -> Result<()> {
+    pub fn console(&mut self, id: &str) -> Result<()> {
+        let info = self
+            .resolve(id)?
+            .ok_or_else(|| anyhow!("unable to resolve container: {}", id))?;
+        let domid = info.domid;
         let (mut read, mut write) = self.client.open_console(domid)?;
         let mut stdin = io::stdin();
         let is_tty = termion::is_tty(&stdin);
@@ -256,6 +264,17 @@ impl Controller {
             });
         }
         Ok(containers)
+    }
+
+    pub fn resolve(&mut self, id: &str) -> Result<Option<ContainerInfo>> {
+        for container in self.list()? {
+            let uuid_string = container.uuid.to_string();
+            let domid_string = container.domid.to_string();
+            if uuid_string == id || domid_string == id || id == format!("hypha-{}", uuid_string) {
+                return Ok(Some(container));
+            }
+        }
+        Ok(None)
     }
 
     fn parse_loop_set(input: &str) -> Vec<ContainerLoopInfo> {
