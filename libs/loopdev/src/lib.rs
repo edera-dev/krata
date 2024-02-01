@@ -44,7 +44,7 @@ use crate::bindings::{
     LOOP_SET_STATUS64, LO_FLAGS_AUTOCLEAR, LO_FLAGS_PARTSCAN, LO_FLAGS_READ_ONLY,
 };
 use libc::ioctl;
-use std::ffi::{c_int, c_ulong};
+use std::ffi::c_int;
 use std::{
     default::Default,
     fs::{File, OpenOptions},
@@ -54,7 +54,7 @@ use std::{
 };
 
 #[cfg(all(not(target_os = "android"), not(target_env = "musl")))]
-type IoctlRequest = c_ulong;
+type IoctlRequest = std::ffi::c_ulong;
 #[cfg(any(target_os = "android", target_env = "musl"))]
 type IoctlRequest = c_int;
 

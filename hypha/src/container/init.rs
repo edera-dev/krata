@@ -1,6 +1,6 @@
 use crate::shared::LaunchInfo;
 use anyhow::{anyhow, Result};
-use log::trace;
+use log::{trace, warn};
 use nix::libc::{c_int, dup2, wait};
 use nix::unistd::{execve, fork, ForkResult, Pid};
 use oci_spec::image::{Config, ImageConfiguration};
@@ -57,10 +57,14 @@ impl ContainerInit {
         self.early_init()?;
 
         trace!("opening console descriptor");
-        let console = OpenOptions::new()
+        match OpenOptions::new()
             .read(true)
             .write(true)
-            .open("/dev/console")?;
+            .open("/dev/console")
+        {
+            Ok(console) => self.map_console(console)?,
+            Err(error) => warn!("failed to open console: {}", error),
+        }
 
         self.mount_squashfs_images()?;
         let config = self.parse_image_config()?;
@@ -69,7 +73,7 @@ impl ContainerInit {
         self.nuke_initrd()?;
         self.bind_new_root()?;
         if let Some(cfg) = config.config() {
-            self.run(console, cfg, &launch)?;
+            self.run(cfg, &launch)?;
         } else {
             return Err(anyhow!(
                 "unable to determine what to execute, image config doesn't tell us"
@@ -85,9 +89,9 @@ impl ContainerInit {
         self.create_dir("/sys", None)?;
         self.create_dir("/root", Some(0o0700))?;
         self.create_dir("/tmp", None)?;
-        self.mount_kernel_fs("devtmpfs", "/dev")?;
-        self.mount_kernel_fs("proc", "/proc")?;
-        self.mount_kernel_fs("sysfs", "/sys")?;
+        self.mount_kernel_fs("devtmpfs", "/dev", "mode=0755")?;
+        self.mount_kernel_fs("proc", "/proc", "")?;
+        self.mount_kernel_fs("sysfs", "/sys", "")?;
         Ok(())
     }
 
@@ -105,15 +109,27 @@ impl ContainerInit {
         Ok(())
     }
 
-    fn mount_kernel_fs(&mut self, fstype: &str, path: &str) -> Result<()> {
+    fn mount_kernel_fs(&mut self, fstype: &str, path: &str, data: &str) -> Result<()> {
         let metadata = fs::metadata(path)?;
         if metadata.st_dev() == fs::metadata("/")?.st_dev() {
             trace!("mounting kernel fs {} to {}", fstype, path);
             Mount::builder()
                 .fstype(FilesystemType::Manual(fstype))
                 .flags(MountFlags::NODEV | MountFlags::NOEXEC | MountFlags::NOSUID)
+                .data(data)
                 .mount(fstype, path)?;
         }
+        Ok(())
+    }
+
+    fn map_console(&mut self, console: File) -> Result<()> {
+        trace!("mapping console");
+        unsafe {
+            dup2(console.as_raw_fd(), 0);
+            dup2(console.as_raw_fd(), 1);
+            dup2(console.as_raw_fd(), 2);
+        }
+        drop(console);
         Ok(())
     }
 
@@ -255,18 +271,7 @@ impl ContainerInit {
         Ok(())
     }
 
-    fn map_console(&mut self, console: File) -> Result<()> {
-        trace!("mapping console");
-        unsafe {
-            dup2(console.as_raw_fd(), 0);
-            dup2(console.as_raw_fd(), 1);
-            dup2(console.as_raw_fd(), 2);
-        }
-        drop(console);
-        Ok(())
-    }
-
-    fn run(&mut self, console: File, config: &Config, launch: &LaunchInfo) -> Result<()> {
+    fn run(&mut self, config: &Config, launch: &LaunchInfo) -> Result<()> {
         let mut cmd = match config.cmd() {
             None => vec![],
             Some(value) => value.clone(),
@@ -306,7 +311,7 @@ impl ContainerInit {
         }
 
         std::env::set_current_dir(&working_dir)?;
-        self.fork_and_exec(console, &path_cstr, cmd_cstr, env_cstr)?;
+        self.fork_and_exec(&path_cstr, cmd_cstr, env_cstr)?;
         Ok(())
     }
 
@@ -318,17 +323,10 @@ impl ContainerInit {
         Ok(results)
     }
 
-    fn fork_and_exec(
-        &mut self,
-        console: File,
-        path: &CStr,
-        cmd: Vec<CString>,
-        env: Vec<CString>,
-    ) -> Result<()> {
+    fn fork_and_exec(&mut self, path: &CStr, cmd: Vec<CString>, env: Vec<CString>) -> Result<()> {
         match unsafe { fork()? } {
             ForkResult::Parent { child } => self.background(child),
             ForkResult::Child => {
-                self.map_console(console)?;
                 execve(path, &cmd, &env)?;
                 Ok(())
             }
