@@ -1,3 +1,4 @@
+use env_logger::Env;
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use hypha::ctl::Controller;
@@ -46,7 +47,7 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    env_logger::init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
 
     let args = ControllerArgs::parse();
     let store_path = if args.store == "auto" {

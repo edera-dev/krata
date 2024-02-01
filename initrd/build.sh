@@ -4,7 +4,7 @@ set -e
 export RUSTFLAGS="-Ctarget-feature=+crt-static"
 cd "$(dirname "${0}")/.."
 HYPHA_DIR="${PWD}"
-cargo build --release --target x86_64-unknown-linux-gnu
+cargo build --bin hyphactr --release --target x86_64-unknown-linux-gnu
 INITRD_DIR="$(mktemp -d /tmp/hypha-initrd.XXXXXXXXXXXXX)"
 cp target/x86_64-unknown-linux-gnu/release/hyphactr "${INITRD_DIR}/init"
 chmod +x "${INITRD_DIR}/init"
