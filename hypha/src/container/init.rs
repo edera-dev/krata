@@ -115,7 +115,7 @@ impl ContainerInit {
             trace!("mounting kernel fs {} to {}", fstype, path);
             Mount::builder()
                 .fstype(FilesystemType::Manual(fstype))
-                .flags(MountFlags::NODEV | MountFlags::NOEXEC | MountFlags::NOSUID)
+                .flags(MountFlags::NOEXEC | MountFlags::NOSUID)
                 .data(data)
                 .mount(fstype, path)?;
         }
