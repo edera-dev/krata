@@ -1,0 +1,14 @@
+[pre-commit]
+parallel = true
+
+[pre-commit.commands.build]
+run = "cargo build --target x86_64-unknown-linux-gnu"
+
+[pre-commit.commands.test]
+run = "cargo test --target x86_64-unknown-linux-gnu"
+
+[pre-commit.commands.fmt]
+run = "cargo fmt --all -- --check"
+
+[pre-commit.commands.clippy]
+run = "cargo clippy --target x86_64-unknown-linux-gnu"

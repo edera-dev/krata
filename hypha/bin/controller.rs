@@ -1,6 +1,6 @@
-use env_logger::Env;
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
+use env_logger::Env;
 use hypha::ctl::Controller;
 use std::path::PathBuf;
 
