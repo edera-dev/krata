@@ -15,7 +15,7 @@ use std::str::FromStr;
 use std::{fs, io, thread};
 use termion::raw::IntoRawMode;
 use uuid::Uuid;
-use xenclient::{DomainConfig, DomainDisk, DomainNetworkInterface, XenClient};
+use xenclient::{DomainConfig, DomainDisk, XenClient};
 use xenstore::client::{XsdClient, XsdInterface};
 
 pub struct Controller {
@@ -121,12 +121,7 @@ impl Controller {
                     writable: false,
                 },
             ],
-            vifs: vec![DomainNetworkInterface {
-                mac: "00:16:3E:46:0C:1B",
-                mtu: 1500,
-                bridge: "xenbr0",
-                script: "/etc/xen/scripts/vif-bridge",
-            }],
+            vifs: vec![],
             filesystems: vec![],
             extra_keys: vec![
                 ("hypha/uuid".to_string(), uuid.to_string()),
