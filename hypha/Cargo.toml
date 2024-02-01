@@ -31,14 +31,14 @@ uuid = { workspace = true }
 workspace = true
 features = ["process"]
 
-[dependencies.xenclient]
-path = "../xen/xenclient"
-
 [dependencies.loopdev]
-path = "../loopdev"
+path = "../libs/loopdev"
+
+[dependencies.xenclient]
+path = "../libs/xen/xenclient"
 
 [dependencies.xenstore]
-path = "../xen/xenstore"
+path = "../libs/xen/xenstore"
 
 [lib]
 path = "src/lib.rs"

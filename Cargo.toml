@@ -1,11 +1,11 @@
 [workspace]
 members = [
-    "xen/xenstore",
-    "xen/xenevtchn",
-    "xen/xencall",
-    "xen/xenclient",
+    "libs/xen/xenstore",
+    "libs/xen/xenevtchn",
+    "libs/xen/xencall",
+    "libs/xen/xenclient",
+    "libs/loopdev",
     "hypha",
-    "loopdev",
 ]
 resolver = "2"
 
