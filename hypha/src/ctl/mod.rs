@@ -71,6 +71,7 @@ impl Controller {
         mem: u64,
         env: Option<Vec<String>>,
         run: Option<Vec<String>>,
+        debug: bool,
     ) -> Result<(Uuid, u32)> {
         let uuid = Uuid::new_v4();
         let name = format!("hypha-{uuid}");
@@ -97,6 +98,9 @@ impl Controller {
         let image_squashfs_loop = self.autoloop.loopify(image_squashfs_path)?;
         let cfgblk_squashfs_loop = self.autoloop.loopify(cfgblk_squashfs_path)?;
 
+        let cmdline_options = [if debug { "debug" } else { "quiet" }, "elevator=noop"];
+        let cmdline = cmdline_options.join(" ");
+
         let config = DomainConfig {
             backend_domid: 0,
             name: &name,
@@ -104,7 +108,7 @@ impl Controller {
             mem_mb: mem,
             kernel_path,
             initrd_path,
-            cmdline: "quiet elevator=noop",
+            cmdline: &cmdline,
             disks: vec![
                 DomainDisk {
                     vdev: "xvda",

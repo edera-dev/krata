@@ -33,6 +33,8 @@ enum Commands {
         env: Option<Vec<String>>,
         #[arg(short, long)]
         attach: bool,
+        #[arg(long)]
+        debug: bool,
         #[arg()]
         image: String,
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
@@ -76,6 +78,7 @@ fn main() -> Result<()> {
             attach,
             env,
             run,
+            debug,
         } => {
             let kernel = map_kernel_path(&store_path, kernel);
             let initrd = map_initrd_path(&store_path, initrd);
@@ -88,6 +91,7 @@ fn main() -> Result<()> {
                 mem,
                 env,
                 if run.is_empty() { None } else { Some(run) },
+                debug,
             )?;
             println!("launched container: {}", uuid);
             if attach {
