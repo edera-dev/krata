@@ -49,6 +49,14 @@ pub struct DomainFilesystem<'a> {
 }
 
 #[derive(Debug)]
+pub struct DomainNetworkInterface<'a> {
+    pub mac: &'a str,
+    pub mtu: u32,
+    pub bridge: &'a str,
+    pub script: &'a str,
+}
+
+#[derive(Debug)]
 pub struct DomainConfig<'a> {
     pub backend_domid: u32,
     pub name: &'a str,
@@ -58,6 +66,7 @@ pub struct DomainConfig<'a> {
     pub initrd_path: &'a str,
     pub cmdline: &'a str,
     pub disks: Vec<DomainDisk<'a>>,
+    pub vifs: Vec<DomainNetworkInterface<'a>>,
     pub filesystems: Vec<DomainFilesystem<'a>>,
     pub extra_keys: Vec<(String, String)>,
 }
@@ -352,6 +361,7 @@ impl XenClient {
                 disk,
             )?;
         }
+
         for (index, filesystem) in config.filesystems.iter().enumerate() {
             self.fs_9p_device_add(
                 &dom_path,
@@ -360,6 +370,17 @@ impl XenClient {
                 domid,
                 index,
                 filesystem,
+            )?;
+        }
+
+        for (index, vif) in config.vifs.iter().enumerate() {
+            self.vif_device_add(
+                &dom_path,
+                &backend_dom_path,
+                config.backend_domid,
+                domid,
+                index,
+                vif,
             )?;
         }
         self.call.unpause_domain(domid)?;
@@ -482,6 +503,49 @@ impl XenClient {
 
         self.device_add(
             "9pfs",
+            id,
+            dom_path,
+            backend_dom_path,
+            backend_domid,
+            domid,
+            frontend_items,
+            backend_items,
+        )?;
+        Ok(())
+    }
+
+    fn vif_device_add(
+        &mut self,
+        dom_path: &str,
+        backend_dom_path: &str,
+        backend_domid: u32,
+        domid: u32,
+        index: usize,
+        vif: &DomainNetworkInterface,
+    ) -> Result<()> {
+        let id = 20 + index as u64;
+        let backend_items: Vec<(&str, String)> = vec![
+            ("frontend-id", domid.to_string()),
+            ("online", "1".to_string()),
+            ("state", "1".to_string()),
+            ("mac", vif.mac.to_string()),
+            ("mtu", vif.mtu.to_string()),
+            ("type", "vif".to_string()),
+            ("bridge", vif.bridge.to_string()),
+            ("handle", id.to_string()),
+            ("script", vif.script.to_string()),
+            ("hotplug-status", "".to_string()),
+        ];
+
+        let frontend_items: Vec<(&str, String)> = vec![
+            ("backend-id", backend_domid.to_string()),
+            ("state", "1".to_string()),
+            ("mac", vif.mac.to_string()),
+            ("trusted", "1".to_string()),
+        ];
+
+        self.device_add(
+            "vif",
             id,
             dom_path,
             backend_dom_path,
