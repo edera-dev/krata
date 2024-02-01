@@ -31,6 +31,8 @@ enum Commands {
         config_bundle: Option<String>,
         #[arg[short, long]]
         env: Option<Vec<String>>,
+        #[arg(short, long)]
+        attach: bool,
         #[arg()]
         image: String,
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
@@ -71,6 +73,7 @@ fn main() -> Result<()> {
             cpus,
             mem,
             config_bundle,
+            attach,
             env,
             run,
         } => {
@@ -87,6 +90,9 @@ fn main() -> Result<()> {
                 if run.is_empty() { None } else { Some(run) },
             )?;
             println!("launched container: {}", uuid);
+            if attach {
+                controller.console(&uuid.to_string())?;
+            }
         }
 
         Commands::Destroy { container } => {
