@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-TARGET="x86_64-unknown-linux-musl"
+TARGET="x86_64-unknown-linux-gnu"
 
 export RUSTFLAGS="-Ctarget-feature=+crt-static"
 cd "$(dirname "${0}")/.."

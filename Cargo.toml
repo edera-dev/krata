@@ -4,6 +4,7 @@ members = [
     "libs/xen/xenevtchn",
     "libs/xen/xencall",
     "libs/xen/xenclient",
+    "libs/advmac",
     "libs/loopdev",
     "hypha",
 ]
@@ -40,6 +41,8 @@ path-clean = "1.0.1"
 ureq = "2.9.1"
 url = "2.5.0"
 cli-tables = "0.2.1"
+rand = "0.8.5"
+arrayvec = "0.7.4"
 
 [workspace.dependencies.uuid]
 version = "1.6.1"

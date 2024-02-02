@@ -1,0 +1,16 @@
+# This package is from https://github.com/GamePad64/advmac
+# Mycelium maintains an in-tree version because of dependencies
+# being out of date.
+[package]
+name = "advmac"
+version.workspace = true
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "advmac"
+
+[dependencies]
+serde = { workspace = true }
+rand = { workspace = true }
+arrayvec = { workspace = true, features = ["serde"] }

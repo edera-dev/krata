@@ -6,6 +6,7 @@ use crate::image::cache::ImageCache;
 use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
 use crate::shared::LaunchInfo;
+use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
 use loopdev::LoopControl;
 use std::io::{Read, Write};
@@ -15,7 +16,7 @@ use std::str::FromStr;
 use std::{fs, io, thread};
 use termion::raw::IntoRawMode;
 use uuid::Uuid;
-use xenclient::{DomainConfig, DomainDisk, XenClient};
+use xenclient::{DomainConfig, DomainDisk, DomainNetworkInterface, XenClient};
 use xenstore::client::{XsdClient, XsdInterface};
 
 pub struct Controller {
@@ -101,6 +102,7 @@ impl Controller {
         let cmdline_options = [if debug { "debug" } else { "quiet" }, "elevator=noop"];
         let cmdline = cmdline_options.join(" ");
 
+        let mac = MacAddr6::random().to_string().replace('-', ":");
         let config = DomainConfig {
             backend_domid: 0,
             name: &name,
@@ -121,7 +123,12 @@ impl Controller {
                     writable: false,
                 },
             ],
-            vifs: vec![],
+            vifs: vec![DomainNetworkInterface {
+                mac: &mac,
+                mtu: 1500,
+                bridge: "xenbr0",
+                script: "/etc/xen/scripts/vif-bridge",
+            }],
             filesystems: vec![],
             extra_keys: vec![
                 ("hypha/uuid".to_string(), uuid.to_string()),

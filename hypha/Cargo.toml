@@ -31,6 +31,9 @@ uuid = { workspace = true }
 workspace = true
 features = ["process"]
 
+[dependencies.advmac]
+path = "../libs/advmac"
+
 [dependencies.loopdev]
 path = "../libs/loopdev"
 
