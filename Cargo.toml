@@ -49,7 +49,7 @@ version = "1.6.1"
 features = ["v4"]
 
 [workspace.dependencies.sys-mount]
-version = "2.1.1"
+version = "3.0.0"
 default-features = false
 
 [workspace.dependencies.clap]
