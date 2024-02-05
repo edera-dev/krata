@@ -1,20 +1,39 @@
 use std::os::fd::AsRawFd;
 use std::str::FromStr;
+use std::thread;
+use std::time::Duration;
 
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
+use futures::TryStreamExt;
+use log::{error, info, warn};
+use netlink_packet_route::link::LinkAttribute;
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{self, RawSocket};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, HardwareAddress, IpCidr};
+use tokio::time::sleep;
 
-pub struct HyphaNetwork {
+pub struct NetworkBackend {
+    pub interface: String,
     pub device: RawSocket,
     pub addresses: Vec<IpCidr>,
 }
 
-impl HyphaNetwork {
-    pub fn new(iface: &str, cidrs: &[&str]) -> Result<HyphaNetwork> {
+unsafe impl Send for NetworkBackend {}
+
+pub struct NetworkService {
+    pub network: String,
+}
+
+impl NetworkService {
+    pub fn new(network: String) -> Result<NetworkService> {
+        Ok(NetworkService { network })
+    }
+}
+
+impl NetworkBackend {
+    pub fn new(iface: &str, cidrs: &[&str]) -> Result<NetworkBackend> {
         let device = RawSocket::new(iface, smoltcp::phy::Medium::Ethernet)?;
         let mut addresses: Vec<IpCidr> = Vec::new();
         for cidr in cidrs {
@@ -22,7 +41,32 @@ impl HyphaNetwork {
                 IpCidr::from_str(cidr).map_err(|_| anyhow!("failed to parse cidr: {}", *cidr))?;
             addresses.push(address);
         }
-        Ok(HyphaNetwork { device, addresses })
+        Ok(NetworkBackend {
+            interface: iface.to_string(),
+            device,
+            addresses,
+        })
+    }
+
+    pub async fn init(&mut self) -> Result<()> {
+        let (connection, handle, _) = rtnetlink::new_connection()?;
+        tokio::spawn(connection);
+
+        let mut links = handle
+            .link()
+            .get()
+            .match_name(self.interface.clone())
+            .execute();
+        let link = links.try_next().await?;
+        if link.is_none() {
+            return Err(anyhow!(
+                "unable to find network interface named {}",
+                self.interface
+            ));
+        }
+        let link = link.unwrap();
+        handle.link().set(link.header.index).up().execute().await?;
+        Ok(())
     }
 
     pub fn run(&mut self) -> Result<()> {
@@ -43,5 +87,64 @@ impl HyphaNetwork {
             iface.poll(timestamp, &mut self.device, &mut sockets);
             phy::wait(fd, iface.poll_delay(timestamp, &sockets))?;
         }
+    }
+}
+
+impl NetworkService {
+    pub async fn watch(&mut self) -> Result<()> {
+        let mut spawned: Vec<String> = Vec::new();
+        let (connection, handle, _) = rtnetlink::new_connection()?;
+        tokio::spawn(connection);
+        loop {
+            let mut stream = handle.link().get().execute();
+            while let Some(message) = stream.try_next().await? {
+                let mut name: Option<String> = None;
+                for attribute in &message.attributes {
+                    if let LinkAttribute::IfName(if_name) = attribute {
+                        name = Some(if_name.clone());
+                    }
+                }
+
+                if name.is_none() {
+                    continue;
+                }
+
+                let name = name.unwrap();
+                if !name.starts_with("vif") {
+                    continue;
+                }
+
+                if spawned.contains(&name) {
+                    continue;
+                }
+
+                if let Err(error) = self.add_network_backend(&name).await {
+                    warn!(
+                        "failed to initialize network backend for interface {}: {}",
+                        name, error
+                    );
+                }
+
+                spawned.push(name);
+            }
+
+            sleep(Duration::from_secs(5)).await;
+        }
+    }
+
+    async fn add_network_backend(&mut self, interface: &str) -> Result<()> {
+        let interface = interface.to_string();
+        let mut network = NetworkBackend::new(&interface, &[&self.network])?;
+        network.init().await?;
+        info!("spawning network backend for interface {}", interface);
+        thread::spawn(move || {
+            if let Err(error) = network.run() {
+                error!(
+                    "failed to run network backend for interface {}: {}",
+                    interface, error
+                );
+            }
+        });
+        Ok(())
     }
 }

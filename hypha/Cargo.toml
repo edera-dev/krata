@@ -27,6 +27,7 @@ oci-spec = { workspace = true }
 backhand = { workspace = true }
 uuid = { workspace = true }
 rtnetlink = { workspace = true }
+netlink-packet-route = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 ipnetwork = { workspace = true }
