@@ -3,7 +3,8 @@ use env_logger::Env;
 use hypha::container::init::ContainerInit;
 use std::env;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     env::set_var("RUST_BACKTRACE", "1");
     env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
     if env::var("HYPHA_UNSAFE_ALWAYS_ALLOW_INIT").unwrap_or("0".to_string()) != "1" {
@@ -18,6 +19,6 @@ fn main() -> Result<()> {
         }
     }
     let mut container = ContainerInit::new();
-    container.init()?;
+    container.init().await?;
     Ok(())
 }

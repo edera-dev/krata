@@ -5,11 +5,13 @@ use crate::ctl::cfgblk::ConfigBlock;
 use crate::image::cache::ImageCache;
 use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
-use crate::shared::LaunchInfo;
+use crate::shared::{LaunchInfo, LaunchNetwork};
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
+use ipnetwork::Ipv4Network;
 use loopdev::LoopControl;
 use std::io::{Read, Write};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
@@ -36,6 +38,7 @@ pub struct ContainerInfo {
     pub domid: u32,
     pub image: String,
     pub loops: Vec<ContainerLoopInfo>,
+    pub ipv4: String,
 }
 
 impl Controller {
@@ -77,7 +80,16 @@ impl Controller {
         let uuid = Uuid::new_v4();
         let name = format!("hypha-{uuid}");
         let image_info = self.compile(image)?;
-        let launch_config = LaunchInfo { env, run };
+
+        let ipv4 = self.allocate_ipv4()?;
+        let launch_config = LaunchInfo {
+            network: Some(LaunchNetwork {
+                link: "eth0".to_string(),
+                ipv4: format!("{}/24", ipv4),
+            }),
+            env,
+            run,
+        };
 
         let cfgblk = ConfigBlock::new(&uuid, &image_info, config_bundle_path)?;
         cfgblk.build(&launch_config)?;
@@ -102,7 +114,10 @@ impl Controller {
         let cmdline_options = [if debug { "debug" } else { "quiet" }, "elevator=noop"];
         let cmdline = cmdline_options.join(" ");
 
-        let mac = MacAddr6::random().to_string().replace('-', ":");
+        let mac = MacAddr6::random()
+            .to_string()
+            .replace('-', ":")
+            .to_lowercase();
         let config = DomainConfig {
             backend_domid: 0,
             name: &name,
@@ -126,8 +141,8 @@ impl Controller {
             vifs: vec![DomainNetworkInterface {
                 mac: &mac,
                 mtu: 1500,
-                bridge: "xenbr0",
-                script: "/etc/xen/scripts/vif-bridge",
+                bridge: None,
+                script: None,
             }],
             filesystems: vec![],
             extra_keys: vec![
@@ -144,6 +159,7 @@ impl Controller {
                     ),
                 ),
                 ("hypha/image".to_string(), image.to_string()),
+                ("hypha/ipv4".to_string(), ipv4.to_string()),
             ],
         };
         match self.client.create(&config) {
@@ -267,12 +283,18 @@ impl Controller {
                 .store
                 .read_string_optional(&format!("{}/hypha/loops", &dom_path))?
                 .unwrap_or("".to_string());
+            let ipv4 = self
+                .client
+                .store
+                .read_string_optional(&format!("{}/hypha/ipv4", &dom_path))?
+                .unwrap_or("unknown".to_string());
             let loops = Controller::parse_loop_set(&loops);
             containers.push(ContainerInfo {
                 uuid,
                 domid,
                 image,
                 loops,
+                ipv4,
             });
         }
         Ok(containers)
@@ -307,5 +329,38 @@ impl Controller {
                 },
             })
             .collect::<Vec<ContainerLoopInfo>>()
+    }
+
+    fn allocate_ipv4(&mut self) -> Result<Ipv4Addr> {
+        let network = Ipv4Network::new(Ipv4Addr::new(192, 168, 42, 0), 24)?;
+        let mut used: Vec<Ipv4Addr> = vec![
+            Ipv4Addr::new(192, 168, 42, 0),
+            Ipv4Addr::new(192, 168, 42, 1),
+            Ipv4Addr::new(192, 168, 42, 255),
+        ];
+        for domid_candidate in self.client.store.list_any("/local/domain")? {
+            let dom_path = format!("/local/domain/{}", domid_candidate);
+            let ip_path = format!("{}/hypha/ipv4", dom_path);
+            let existing_ip = self.client.store.read_string_optional(&ip_path)?;
+            if let Some(existing_ip) = existing_ip {
+                used.push(Ipv4Addr::from_str(&existing_ip)?);
+            }
+        }
+
+        let mut found: Option<Ipv4Addr> = None;
+        for ip in network.iter() {
+            if !used.contains(&ip) {
+                found = Some(ip);
+                break;
+            }
+        }
+
+        if found.is_none() {
+            return Err(anyhow!(
+                "unable to find ipv4 to allocate to container, ipv4 addresses are exhausted"
+            ));
+        }
+
+        Ok(found.unwrap())
     }
 }

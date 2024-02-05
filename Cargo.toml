@@ -43,6 +43,10 @@ url = "2.5.0"
 cli-tables = "0.2.1"
 rand = "0.8.5"
 arrayvec = "0.7.4"
+rtnetlink = "0.14.1"
+futures = "0.3.30"
+ipnetwork = "0.20.0"
+smoltcp = "0.11.0"
 
 [workspace.dependencies.uuid]
 version = "1.6.1"
@@ -55,3 +59,7 @@ default-features = false
 [workspace.dependencies.clap]
 version = "4.4.18"
 features = ["derive"]
+
+[workspace.dependencies.tokio]
+version = "1.35.1"
+features = ["macros", "rt", "rt-multi-thread"]

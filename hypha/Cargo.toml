@@ -26,6 +26,11 @@ sys-mount = { workspace = true }
 oci-spec = { workspace = true }
 backhand = { workspace = true }
 uuid = { workspace = true }
+rtnetlink = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+ipnetwork = { workspace = true }
+smoltcp = { workspace = true }
 
 [dependencies.nix]
 workspace = true
@@ -53,3 +58,7 @@ path = "bin/controller.rs"
 [[bin]]
 name = "hyphactr"
 path = "bin/container.rs"
+
+[[bin]]
+name = "hyphanet"
+path = "bin/network.rs"

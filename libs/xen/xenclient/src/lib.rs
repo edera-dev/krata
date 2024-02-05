@@ -52,8 +52,8 @@ pub struct DomainFilesystem<'a> {
 pub struct DomainNetworkInterface<'a> {
     pub mac: &'a str,
     pub mtu: u32,
-    pub bridge: &'a str,
-    pub script: &'a str,
+    pub bridge: Option<&'a str>,
+    pub script: Option<&'a str>,
 }
 
 #[derive(Debug)]
@@ -524,24 +524,38 @@ impl XenClient {
         vif: &DomainNetworkInterface,
     ) -> Result<()> {
         let id = 20 + index as u64;
-        let backend_items: Vec<(&str, String)> = vec![
+        let mut backend_items: Vec<(&str, String)> = vec![
             ("frontend-id", domid.to_string()),
             ("online", "1".to_string()),
             ("state", "1".to_string()),
             ("mac", vif.mac.to_string()),
             ("mtu", vif.mtu.to_string()),
             ("type", "vif".to_string()),
-            ("bridge", vif.bridge.to_string()),
             ("handle", id.to_string()),
-            ("script", vif.script.to_string()),
-            ("hotplug-status", "".to_string()),
         ];
+
+        if vif.bridge.is_some() {
+            backend_items.extend_from_slice(&[("bridge", vif.bridge.unwrap().to_string())]);
+        }
+
+        if vif.script.is_some() {
+            backend_items.extend_from_slice(&[
+                ("script", vif.script.unwrap().to_string()),
+                ("hotplug-status", "".to_string()),
+            ]);
+        } else {
+            backend_items.extend_from_slice(&[
+                ("script", "".to_string()),
+                ("hotplug-status", "connected".to_string()),
+            ]);
+        }
 
         let frontend_items: Vec<(&str, String)> = vec![
             ("backend-id", backend_domid.to_string()),
             ("state", "1".to_string()),
             ("mac", vif.mac.to_string()),
             ("trusted", "1".to_string()),
+            ("mtu", vif.mtu.to_string()),
         ];
 
         self.device_add(

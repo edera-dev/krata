@@ -1,5 +1,7 @@
-use crate::shared::LaunchInfo;
+use crate::shared::{LaunchInfo, LaunchNetwork};
 use anyhow::{anyhow, Result};
+use futures::stream::TryStreamExt;
+use ipnetwork::IpNetwork;
 use log::{trace, warn};
 use nix::libc::{c_int, dup2, wait};
 use nix::unistd::{execve, fork, ForkResult, Pid};
@@ -53,7 +55,7 @@ impl ContainerInit {
         ContainerInit {}
     }
 
-    pub fn init(&mut self) -> Result<()> {
+    pub async fn init(&mut self) -> Result<()> {
         self.early_init()?;
 
         trace!("opening console descriptor");
@@ -72,6 +74,13 @@ impl ContainerInit {
         self.mount_new_root()?;
         self.nuke_initrd()?;
         self.bind_new_root()?;
+
+        if let Some(network) = &launch.network {
+            if let Err(error) = self.network_setup(network).await {
+                warn!("failed to initialize network: {}", error);
+            }
+        }
+
         if let Some(cfg) = config.config() {
             self.run(cfg, &launch)?;
         } else {
@@ -268,6 +277,38 @@ impl ContainerInit {
         chroot(".")?;
         trace!("setting root as current directory");
         std::env::set_current_dir("/")?;
+        Ok(())
+    }
+
+    async fn network_setup(&mut self, network: &LaunchNetwork) -> Result<()> {
+        trace!(
+            "setting up network with link {} and ipv4 {}",
+            network.link,
+            network.ipv4
+        );
+
+        let (connection, handle, _) = rtnetlink::new_connection()?;
+        tokio::spawn(connection);
+
+        let ip: IpNetwork = network.ipv4.parse()?;
+
+        let mut links = handle
+            .link()
+            .get()
+            .match_name(network.link.clone())
+            .execute();
+        if let Some(link) = links.try_next().await? {
+            handle
+                .address()
+                .add(link.header.index, ip.ip(), ip.prefix())
+                .execute()
+                .await?;
+
+            handle.link().set(link.header.index).up().execute().await?;
+        } else {
+            warn!("unable to find link named {}", network.link);
+        }
+
         Ok(())
     }
 
