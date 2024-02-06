@@ -1,5 +1,5 @@
 [package]
-name = "hypha"
+name = "hyphactrl"
 version.workspace = true
 edition = "2021"
 resolver = "2"
@@ -22,16 +22,13 @@ path-clean = { workspace = true }
 termion = { workspace = true }
 cli-tables = { workspace = true }
 clap = { workspace = true }
-sys-mount = { workspace = true }
 oci-spec = { workspace = true }
 backhand = { workspace = true }
 uuid = { workspace = true }
-rtnetlink = { workspace = true }
-netlink-packet-route = { workspace = true }
-tokio = { workspace = true }
-futures = { workspace = true }
 ipnetwork = { workspace = true }
-smoltcp = { workspace = true }
+
+[dependencies.hypha]
+path = "../shared"
 
 [dependencies.nix]
 workspace = true
@@ -54,12 +51,4 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "hyphactl"
-path = "bin/controller.rs"
-
-[[bin]]
-name = "hyphactr"
-path = "bin/container.rs"
-
-[[bin]]
-name = "hyphanet"
-path = "bin/network.rs"
+path = "bin/control.rs"

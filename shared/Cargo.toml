@@ -1,0 +1,11 @@
+[package]
+name = "hypha"
+version.workspace = true
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+serde = { workspace = true }
+
+[lib]
+path = "src/lib.rs"

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use env_logger::Env;
-use hypha::ctl::Controller;
+use hyphactrl::ctl::Controller;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]

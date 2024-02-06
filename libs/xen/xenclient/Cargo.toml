@@ -21,9 +21,6 @@ path = "../xencall"
 [dependencies.xenstore]
 path = "../xenstore"
 
-[dependencies.xenevtchn]
-path = "../xenevtchn"
-
 [dev-dependencies]
 env_logger = { workspace = true }
 

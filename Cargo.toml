@@ -6,7 +6,10 @@ members = [
     "libs/xen/xenclient",
     "libs/advmac",
     "libs/loopdev",
-    "hypha",
+    "shared",
+    "container",
+    "network",
+    "controller",
 ]
 resolver = "2"
 
@@ -30,7 +33,6 @@ errno = "0.3.0"
 oci-spec = "0.6.4"
 backhand = "0.14.2"
 sha256 = "1.5.0"
-serde = "1.0.196"
 serde_json = "1.0.113"
 walkdir = "2"
 directories = "5.0.1"
@@ -64,3 +66,7 @@ features = ["derive"]
 [workspace.dependencies.tokio]
 version = "1.35.1"
 features = ["macros", "rt", "rt-multi-thread"]
+
+[workspace.dependencies.serde]
+version = "1.0.196"
+features = ["derive"]

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use env_logger::Env;
-use hypha::network::NetworkService;
+use hyphanet::NetworkService;
 
 #[derive(Parser, Debug)]
 struct NetworkArgs {

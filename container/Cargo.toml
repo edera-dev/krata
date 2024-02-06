@@ -1,0 +1,33 @@
+[package]
+name = "hyphactr"
+version.workspace = true
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+walkdir = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sys-mount = { workspace = true }
+oci-spec = { workspace = true }
+rtnetlink = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+ipnetwork = { workspace = true }
+
+[dependencies.nix]
+workspace = true
+features = ["process"]
+
+[dependencies.hypha]
+path = "../shared"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "hyphactr"
+path = "bin/init.rs"

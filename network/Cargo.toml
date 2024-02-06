@@ -1,0 +1,26 @@
+[package]
+name = "hyphanet"
+version.workspace = true
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+rtnetlink = { workspace = true }
+netlink-packet-route = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+smoltcp = { workspace = true }
+
+[dependencies.advmac]
+path = "../libs/advmac"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "hyphanet"
+path = "bin/network.rs"
