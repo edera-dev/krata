@@ -1,7 +1,7 @@
 use crate::image::ImageInfo;
-use crate::shared::LaunchInfo;
 use anyhow::Result;
 use backhand::{FilesystemWriter, NodeHeader};
+use hypha::LaunchInfo;
 use log::trace;
 use std::fs;
 use std::fs::File;

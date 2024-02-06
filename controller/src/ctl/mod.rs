@@ -5,9 +5,9 @@ use crate::ctl::cfgblk::ConfigBlock;
 use crate::image::cache::ImageCache;
 use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
-use crate::shared::{LaunchInfo, LaunchNetwork};
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
+use hypha::{LaunchInfo, LaunchNetwork};
 use ipnetwork::Ipv4Network;
 use loopdev::LoopControl;
 use std::io::{Read, Write};
@@ -114,10 +114,9 @@ impl Controller {
         let cmdline_options = [if debug { "debug" } else { "quiet" }, "elevator=noop"];
         let cmdline = cmdline_options.join(" ");
 
-        let mac = MacAddr6::random()
-            .to_string()
-            .replace('-', ":")
-            .to_lowercase();
+        let mut mac = MacAddr6::random();
+        mac.set_local(true);
+        let mac = mac.to_string().replace('-', ":");
         let config = DomainConfig {
             backend_domid: 0,
             name: &name,

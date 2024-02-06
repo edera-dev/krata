@@ -1,6 +1,7 @@
 use std::os::fd::AsRawFd;
 use std::panic::UnwindSafe;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{panic, thread};
 
@@ -73,14 +74,10 @@ impl NetworkBackend {
     }
 
     pub fn run(mut self) -> Result<()> {
-        let interface = self.interface.clone();
         let result = panic::catch_unwind(move || self.run_maybe_panic());
 
         if result.is_err() {
-            return Err(anyhow!(
-                "network backend for interface {} encountered an error and is now shutdown",
-                interface
-            ));
+            return Err(anyhow!("network backend has terminated"));
         }
 
         result.unwrap()
@@ -109,7 +106,7 @@ impl NetworkBackend {
 
 impl NetworkService {
     pub async fn watch(&mut self) -> Result<()> {
-        let mut spawned: Vec<String> = Vec::new();
+        let spawned: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let (connection, handle, _) = rtnetlink::new_connection()?;
         tokio::spawn(connection);
         loop {
@@ -131,25 +128,33 @@ impl NetworkService {
                     continue;
                 }
 
-                if spawned.contains(&name) {
-                    continue;
+                if let Ok(spawns) = spawned.lock() {
+                    if spawns.contains(&name) {
+                        continue;
+                    }
                 }
 
-                if let Err(error) = self.add_network_backend(&name).await {
+                if let Err(error) = self.add_network_backend(&name, spawned.clone()).await {
                     warn!(
                         "failed to initialize network backend for interface {}: {}",
                         name, error
                     );
                 }
 
-                spawned.push(name);
+                if let Ok(mut spawns) = spawned.lock() {
+                    spawns.push(name.clone());
+                }
             }
 
             sleep(Duration::from_secs(2)).await;
         }
     }
 
-    async fn add_network_backend(&mut self, interface: &str) -> Result<()> {
+    async fn add_network_backend(
+        &mut self,
+        interface: &str,
+        spawned: Arc<Mutex<Vec<String>>>,
+    ) -> Result<()> {
         let interface = interface.to_string();
         let mut network = NetworkBackend::new(&interface, &[&self.network])?;
         info!("initializing network backend for interface {}", interface);
@@ -162,6 +167,12 @@ impl NetworkService {
                     "failed to run network backend for interface {}: {}",
                     interface, error
                 );
+            }
+
+            if let Ok(mut spawns) = spawned.lock() {
+                if let Some(position) = spawns.iter().position(|x| *x == interface) {
+                    spawns.remove(position);
+                }
             }
         });
         Ok(())

@@ -64,7 +64,7 @@ impl XenCall {
 
     pub fn hypercall(&self, op: c_ulong, arg: [c_ulong; 5]) -> Result<c_long> {
         trace!(
-            "call fd={} hypercall op={:#x}, arg={:?}",
+            "call fd={} hypercall op={:#x} arg={:?}",
             self.handle.as_raw_fd(),
             op,
             arg
