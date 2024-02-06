@@ -7,7 +7,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
-    - run: cargo build --all-features
+    - run: cargo build --target x86_64-unknown-linux-gnu
+  test:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - run: cargo test --target x86_64-unknown-linux-gnu
   clippy:
     name: cargo clippy
     runs-on: ubuntu-latest
@@ -16,8 +23,8 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy
-    - run: cargo clippy --all-features
-  rustfmt:
+    - run: cargo clippy --target x86_64-unknown-linux-gnu
+  fmt:
     name: cargo fmt
     runs-on: ubuntu-latest
     steps:
