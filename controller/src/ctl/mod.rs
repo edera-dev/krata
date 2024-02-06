@@ -137,6 +137,7 @@ impl Controller {
                     writable: false,
                 },
             ],
+            consoles: vec![],
             vifs: vec![DomainNetworkInterface {
                 mac: &mac,
                 mtu: 1500,

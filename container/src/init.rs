@@ -9,6 +9,7 @@ use oci_spec::image::{Config, ImageConfiguration};
 use std::ffi::{CStr, CString};
 use std::fs;
 use std::fs::{File, OpenOptions, Permissions};
+use std::net::Ipv4Addr;
 use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::fs::{chroot, PermissionsExt};
@@ -304,11 +305,25 @@ impl ContainerInit {
                 .execute()
                 .await?;
 
-            handle.link().set(link.header.index).up().execute().await?;
+            handle
+                .link()
+                .set(link.header.index)
+                .arp(false)
+                .up()
+                .execute()
+                .await?;
+
+            handle
+                .route()
+                .add()
+                .v4()
+                .destination_prefix(Ipv4Addr::new(0, 0, 0, 0), 0)
+                .output_interface(link.header.index)
+                .execute()
+                .await?;
         } else {
             warn!("unable to find link named {}", network.link);
         }
-
         Ok(())
     }
 

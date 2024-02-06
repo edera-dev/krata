@@ -22,6 +22,7 @@ fn main() -> Result<()> {
         initrd_path: initrd_path.as_str(),
         cmdline: "debug elevator=noop",
         disks: vec![],
+        consoles: vec![],
         vifs: vec![],
         filesystems: vec![],
         extra_keys: vec![],

@@ -13,10 +13,15 @@ rtnetlink = { workspace = true }
 netlink-packet-route = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
-smoltcp = { workspace = true }
+libc = { workspace = true }
+udp-stream = { workspace = true }
 
 [dependencies.advmac]
 path = "../libs/advmac"
+
+[dependencies.ipstack]
+path = "../libs/ipstack"
+features = ["log"]
 
 [lib]
 path = "src/lib.rs"

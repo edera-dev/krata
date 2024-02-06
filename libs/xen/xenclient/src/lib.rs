@@ -57,6 +57,9 @@ pub struct DomainNetworkInterface<'a> {
 }
 
 #[derive(Debug)]
+pub struct DomainConsole {}
+
+#[derive(Debug)]
 pub struct DomainConfig<'a> {
     pub backend_domid: u32,
     pub name: &'a str,
@@ -66,6 +69,7 @@ pub struct DomainConfig<'a> {
     pub initrd_path: &'a str,
     pub cmdline: &'a str,
     pub disks: Vec<DomainDisk<'a>>,
+    pub consoles: Vec<DomainConsole>,
     pub vifs: Vec<DomainNetworkInterface<'a>>,
     pub filesystems: Vec<DomainFilesystem<'a>>,
     pub extra_keys: Vec<(String, String)>,
@@ -348,9 +352,23 @@ impl XenClient {
             &backend_dom_path,
             config.backend_domid,
             domid,
-            console_evtchn,
-            console_mfn,
+            0,
+            Some(console_evtchn),
+            Some(console_mfn),
         )?;
+
+        for (index, _) in config.consoles.iter().enumerate() {
+            self.console_device_add(
+                &dom_path,
+                &backend_dom_path,
+                config.backend_domid,
+                domid,
+                index + 1,
+                None,
+                None,
+            )?;
+        }
+
         for (index, disk) in config.disks.iter().enumerate() {
             self.disk_device_add(
                 &dom_path,
@@ -438,35 +456,54 @@ impl XenClient {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments, clippy::unnecessary_unwrap)]
     fn console_device_add(
         &mut self,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
         domid: u32,
-        port: u32,
-        mfn: u64,
+        index: usize,
+        port: Option<u32>,
+        mfn: Option<u64>,
     ) -> Result<()> {
-        let backend_entries = vec![
+        let mut backend_entries = vec![
             ("frontend-id", domid.to_string()),
             ("online", "1".to_string()),
             ("state", "1".to_string()),
             ("protocol", "vt100".to_string()),
         ];
 
-        let frontend_entries = vec![
+        let mut frontend_entries = vec![
             ("backend-id", backend_domid.to_string()),
             ("limit", "1048576".to_string()),
-            ("type", "xenconsoled".to_string()),
             ("output", "pty".to_string()),
             ("tty", "".to_string()),
-            ("port", port.to_string()),
-            ("ring-ref", mfn.to_string()),
         ];
+
+        if index == 0 {
+            frontend_entries.push(("type", "xenconsoled".to_string()));
+        } else {
+            frontend_entries.push(("type", "ioemu".to_string()));
+            backend_entries.push(("connection", "pty".to_string()));
+            backend_entries.push(("output", "pty".to_string()));
+        }
+
+        if port.is_some() && mfn.is_some() {
+            frontend_entries.extend_from_slice(&[
+                ("port", port.unwrap().to_string()),
+                ("ring-ref", mfn.unwrap().to_string()),
+            ]);
+        } else {
+            frontend_entries.extend_from_slice(&[
+                ("state", "1".to_string()),
+                ("protocol", "vt100".to_string()),
+            ]);
+        }
 
         self.device_add(
             "console",
-            0,
+            index as u64,
             dom_path,
             backend_dom_path,
             backend_domid,

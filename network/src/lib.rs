@@ -1,30 +1,21 @@
-use std::os::fd::AsRawFd;
-use std::panic::UnwindSafe;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{panic, thread};
 
-use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
 use futures::TryStreamExt;
-use log::{error, info, warn};
+use ipstack::stream::IpStackStream;
+use log::{debug, error, info, warn};
 use netlink_packet_route::link::LinkAttribute;
-use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{self, RawSocket};
-use smoltcp::time::Instant;
-use smoltcp::wire::{EthernetAddress, HardwareAddress, IpCidr};
+use raw_socket::{AsyncRawSocket, RawSocket};
+use tokio::net::TcpStream;
 use tokio::time::sleep;
+use udp_stream::UdpStream;
+
+mod raw_socket;
 
 pub struct NetworkBackend {
     pub interface: String,
-    pub device: RawSocket,
-    pub addresses: Vec<IpCidr>,
 }
-
-unsafe impl Send for NetworkBackend {}
-impl UnwindSafe for NetworkBackend {}
-
 pub struct NetworkService {
     pub network: String,
 }
@@ -36,18 +27,9 @@ impl NetworkService {
 }
 
 impl NetworkBackend {
-    pub fn new(iface: &str, cidrs: &[&str]) -> Result<NetworkBackend> {
-        let device = RawSocket::new(iface, smoltcp::phy::Medium::Ethernet)?;
-        let mut addresses: Vec<IpCidr> = Vec::new();
-        for cidr in cidrs {
-            let address =
-                IpCidr::from_str(cidr).map_err(|_| anyhow!("failed to parse cidr: {}", *cidr))?;
-            addresses.push(address);
-        }
+    pub fn new(iface: &str) -> Result<NetworkBackend> {
         Ok(NetworkBackend {
             interface: iface.to_string(),
-            device,
-            addresses,
         })
     }
 
@@ -73,34 +55,56 @@ impl NetworkBackend {
         Ok(())
     }
 
-    pub fn run(mut self) -> Result<()> {
-        let result = panic::catch_unwind(move || self.run_maybe_panic());
+    pub async fn run(&mut self) -> Result<()> {
+        let mut config = ipstack::IpStackConfig::default();
+        config.mtu(1500);
+        config.tcp_timeout(std::time::Duration::from_secs(600)); // 10 minutes
+        config.udp_timeout(std::time::Duration::from_secs(10)); // 10 seconds
 
-        if result.is_err() {
-            return Err(anyhow!("network backend has terminated"));
+        let mut socket = RawSocket::new(&self.interface)?;
+        socket.bind_interface()?;
+        let socket = AsyncRawSocket::new(socket)?;
+        let mut stack = ipstack::IpStack::new(config, socket);
+
+        while let Ok(stream) = stack.accept().await {
+            self.process_stream(stream).await?
         }
-
-        result.unwrap()
+        Ok(())
     }
 
-    fn run_maybe_panic(&mut self) -> Result<()> {
-        let mac = MacAddr6::random();
-        let mac = HardwareAddress::Ethernet(EthernetAddress(mac.to_array()));
-        let config = Config::new(mac);
-        let mut iface = Interface::new(config, &mut self.device, Instant::now());
-        iface.update_ip_addrs(|addrs| {
-            addrs
-                .extend_from_slice(&self.addresses)
-                .expect("failed to set ip addresses");
-        });
+    async fn process_stream(&mut self, stream: IpStackStream) -> Result<()> {
+        match stream {
+            IpStackStream::Tcp(mut tcp) => {
+                debug!("tcp: {}", tcp.peer_addr());
+                tokio::spawn(async move {
+                    if let Ok(mut stream) = TcpStream::connect(tcp.peer_addr()).await {
+                        let _ = tokio::io::copy_bidirectional(&mut stream, &mut tcp).await;
+                    } else {
+                        warn!("failed to connect to tcp address: {}", tcp.peer_addr());
+                    }
+                });
+            }
 
-        let mut sockets = SocketSet::new(vec![]);
-        let fd = self.device.as_raw_fd();
-        loop {
-            let timestamp = Instant::now();
-            iface.poll(timestamp, &mut self.device, &mut sockets);
-            phy::wait(fd, iface.poll_delay(timestamp, &sockets))?;
+            IpStackStream::Udp(mut udp) => {
+                debug!("udp: {}", udp.peer_addr());
+                tokio::spawn(async move {
+                    if let Ok(mut stream) = UdpStream::connect(udp.peer_addr()).await {
+                        let _ = tokio::io::copy_bidirectional(&mut stream, &mut udp).await;
+                    } else {
+                        warn!("failed to connect to udp address: {}", udp.peer_addr());
+                    }
+                });
+            }
+
+            IpStackStream::UnknownTransport(u) => {
+                debug!("unknown transport: {}", u.dst_addr());
+            }
+
+            IpStackStream::UnknownNetwork(packet) => {
+                debug!("unknown network: {:?}", packet);
+            }
         }
+        Ok(())
     }
 }
 
@@ -156,15 +160,15 @@ impl NetworkService {
         spawned: Arc<Mutex<Vec<String>>>,
     ) -> Result<()> {
         let interface = interface.to_string();
-        let mut network = NetworkBackend::new(&interface, &[&self.network])?;
+        let mut network = NetworkBackend::new(&interface)?;
         info!("initializing network backend for interface {}", interface);
         network.init().await?;
         tokio::time::sleep(Duration::from_secs(1)).await;
         info!("spawning network backend for interface {}", interface);
-        thread::spawn(move || {
-            if let Err(error) = network.run() {
+        tokio::spawn(async move {
+            if let Err(error) = network.run().await {
                 error!(
-                    "failed to run network backend for interface {}: {}",
+                    "network backend for interface {} has been stopped: {}",
                     interface, error
                 );
             }
