@@ -1,30 +1,35 @@
+use anyhow::Result;
 use futures::ready;
+use log::debug;
+use smoltcp::phy::{Device, DeviceCapabilities, Medium};
+use smoltcp::time::Instant;
+use std::cell::RefCell;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
+use std::rc::Rc;
 use std::task::{Context, Poll};
 use std::{io, mem};
-
-use anyhow::Result;
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 const SIOCGIFINDEX: libc::c_ulong = 0x8933;
 
 #[derive(Debug)]
-pub struct RawSocket {
+pub struct RawSocketHandle {
+    pub mtu: usize,
     protocol: libc::c_short,
     lower: libc::c_int,
     ifreq: Ifreq,
 }
 
-impl AsRawFd for RawSocket {
+impl AsRawFd for RawSocketHandle {
     fn as_raw_fd(&self) -> RawFd {
         self.lower
     }
 }
 
-impl RawSocket {
-    pub fn new(name: &str) -> io::Result<RawSocket> {
+impl RawSocketHandle {
+    pub fn new(interface: &str) -> io::Result<RawSocketHandle> {
         let protocol: libc::c_short = 0x0003;
         let lower = unsafe {
             let lower = libc::socket(
@@ -38,11 +43,18 @@ impl RawSocket {
             lower
         };
 
-        Ok(RawSocket {
+        Ok(RawSocketHandle {
+            mtu: 1500,
             protocol,
             lower,
-            ifreq: ifreq_for(name),
+            ifreq: ifreq_for(interface),
         })
+    }
+
+    pub fn bind(interface: &str) -> Result<Self> {
+        let mut socket = RawSocketHandle::new(interface)?;
+        socket.bind_interface()?;
+        Ok(socket)
     }
 
     pub fn bind_interface(&mut self) -> io::Result<()> {
@@ -101,11 +113,112 @@ impl RawSocket {
     }
 }
 
-impl Drop for RawSocket {
+impl Drop for RawSocketHandle {
     fn drop(&mut self) {
         unsafe {
             libc::close(self.lower);
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct RawSocket {
+    lower: Rc<RefCell<RawSocketHandle>>,
+    mtu: usize,
+}
+
+impl AsRawFd for RawSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.lower.borrow().as_raw_fd()
+    }
+}
+
+impl RawSocket {
+    pub fn new(name: &str) -> io::Result<RawSocket> {
+        let mut lower = RawSocketHandle::new(name)?;
+        lower.bind_interface()?;
+        let mtu = lower.mtu;
+        Ok(RawSocket {
+            lower: Rc::new(RefCell::new(lower)),
+            mtu,
+        })
+    }
+}
+
+impl Device for RawSocket {
+    type RxToken<'a> = RxToken
+    where
+        Self: 'a;
+    type TxToken<'a> = TxToken
+    where
+        Self: 'a;
+
+    fn capabilities(&self) -> DeviceCapabilities {
+        let mut capabilities = DeviceCapabilities::default();
+        capabilities.medium = Medium::Ethernet;
+        capabilities.max_transmission_unit = self.mtu;
+        capabilities
+    }
+
+    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        let lower = self.lower.borrow_mut();
+        let mut buffer = vec![0; self.mtu];
+        match lower.recv(&mut buffer[..]) {
+            Ok(size) => {
+                buffer.resize(size, 0);
+                let rx = RxToken { buffer };
+                let tx = TxToken {
+                    lower: self.lower.clone(),
+                };
+                Some((rx, tx))
+            }
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => None,
+            Err(err) => panic!("{}", err),
+        }
+    }
+
+    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
+        Some(TxToken {
+            lower: self.lower.clone(),
+        })
+    }
+}
+
+#[doc(hidden)]
+pub struct RxToken {
+    buffer: Vec<u8>,
+}
+
+impl smoltcp::phy::RxToken for RxToken {
+    fn consume<R, F>(mut self, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        f(&mut self.buffer[..])
+    }
+}
+
+#[doc(hidden)]
+pub struct TxToken {
+    lower: Rc<RefCell<RawSocketHandle>>,
+}
+
+impl smoltcp::phy::TxToken for TxToken {
+    fn consume<R, F>(self, len: usize, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let lower = self.lower.borrow_mut();
+        let mut buffer = vec![0; len];
+        let result = f(&mut buffer);
+        match lower.send(&buffer[..]) {
+            Ok(_) => {}
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                debug!("phy: tx failed due to WouldBlock")
+            }
+            Err(err) => panic!("{}", err),
+        }
+        result
     }
 }
 
@@ -143,14 +256,19 @@ fn ifreq_ioctl(
 }
 
 pub struct AsyncRawSocket {
-    inner: AsyncFd<RawSocket>,
+    inner: AsyncFd<RawSocketHandle>,
 }
 
 impl AsyncRawSocket {
-    pub fn new(socket: RawSocket) -> Result<Self> {
+    pub fn new(socket: RawSocketHandle) -> Result<Self> {
         Ok(Self {
             inner: AsyncFd::new(socket)?,
         })
+    }
+
+    pub fn bind(interface: &str) -> Result<Self> {
+        let socket = RawSocketHandle::bind(interface)?;
+        AsyncRawSocket::new(socket)
     }
 }
 

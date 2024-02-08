@@ -7,7 +7,7 @@ use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
-use hypha::{LaunchInfo, LaunchNetwork};
+use hypha::{LaunchInfo, LaunchNetwork, LaunchNetworkIpv4};
 use ipnetwork::Ipv4Network;
 use loopdev::LoopControl;
 use std::io::{Read, Write};
@@ -85,7 +85,10 @@ impl Controller {
         let launch_config = LaunchInfo {
             network: Some(LaunchNetwork {
                 link: "eth0".to_string(),
-                ipv4: format!("{}/24", ipv4),
+                ipv4: LaunchNetworkIpv4 {
+                    address: format!("{}/24", ipv4),
+                    gateway: "192.168.42.1".to_string(),
+                },
             }),
             env,
             run,

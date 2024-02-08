@@ -284,15 +284,17 @@ impl ContainerInit {
 
     async fn network_setup(&mut self, network: &LaunchNetwork) -> Result<()> {
         trace!(
-            "setting up network with link {} and ipv4 {}",
+            "setting up network for link {} with ipv4 address {} and gateway {}",
             network.link,
-            network.ipv4
+            network.ipv4.address,
+            network.ipv4.gateway,
         );
 
         let (connection, handle, _) = rtnetlink::new_connection()?;
         tokio::spawn(connection);
 
-        let ip: IpNetwork = network.ipv4.parse()?;
+        let ipnet: IpNetwork = network.ipv4.address.parse()?;
+        let gateway: Ipv4Addr = network.ipv4.gateway.parse()?;
 
         let mut links = handle
             .link()
@@ -302,17 +304,11 @@ impl ContainerInit {
         if let Some(link) = links.try_next().await? {
             handle
                 .address()
-                .add(link.header.index, ip.ip(), ip.prefix())
+                .add(link.header.index, ipnet.ip(), ipnet.prefix())
                 .execute()
                 .await?;
 
-            handle
-                .link()
-                .set(link.header.index)
-                .arp(false)
-                .up()
-                .execute()
-                .await?;
+            handle.link().set(link.header.index).up().execute().await?;
 
             handle
                 .route()
@@ -320,6 +316,7 @@ impl ContainerInit {
                 .v4()
                 .destination_prefix(Ipv4Addr::new(0, 0, 0, 0), 0)
                 .output_interface(link.header.index)
+                .gateway(gateway)
                 .execute()
                 .await?;
         } else {

@@ -1,7 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use etherparse::{Ethernet2Header, IpHeader, PacketHeaders, TcpHeader, UdpHeader, WriteError};
-use tracing::debug;
 
 use crate::error::IpStackError;
 
@@ -42,7 +41,6 @@ pub struct NetworkPacket {
 
 impl NetworkPacket {
     pub fn parse(buf: &[u8]) -> Result<Self, IpStackError> {
-        debug!("read: {:?}", buf);
         let p = PacketHeaders::from_ethernet_slice(buf).map_err(|_| IpStackError::InvalidPacket)?;
         let ip = p.ip.ok_or(IpStackError::InvalidPacket)?;
         let transport = match p.transport {
@@ -139,7 +137,6 @@ impl NetworkPacket {
         //     .write(&mut buf)
         //     .map_err(IpStackError::PacketWriteError)?;
         buf.extend_from_slice(&self.payload);
-        debug!("write: {:?}", buf);
         Ok(buf)
     }
     pub fn ttl(&self) -> u8 {
