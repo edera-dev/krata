@@ -13,8 +13,9 @@ use std::net::Ipv4Addr;
 use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::fs::{chroot, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr::addr_of_mut;
+use std::str::FromStr;
 use std::thread::sleep;
 use std::time::Duration;
 use sys_mount::{FilesystemType, Mount, MountFlags};
@@ -324,6 +325,14 @@ impl ContainerInit {
         } else {
             warn!("unable to find link named {}", network.link);
         }
+
+        let etc = PathBuf::from_str("/etc")?;
+        if !etc.exists() {
+            fs::create_dir(etc)?;
+        }
+        let resolv = PathBuf::from_str("/etc/resolv.conf")?;
+        fs::write(resolv, "nameserver 1.1.1.1\n")?;
+
         Ok(())
     }
 
