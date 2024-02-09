@@ -1,12 +1,7 @@
 use anyhow::Result;
 use futures::ready;
-use log::debug;
-use smoltcp::phy::{Device, DeviceCapabilities, Medium};
-use smoltcp::time::Instant;
-use std::cell::RefCell;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
-use std::rc::Rc;
 use std::task::{Context, Poll};
 use std::{io, mem};
 use tokio::io::unix::AsyncFd;
@@ -118,107 +113,6 @@ impl Drop for RawSocketHandle {
         unsafe {
             libc::close(self.lower);
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct RawSocket {
-    lower: Rc<RefCell<RawSocketHandle>>,
-    mtu: usize,
-}
-
-impl AsRawFd for RawSocket {
-    fn as_raw_fd(&self) -> RawFd {
-        self.lower.borrow().as_raw_fd()
-    }
-}
-
-impl RawSocket {
-    pub fn new(name: &str) -> io::Result<RawSocket> {
-        let mut lower = RawSocketHandle::new(name)?;
-        lower.bind_interface()?;
-        let mtu = lower.mtu;
-        Ok(RawSocket {
-            lower: Rc::new(RefCell::new(lower)),
-            mtu,
-        })
-    }
-}
-
-impl Device for RawSocket {
-    type RxToken<'a> = RxToken
-    where
-        Self: 'a;
-    type TxToken<'a> = TxToken
-    where
-        Self: 'a;
-
-    fn capabilities(&self) -> DeviceCapabilities {
-        let mut capabilities = DeviceCapabilities::default();
-        capabilities.medium = Medium::Ethernet;
-        capabilities.max_transmission_unit = self.mtu;
-        capabilities
-    }
-
-    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let lower = self.lower.borrow_mut();
-        let mut buffer = vec![0; self.mtu];
-        match lower.recv(&mut buffer[..]) {
-            Ok(size) => {
-                buffer.resize(size, 0);
-                let rx = RxToken { buffer };
-                let tx = TxToken {
-                    lower: self.lower.clone(),
-                };
-                Some((rx, tx))
-            }
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => None,
-            Err(err) => panic!("{}", err),
-        }
-    }
-
-    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        Some(TxToken {
-            lower: self.lower.clone(),
-        })
-    }
-}
-
-#[doc(hidden)]
-pub struct RxToken {
-    buffer: Vec<u8>,
-}
-
-impl smoltcp::phy::RxToken for RxToken {
-    fn consume<R, F>(mut self, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        f(&mut self.buffer[..])
-    }
-}
-
-#[doc(hidden)]
-pub struct TxToken {
-    lower: Rc<RefCell<RawSocketHandle>>,
-}
-
-impl smoltcp::phy::TxToken for TxToken {
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        let lower = self.lower.borrow_mut();
-        let mut buffer = vec![0; len];
-        let result = f(&mut buffer);
-        match lower.send(&buffer[..]) {
-            Ok(_) => {}
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                debug!("phy: tx failed due to WouldBlock")
-            }
-            Err(err) => panic!("{}", err),
-        }
-        result
     }
 }
 

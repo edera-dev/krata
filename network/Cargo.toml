@@ -16,13 +16,11 @@ futures = { workspace = true }
 libc = { workspace = true }
 udp-stream = { workspace = true }
 smoltcp = { workspace = true }
+etherparse = { workspace = true }
+async-trait = { workspace = true }
 
 [dependencies.advmac]
 path = "../libs/advmac"
-
-[dependencies.ipstack]
-path = "../libs/ipstack"
-features = ["log"]
 
 [lib]
 path = "src/lib.rs"
