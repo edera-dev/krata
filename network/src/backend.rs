@@ -122,28 +122,24 @@ impl InternetNetworkSlice {
         })
     }
 
-    async fn process_stream(&self, stream: IpStackStream) -> Result<()> {
+    async fn process_stream(stream: IpStackStream) {
         match stream {
             IpStackStream::Tcp(mut tcp) => {
                 debug!("tcp: {}", tcp.peer_addr());
-                tokio::spawn(async move {
-                    if let Ok(mut stream) = TcpStream::connect(tcp.peer_addr()).await {
-                        let _ = tokio::io::copy_bidirectional(&mut stream, &mut tcp).await;
-                    } else {
-                        warn!("failed to connect to tcp address: {}", tcp.peer_addr());
-                    }
-                });
+                if let Ok(mut stream) = TcpStream::connect(tcp.peer_addr()).await {
+                    let _ = tokio::io::copy_bidirectional(&mut tcp, &mut stream).await;
+                } else {
+                    warn!("failed to connect to tcp address: {}", tcp.peer_addr());
+                }
             }
 
             IpStackStream::Udp(mut udp) => {
                 debug!("udp: {}", udp.peer_addr());
-                tokio::spawn(async move {
-                    if let Ok(mut stream) = UdpStream::connect(udp.peer_addr()).await {
-                        let _ = tokio::io::copy_bidirectional(&mut stream, &mut udp).await;
-                    } else {
-                        warn!("failed to connect to udp address: {}", udp.peer_addr());
-                    }
-                });
+                if let Ok(mut stream) = UdpStream::connect(udp.peer_addr()).await {
+                    let _ = tokio::io::copy_bidirectional(&mut stream, &mut udp).await;
+                } else {
+                    warn!("failed to connect to udp address: {}", udp.peer_addr());
+                }
             }
 
             IpStackStream::UnknownTransport(u) => {
@@ -154,7 +150,6 @@ impl InternetNetworkSlice {
                 debug!("unknown network: {:?}", packet);
             }
         }
-        Ok(())
     }
 }
 
@@ -162,14 +157,14 @@ impl NetworkSlice for InternetNetworkSlice {
     async fn run(&self) -> Result<()> {
         let mut config = ipstack::IpStackConfig::default();
         config.mtu(1500);
-        config.tcp_timeout(std::time::Duration::from_secs(600));
+        config.tcp_timeout(std::time::Duration::from_secs(60));
         config.udp_timeout(std::time::Duration::from_secs(10));
 
         let socket = AsyncRawSocket::bind(&self.interface)?;
         let mut stack = ipstack::IpStack::new(config, socket);
 
         while let Ok(stream) = stack.accept().await {
-            self.process_stream(stream).await?
+            tokio::spawn(InternetNetworkSlice::process_stream(stream));
         }
         Ok(())
     }
