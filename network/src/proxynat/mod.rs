@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use log::{debug, warn};
+use log::warn;
 
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Sender;
@@ -27,8 +27,6 @@ impl NatHandlerFactory for ProxyNatHandlerFactory {
         tx_sender: Sender<Vec<u8>>,
         reclaim_sender: Sender<NatKey>,
     ) -> Option<Box<dyn NatHandler>> {
-        debug!("creating proxy nat entry for key: {}", key);
-
         match key.protocol {
             NatKeyProtocol::Udp => {
                 let (rx_sender, rx_receiver) = channel::<Vec<u8>>(4);
@@ -47,7 +45,7 @@ impl NatHandlerFactory for ProxyNatHandlerFactory {
     }
 }
 
-pub enum ProxyNatSelect {
+pub(crate) enum ProxyNatSelect {
     External(usize),
     Internal(Vec<u8>),
     Close,

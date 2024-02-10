@@ -254,6 +254,7 @@ impl NatRouter {
                     .nat(key, self.tx_sender.clone(), self.reclaim_sender.clone())
                     .await
                 {
+                    debug!("creating nat entry for key: {}", key);
                     Some(entry.insert(handler))
                 } else {
                     None
