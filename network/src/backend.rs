@@ -109,11 +109,11 @@ impl NetworkBackend {
             .map_err(|_| anyhow!("failed to parse cidr: {}", self.network))?;
         let addresses: Vec<IpCidr> = vec![address];
         let kdev = AsyncRawSocket::bind(&self.interface)?;
-        let (sender, receiver) = channel::<Vec<u8>>(4);
-        let mut udev = ChannelDevice::new(1500, sender);
+        let (tx_sender, tx_receiver) = channel::<Vec<u8>>(4);
+        let mut udev = ChannelDevice::new(1500, tx_sender.clone());
         let mac = MacAddr6::random();
         let mac = smoltcp::wire::EthernetAddress(mac.to_array());
-        let nat = NatRouter::new(proxy, mac);
+        let nat = NatRouter::new(proxy, mac, tx_sender.clone());
         let mac = HardwareAddress::Ethernet(mac);
         let config = Config::new(mac);
         let mut iface = Interface::new(config, &mut udev, Instant::now());
@@ -124,7 +124,7 @@ impl NetworkBackend {
         });
         let sockets = SocketSet::new(vec![]);
         Ok(NetworkStack {
-            tx: receiver,
+            tx: tx_receiver,
             kdev,
             udev,
             interface: iface,
