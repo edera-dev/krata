@@ -10,9 +10,10 @@ use etherparse::NetSlice;
 use etherparse::SlicedPacket;
 use etherparse::TcpHeaderSlice;
 use etherparse::UdpHeaderSlice;
-use log::debug;
+use log::{debug, trace};
 use smoltcp::wire::EthernetAddress;
 use smoltcp::wire::IpAddress;
+use smoltcp::wire::IpCidr;
 use smoltcp::wire::IpEndpoint;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -74,7 +75,8 @@ impl NatTable {
 }
 
 pub struct NatRouter {
-    _local_mac: EthernetAddress,
+    local_mac: EthernetAddress,
+    local_cidrs: Vec<IpCidr>,
     factory: Box<dyn NatHandlerFactory>,
     table: NatTable,
     tx_sender: Sender<Vec<u8>>,
@@ -85,12 +87,14 @@ pub struct NatRouter {
 impl NatRouter {
     pub fn new(
         factory: Box<dyn NatHandlerFactory>,
-        mac: EthernetAddress,
+        local_mac: EthernetAddress,
+        local_cidrs: Vec<IpCidr>,
         tx_sender: Sender<Vec<u8>>,
     ) -> Self {
         let (reclaim_sender, reclaim_receiver) = channel(4);
         Self {
-            _local_mac: mac,
+            local_mac,
+            local_cidrs,
             factory,
             table: NatTable::new(),
             tx_sender,
@@ -119,7 +123,15 @@ impl NatRouter {
             return Ok(());
         };
 
-        let _mac = EthernetAddress(ether.destination());
+        let mac = EthernetAddress(ether.destination());
+        if mac != self.local_mac {
+            trace!(
+                "received packet with destination {} which is not the local mac {}",
+                mac,
+                self.local_mac
+            );
+            return Ok(());
+        }
 
         let Some(ref net) = packet.net else {
             return Ok(());
@@ -196,8 +208,8 @@ impl NatRouter {
         let dest = IpEndpoint::new(dest_addr, header.destination_port());
         let key = NatKey {
             protocol: NatKeyProtocol::Tcp,
-            client_mac: EthernetAddress(ether.destination()),
-            local_mac: EthernetAddress(ether.source()),
+            client_mac: EthernetAddress(ether.source()),
+            local_mac: EthernetAddress(ether.destination()),
             client_ip: source,
             external_ip: dest,
         };
@@ -218,8 +230,8 @@ impl NatRouter {
         let dest = IpEndpoint::new(dest_addr, header.destination_port());
         let key = NatKey {
             protocol: NatKeyProtocol::Udp,
-            client_mac: EthernetAddress(ether.destination()),
-            local_mac: EthernetAddress(ether.source()),
+            client_mac: EthernetAddress(ether.source()),
+            local_mac: EthernetAddress(ether.destination()),
             client_ip: source,
             external_ip: dest,
         };
@@ -228,6 +240,12 @@ impl NatRouter {
     }
 
     pub async fn process_nat(&mut self, data: &[u8], key: NatKey) -> Result<()> {
+        for cidr in &self.local_cidrs {
+            if cidr.contains_addr(&key.external_ip.addr) {
+                return Ok(());
+            }
+        }
+
         let handler: Option<&mut Box<dyn NatHandler>> = match self.table.inner.entry(key) {
             Entry::Occupied(entry) => Some(entry.into_mut()),
             Entry::Vacant(entry) => {

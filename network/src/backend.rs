@@ -117,7 +117,7 @@ impl NetworkBackend {
         let mut udev = ChannelDevice::new(1500, tx_sender.clone());
         let mac = MacAddr6::random();
         let mac = smoltcp::wire::EthernetAddress(mac.to_array());
-        let nat = NatRouter::new(proxy, mac, tx_sender.clone());
+        let nat = NatRouter::new(proxy, mac, addresses.clone(), tx_sender.clone());
         let mac = HardwareAddress::Ethernet(mac);
         let config = Config::new(mac);
         let mut iface = Interface::new(config, &mut udev, Instant::now());
