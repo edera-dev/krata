@@ -1,5 +1,6 @@
 use anyhow::Result;
 use futures::ready;
+use std::os::fd::IntoRawFd;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -7,14 +8,42 @@ use std::{io, mem};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+#[derive(Debug)]
+pub enum RawSocketProtocol {
+    Icmpv4,
+    Icmpv6,
+    Ethernet,
+}
+
+impl RawSocketProtocol {
+    pub fn to_socket_domain(&self) -> i32 {
+        match self {
+            RawSocketProtocol::Icmpv4 => libc::AF_INET,
+            RawSocketProtocol::Icmpv6 => libc::AF_INET6,
+            RawSocketProtocol::Ethernet => libc::AF_PACKET,
+        }
+    }
+
+    pub fn to_socket_protocol(&self) -> u16 {
+        match self {
+            RawSocketProtocol::Icmpv4 => libc::IPPROTO_ICMP as u16,
+            RawSocketProtocol::Icmpv6 => libc::IPPROTO_ICMPV6 as u16,
+            RawSocketProtocol::Ethernet => (libc::ETH_P_ALL as u16).to_be(),
+        }
+    }
+
+    pub fn to_socket_type(&self) -> i32 {
+        libc::SOCK_RAW
+    }
+}
+
 const SIOCGIFINDEX: libc::c_ulong = 0x8933;
+const SIOCGIFMTU: libc::c_ulong = 0x8921;
 
 #[derive(Debug)]
 pub struct RawSocketHandle {
-    pub mtu: usize,
-    protocol: libc::c_short,
+    protocol: RawSocketProtocol,
     lower: libc::c_int,
-    ifreq: Ifreq,
 }
 
 impl AsRawFd for RawSocketHandle {
@@ -23,14 +52,21 @@ impl AsRawFd for RawSocketHandle {
     }
 }
 
+impl IntoRawFd for RawSocketHandle {
+    fn into_raw_fd(self) -> RawFd {
+        let fd = self.lower;
+        mem::forget(self);
+        fd
+    }
+}
+
 impl RawSocketHandle {
-    pub fn new(interface: &str) -> io::Result<RawSocketHandle> {
-        let protocol: libc::c_short = 0x0003;
+    pub fn new(protocol: RawSocketProtocol) -> io::Result<RawSocketHandle> {
         let lower = unsafe {
             let lower = libc::socket(
-                libc::AF_PACKET,
-                libc::SOCK_RAW | libc::SOCK_NONBLOCK,
-                protocol.to_be() as i32,
+                protocol.to_socket_domain(),
+                protocol.to_socket_type() | libc::SOCK_NONBLOCK,
+                protocol.to_socket_protocol() as i32,
             );
             if lower == -1 {
                 return Err(io::Error::last_os_error());
@@ -38,25 +74,21 @@ impl RawSocketHandle {
             lower
         };
 
-        Ok(RawSocketHandle {
-            mtu: 1500,
-            protocol,
-            lower,
-            ifreq: ifreq_for(interface),
-        })
+        Ok(RawSocketHandle { protocol, lower })
     }
 
-    pub fn bind(interface: &str) -> Result<Self> {
-        let mut socket = RawSocketHandle::new(interface)?;
-        socket.bind_interface()?;
+    pub fn bound_to_interface(interface: &str, protocol: RawSocketProtocol) -> Result<Self> {
+        let mut socket = RawSocketHandle::new(protocol)?;
+        socket.bind_to_interface(interface)?;
         Ok(socket)
     }
 
-    pub fn bind_interface(&mut self) -> io::Result<()> {
+    pub fn bind_to_interface(&mut self, interface: &str) -> io::Result<()> {
+        let mut ifreq = ifreq_for(interface);
         let sockaddr = libc::sockaddr_ll {
             sll_family: libc::AF_PACKET as u16,
-            sll_protocol: self.protocol.to_be() as u16,
-            sll_ifindex: ifreq_ioctl(self.lower, &mut self.ifreq, SIOCGIFINDEX)?,
+            sll_protocol: self.protocol.to_socket_protocol(),
+            sll_ifindex: ifreq_ioctl(self.lower, &mut ifreq, SIOCGIFINDEX)?,
             sll_hatype: 1,
             sll_pkttype: 0,
             sll_halen: 6,
@@ -75,6 +107,11 @@ impl RawSocketHandle {
         }
 
         Ok(())
+    }
+
+    pub fn mtu_of_interface(&mut self, interface: &str) -> io::Result<usize> {
+        let mut ifreq = ifreq_for(interface);
+        ifreq_ioctl(self.lower, &mut ifreq, SIOCGIFMTU).map(|mtu| mtu as usize)
     }
 
     pub fn recv(&self, buffer: &mut [u8]) -> io::Result<usize> {
@@ -120,7 +157,7 @@ impl Drop for RawSocketHandle {
 #[derive(Debug)]
 struct Ifreq {
     ifr_name: [libc::c_char; libc::IF_NAMESIZE],
-    ifr_data: libc::c_int, /* ifr_ifindex or ifr_mtu */
+    ifr_data: libc::c_int,
 }
 
 fn ifreq_for(name: &str) -> Ifreq {
@@ -160,9 +197,23 @@ impl AsyncRawSocket {
         })
     }
 
-    pub fn bind(interface: &str) -> Result<Self> {
-        let socket = RawSocketHandle::bind(interface)?;
+    pub fn bound_to_interface(interface: &str, protocol: RawSocketProtocol) -> Result<Self> {
+        let socket = RawSocketHandle::bound_to_interface(interface, protocol)?;
         AsyncRawSocket::new(socket)
+    }
+
+    pub fn mtu_of_interface(&mut self, interface: &str) -> Result<usize> {
+        Ok(self.inner.get_mut().mtu_of_interface(interface)?)
+    }
+}
+
+impl TryFrom<RawSocketHandle> for AsyncRawSocket {
+    type Error = anyhow::Error;
+
+    fn try_from(value: RawSocketHandle) -> Result<Self, Self::Error> {
+        Ok(Self {
+            inner: AsyncFd::new(value)?,
+        })
     }
 }
 

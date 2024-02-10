@@ -1,7 +1,7 @@
 use crate::chandev::ChannelDevice;
 use crate::nat::NatRouter;
 use crate::proxynat::ProxyNatHandlerFactory;
-use crate::raw_socket::AsyncRawSocket;
+use crate::raw_socket::{AsyncRawSocket, RawSocketProtocol};
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
 use futures::TryStreamExt;
@@ -28,6 +28,7 @@ enum NetworkStackSelect<'a> {
 }
 
 struct NetworkStack<'a> {
+    mtu: usize,
     tx: Receiver<Vec<u8>>,
     kdev: AsyncRawSocket,
     udev: ChannelDevice,
@@ -101,7 +102,7 @@ impl NetworkBackend {
 
     pub async fn run(&self) -> Result<()> {
         let mut stack = self.create_network_stack()?;
-        let mut buffer = vec![0u8; 1500];
+        let mut buffer = vec![0u8; stack.mtu];
         loop {
             stack.poll(&mut buffer).await?;
         }
@@ -112,9 +113,11 @@ impl NetworkBackend {
         let address = IpCidr::from_str(&self.network)
             .map_err(|_| anyhow!("failed to parse cidr: {}", self.network))?;
         let addresses: Vec<IpCidr> = vec![address];
-        let kdev = AsyncRawSocket::bind(&self.interface)?;
+        let mut kdev =
+            AsyncRawSocket::bound_to_interface(&self.interface, RawSocketProtocol::Ethernet)?;
+        let mtu = kdev.mtu_of_interface(&self.interface)?;
         let (tx_sender, tx_receiver) = channel::<Vec<u8>>(4);
-        let mut udev = ChannelDevice::new(1500, tx_sender.clone());
+        let mut udev = ChannelDevice::new(mtu, tx_sender.clone());
         let mac = MacAddr6::random();
         let mac = smoltcp::wire::EthernetAddress(mac.to_array());
         let nat = NatRouter::new(proxy, mac, addresses.clone(), tx_sender.clone());
@@ -128,6 +131,7 @@ impl NetworkBackend {
         });
         let sockets = SocketSet::new(vec![]);
         Ok(NetworkStack {
+            mtu,
             tx: tx_receiver,
             kdev,
             udev,

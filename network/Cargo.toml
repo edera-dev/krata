@@ -18,8 +18,6 @@ udp-stream = { workspace = true }
 smoltcp = { workspace = true }
 etherparse = { workspace = true }
 async-trait = { workspace = true }
-async-ping = { workspace = true }
-icmp-client = { workspace = true }
 
 [dependencies.advmac]
 path = "../libs/advmac"
@@ -30,3 +28,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "hyphanet"
 path = "bin/network.rs"
+
+[[example]]
+name = "ping"
+path = "examples/ping.rs"

@@ -8,11 +8,12 @@ use tokio::time::sleep;
 
 use crate::backend::NetworkBackend;
 
-mod backend;
-mod chandev;
-mod nat;
-mod proxynat;
-mod raw_socket;
+pub mod backend;
+pub mod chandev;
+pub mod icmp;
+pub mod nat;
+pub mod proxynat;
+pub mod raw_socket;
 
 pub struct NetworkService {
     pub network: String,

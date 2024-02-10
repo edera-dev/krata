@@ -69,6 +69,12 @@ pub struct NatTable {
     inner: HashMap<NatKey, Box<dyn NatHandler>>,
 }
 
+impl Default for NatTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NatTable {
     pub fn new() -> Self {
         Self {

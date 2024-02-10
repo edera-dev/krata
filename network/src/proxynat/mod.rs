@@ -16,6 +16,12 @@ mod udp;
 
 pub struct ProxyNatHandlerFactory {}
 
+impl Default for ProxyNatHandlerFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProxyNatHandlerFactory {
     pub fn new() -> Self {
         Self {}
