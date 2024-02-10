@@ -24,6 +24,7 @@ pub struct NetworkBackend {
 enum NetworkStackSelect<'a> {
     Receive(&'a [u8]),
     Send(Option<Vec<u8>>),
+    Reclaim,
 }
 
 struct NetworkStack<'a> {
@@ -40,6 +41,7 @@ impl NetworkStack<'_> {
         let what = select! {
             x = self.tx.recv() => NetworkStackSelect::Send(x),
             x = self.kdev.read(receive_buffer) => NetworkStackSelect::Receive(&receive_buffer[0..x?]),
+            _ = self.router.process_reclaim() => NetworkStackSelect::Reclaim,
         };
 
         match what {
@@ -59,6 +61,8 @@ impl NetworkStack<'_> {
                 self.interface
                     .poll(timestamp, &mut self.udev, &mut self.sockets);
             }
+
+            NetworkStackSelect::Reclaim => {}
         }
 
         Ok(())

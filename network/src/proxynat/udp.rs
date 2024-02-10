@@ -1,13 +1,13 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use etherparse::{PacketBuilder, SlicedPacket, UdpSlice};
 use log::{debug, warn};
-use smoltcp::{
-    phy::{Checksum, ChecksumCapabilities},
-    wire::IpAddress,
-};
+use smoltcp::wire::IpAddress;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     select,
@@ -18,6 +18,8 @@ use udp_stream::UdpStream;
 use crate::nat::{NatHandler, NatKey};
 
 use super::ProxyNatSelect;
+
+const UDP_TIMEOUT_SECS: u64 = 60;
 
 pub struct ProxyUdpHandler {
     key: NatKey,
@@ -41,19 +43,22 @@ impl ProxyUdpHandler {
         &mut self,
         rx_receiver: Receiver<Vec<u8>>,
         tx_sender: Sender<Vec<u8>>,
+        reclaim_sender: Sender<NatKey>,
     ) -> Result<()> {
         let external_addr = match self.key.external_ip.addr {
-            IpAddress::Ipv4(addr) => SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(addr.0[0], addr.0[1], addr.0[2], addr.0[3])),
-                self.key.external_ip.port,
-            ),
-            IpAddress::Ipv6(_) => return Err(anyhow!("IPv6 unsupported")),
+            IpAddress::Ipv4(addr) => {
+                SocketAddr::new(IpAddr::V4(addr.0.into()), self.key.external_ip.port)
+            }
+            IpAddress::Ipv6(addr) => {
+                SocketAddr::new(IpAddr::V6(addr.0.into()), self.key.external_ip.port)
+            }
         };
 
         let socket = UdpStream::connect(external_addr).await?;
         let key = self.key;
         tokio::spawn(async move {
-            if let Err(error) = ProxyUdpHandler::process(key, socket, rx_receiver, tx_sender).await
+            if let Err(error) =
+                ProxyUdpHandler::process(key, socket, rx_receiver, tx_sender, reclaim_sender).await
             {
                 warn!("processing of udp proxy failed: {}", error);
             }
@@ -66,22 +71,20 @@ impl ProxyUdpHandler {
         mut socket: UdpStream,
         mut rx_receiver: Receiver<Vec<u8>>,
         tx_sender: Sender<Vec<u8>>,
+        reclaim_sender: Sender<NatKey>,
     ) -> Result<()> {
-        let mut checksum = ChecksumCapabilities::ignored();
-        checksum.udp = Checksum::Tx;
-        checksum.ipv4 = Checksum::Tx;
-        checksum.tcp = Checksum::Tx;
-
         let mut external_buffer = vec![0u8; 2048];
 
         loop {
+            let deadline = tokio::time::sleep(Duration::from_secs(UDP_TIMEOUT_SECS));
             let selection = select! {
                 x = rx_receiver.recv() => if let Some(data) = x {
                     ProxyNatSelect::Internal(data)
                 } else {
-                    ProxyNatSelect::Closed
+                    ProxyNatSelect::Close
                 },
                 x = socket.read(&mut external_buffer) => ProxyNatSelect::External(x?),
+                _ = deadline => ProxyNatSelect::Close,
             };
 
             match selection {
@@ -119,8 +122,14 @@ impl ProxyUdpHandler {
                     let udp = UdpSlice::from_slice(ip.payload)?;
                     socket.write_all(udp.payload()).await?;
                 }
-                ProxyNatSelect::Closed => warn!("UDP socket closed"),
+                ProxyNatSelect::Close => {
+                    drop(socket);
+                    reclaim_sender.send(key).await?;
+                    break;
+                }
             }
         }
+
+        Ok(())
     }
 }

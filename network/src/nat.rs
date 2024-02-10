@@ -1,23 +1,24 @@
-// Referenced https://github.com/vi/wgslirpy/blob/master/crates/libwgslirpy/src/router.rs as a very interesting way to implement NAT.
-// hypha will heavily change how the original code functions however. NatKey was a very useful example of what we need to store in a NAT map.
-
 use anyhow::Result;
 use async_trait::async_trait;
 use etherparse::Ethernet2Slice;
 use etherparse::IpNumber;
 use etherparse::IpPayloadSlice;
 use etherparse::Ipv4Slice;
+use etherparse::Ipv6Slice;
 use etherparse::LinkSlice;
 use etherparse::NetSlice;
 use etherparse::SlicedPacket;
 use etherparse::TcpHeaderSlice;
 use etherparse::UdpHeaderSlice;
+use log::debug;
 use smoltcp::wire::EthernetAddress;
 use smoltcp::wire::IpAddress;
 use smoltcp::wire::IpEndpoint;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::Display;
+use tokio::sync::mpsc::channel;
+use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
@@ -52,7 +53,12 @@ pub trait NatHandler: Send {
 
 #[async_trait]
 pub trait NatHandlerFactory: Send {
-    async fn nat(&self, key: NatKey, sender: Sender<Vec<u8>>) -> Option<Box<dyn NatHandler>>;
+    async fn nat(
+        &self,
+        key: NatKey,
+        tx_sender: Sender<Vec<u8>>,
+        reclaim_sender: Sender<NatKey>,
+    ) -> Option<Box<dyn NatHandler>>;
 }
 
 pub struct NatTable {
@@ -72,6 +78,8 @@ pub struct NatRouter {
     factory: Box<dyn NatHandlerFactory>,
     table: NatTable,
     tx_sender: Sender<Vec<u8>>,
+    reclaim_sender: Sender<NatKey>,
+    reclaim_receiver: Receiver<NatKey>,
 }
 
 impl NatRouter {
@@ -80,12 +88,25 @@ impl NatRouter {
         mac: EthernetAddress,
         tx_sender: Sender<Vec<u8>>,
     ) -> Self {
+        let (reclaim_sender, reclaim_receiver) = channel(4);
         Self {
             _local_mac: mac,
             factory,
             table: NatTable::new(),
             tx_sender,
+            reclaim_sender,
+            reclaim_receiver,
         }
+    }
+
+    pub async fn process_reclaim(&mut self) -> Result<Option<NatKey>> {
+        Ok(if let Some(key) = self.reclaim_receiver.recv().await {
+            self.table.inner.remove(&key);
+            debug!("reclaimed nat key: {}", key);
+            Some(key)
+        } else {
+            None
+        })
     }
 
     pub async fn process(&mut self, data: &[u8]) -> Result<()> {
@@ -105,13 +126,8 @@ impl NatRouter {
         };
 
         match net {
-            NetSlice::Ipv4(ipv4) => {
-                self.process_ipv4(data, ether, ipv4).await?;
-            }
-
-            _ => {
-                return Ok(());
-            }
+            NetSlice::Ipv4(ipv4) => self.process_ipv4(data, ether, ipv4).await?,
+            NetSlice::Ipv6(ipv6) => self.process_ipv6(data, ether, ipv6).await?,
         }
 
         Ok(())
@@ -133,6 +149,31 @@ impl NatRouter {
 
             IpNumber::UDP => {
                 self.process_udp(data, ether, source_addr, dest_addr, ipv4.payload())
+                    .await?;
+            }
+
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    pub async fn process_ipv6<'a>(
+        &mut self,
+        data: &[u8],
+        ether: &Ethernet2Slice<'a>,
+        ipv6: &Ipv6Slice<'a>,
+    ) -> Result<()> {
+        let source_addr = IpAddress::Ipv6(ipv6.header().source_addr().into());
+        let dest_addr = IpAddress::Ipv6(ipv6.header().destination_addr().into());
+        match ipv6.header().next_header() {
+            IpNumber::TCP => {
+                self.process_tcp(data, ether, source_addr, dest_addr, ipv6.payload())
+                    .await?;
+            }
+
+            IpNumber::UDP => {
+                self.process_udp(data, ether, source_addr, dest_addr, ipv6.payload())
                     .await?;
             }
 
@@ -190,7 +231,11 @@ impl NatRouter {
         let handler: Option<&mut Box<dyn NatHandler>> = match self.table.inner.entry(key) {
             Entry::Occupied(entry) => Some(entry.into_mut()),
             Entry::Vacant(entry) => {
-                if let Some(handler) = self.factory.nat(key, self.tx_sender.clone()).await {
+                if let Some(handler) = self
+                    .factory
+                    .nat(key, self.tx_sender.clone(), self.reclaim_sender.clone())
+                    .await
+                {
                     Some(entry.insert(handler))
                 } else {
                     None
@@ -201,7 +246,6 @@ impl NatRouter {
         if let Some(handler) = handler {
             handler.receive(data).await?;
         }
-
         Ok(())
     }
 }
