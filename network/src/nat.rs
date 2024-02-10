@@ -1,6 +1,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use etherparse::Ethernet2Slice;
+use etherparse::Icmpv4Header;
+use etherparse::Icmpv4Type;
 use etherparse::IpNumber;
 use etherparse::IpPayloadSlice;
 use etherparse::Ipv4Slice;
@@ -26,6 +28,7 @@ use tokio::sync::mpsc::Sender;
 pub enum NatKeyProtocol {
     Tcp,
     Udp,
+    Icmp,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
@@ -164,6 +167,11 @@ impl NatRouter {
                     .await?;
             }
 
+            IpNumber::ICMP => {
+                self.process_icmpv4(data, ether, source_addr, dest_addr, ipv4.payload())
+                    .await?;
+            }
+
             _ => {}
         }
 
@@ -230,6 +238,31 @@ impl NatRouter {
         let dest = IpEndpoint::new(dest_addr, header.destination_port());
         let key = NatKey {
             protocol: NatKeyProtocol::Udp,
+            client_mac: EthernetAddress(ether.source()),
+            local_mac: EthernetAddress(ether.destination()),
+            client_ip: source,
+            external_ip: dest,
+        };
+        self.process_nat(data, key).await?;
+        Ok(())
+    }
+
+    pub async fn process_icmpv4<'a>(
+        &mut self,
+        data: &'a [u8],
+        ether: &Ethernet2Slice<'a>,
+        source_addr: IpAddress,
+        dest_addr: IpAddress,
+        payload: &IpPayloadSlice<'a>,
+    ) -> Result<()> {
+        let (header, _) = Icmpv4Header::from_slice(payload.payload)?;
+        let Icmpv4Type::EchoRequest(_) = header.icmp_type else {
+            return Ok(());
+        };
+        let source = IpEndpoint::new(source_addr, 0);
+        let dest = IpEndpoint::new(dest_addr, 0);
+        let key = NatKey {
+            protocol: NatKeyProtocol::Icmp,
             client_mac: EthernetAddress(ether.source()),
             local_mac: EthernetAddress(ether.destination()),
             client_ip: source,

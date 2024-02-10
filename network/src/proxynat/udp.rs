@@ -17,8 +17,6 @@ use udp_stream::UdpStream;
 
 use crate::nat::{NatHandler, NatKey};
 
-use super::ProxyNatSelect;
-
 const UDP_TIMEOUT_SECS: u64 = 60;
 
 pub struct ProxyUdpHandler {
@@ -32,6 +30,12 @@ impl NatHandler for ProxyUdpHandler {
         self.rx_sender.try_send(data.to_vec())?;
         Ok(())
     }
+}
+
+enum ProxyUdpSelect {
+    External(usize),
+    Internal(Vec<u8>),
+    Close,
 }
 
 impl ProxyUdpHandler {
@@ -79,16 +83,16 @@ impl ProxyUdpHandler {
             let deadline = tokio::time::sleep(Duration::from_secs(UDP_TIMEOUT_SECS));
             let selection = select! {
                 x = rx_receiver.recv() => if let Some(data) = x {
-                    ProxyNatSelect::Internal(data)
+                    ProxyUdpSelect::Internal(data)
                 } else {
-                    ProxyNatSelect::Close
+                    ProxyUdpSelect::Close
                 },
-                x = socket.read(&mut external_buffer) => ProxyNatSelect::External(x?),
-                _ = deadline => ProxyNatSelect::Close,
+                x = socket.read(&mut external_buffer) => ProxyUdpSelect::External(x?),
+                _ = deadline => ProxyUdpSelect::Close,
             };
 
             match selection {
-                ProxyNatSelect::External(size) => {
+                ProxyUdpSelect::External(size) => {
                     let data = &external_buffer[0..size];
                     let packet = PacketBuilder::ethernet2(key.local_mac.0, key.client_mac.0);
                     let packet = match (key.external_ip.addr, key.client_ip.addr) {
@@ -109,7 +113,7 @@ impl ProxyUdpHandler {
                         debug!("failed to transmit udp packet: {}", error);
                     }
                 }
-                ProxyNatSelect::Internal(data) => {
+                ProxyUdpSelect::Internal(data) => {
                     let packet = SlicedPacket::from_ethernet(&data)?;
                     let Some(ref net) = packet.net else {
                         continue;
@@ -122,7 +126,7 @@ impl ProxyUdpHandler {
                     let udp = UdpSlice::from_slice(ip.payload)?;
                     socket.write_all(udp.payload()).await?;
                 }
-                ProxyNatSelect::Close => {
+                ProxyUdpSelect::Close => {
                     drop(socket);
                     reclaim_sender.send(key).await?;
                     break;

@@ -53,6 +53,7 @@ udp-stream = "0.0.11"
 smoltcp = "0.11.0"
 etherparse = "0.14.2"
 async-trait = "0.1.77"
+async-ping = "0.2.1"
 
 [workspace.dependencies.uuid]
 version = "1.6.1"
@@ -73,3 +74,7 @@ features = ["macros", "rt", "rt-multi-thread"]
 [workspace.dependencies.serde]
 version = "1.0.196"
 features = ["derive"]
+
+[workspace.dependencies.icmp-client]
+version = "0.2"
+features = ["impl_tokio"]
