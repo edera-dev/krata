@@ -24,7 +24,6 @@ use tokio::sync::mpsc::Sender;
 pub enum NatKeyProtocol {
     Tcp,
     Udp,
-    Ping,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]

@@ -11,47 +11,17 @@ use smoltcp::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     select,
-    sync::mpsc::channel,
 };
 use tokio::{sync::mpsc::Receiver, sync::mpsc::Sender};
 use udp_stream::UdpStream;
 
-use crate::nat::{NatHandler, NatHandlerFactory, NatKey, NatKeyProtocol};
+use crate::nat::{NatHandler, NatKey};
 
-pub struct ProxyNatHandlerFactory {}
+use super::ProxyNatSelect;
 
-struct ProxyUdpHandler {
+pub struct ProxyUdpHandler {
     key: NatKey,
     rx_sender: Sender<Vec<u8>>,
-}
-
-impl ProxyNatHandlerFactory {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-#[async_trait]
-impl NatHandlerFactory for ProxyNatHandlerFactory {
-    async fn nat(&self, key: NatKey, sender: Sender<Vec<u8>>) -> Option<Box<dyn NatHandler>> {
-        debug!("creating proxy nat entry for key: {}", key);
-
-        match key.protocol {
-            NatKeyProtocol::Udp => {
-                let (rx_sender, rx_receiver) = channel::<Vec<u8>>(4);
-                let mut handler = ProxyUdpHandler { key, rx_sender };
-
-                if let Err(error) = handler.spawn(rx_receiver, sender.clone()).await {
-                    warn!("unable to spawn udp proxy handler: {}", error);
-                    None
-                } else {
-                    Some(Box::new(handler))
-                }
-            }
-
-            _ => None,
-        }
-    }
 }
 
 #[async_trait]
@@ -62,14 +32,12 @@ impl NatHandler for ProxyUdpHandler {
     }
 }
 
-enum ProxySelect {
-    External(usize),
-    Internal(Vec<u8>),
-    Closed,
-}
-
 impl ProxyUdpHandler {
-    async fn spawn(
+    pub fn new(key: NatKey, rx_sender: Sender<Vec<u8>>) -> Self {
+        ProxyUdpHandler { key, rx_sender }
+    }
+
+    pub async fn spawn(
         &mut self,
         rx_receiver: Receiver<Vec<u8>>,
         tx_sender: Sender<Vec<u8>>,
@@ -109,15 +77,15 @@ impl ProxyUdpHandler {
         loop {
             let selection = select! {
                 x = rx_receiver.recv() => if let Some(data) = x {
-                    ProxySelect::Internal(data)
+                    ProxyNatSelect::Internal(data)
                 } else {
-                    ProxySelect::Closed
+                    ProxyNatSelect::Closed
                 },
-                x = socket.read(&mut external_buffer) => ProxySelect::External(x?),
+                x = socket.read(&mut external_buffer) => ProxyNatSelect::External(x?),
             };
 
             match selection {
-                ProxySelect::External(size) => {
+                ProxyNatSelect::External(size) => {
                     let data = &external_buffer[0..size];
                     let packet = PacketBuilder::ethernet2(key.local_mac.0, key.client_mac.0);
                     let packet = match (key.external_ip.addr, key.client_ip.addr) {
@@ -138,8 +106,7 @@ impl ProxyUdpHandler {
                         debug!("failed to transmit udp packet: {}", error);
                     }
                 }
-                ProxySelect::Internal(data) => {
-                    debug!("udp socket to handle data: {:?}", data);
+                ProxyNatSelect::Internal(data) => {
                     let packet = SlicedPacket::from_ethernet(&data)?;
                     let Some(ref net) = packet.net else {
                         continue;
@@ -150,10 +117,9 @@ impl ProxyUdpHandler {
                     };
 
                     let udp = UdpSlice::from_slice(ip.payload)?;
-                    debug!("UDP from internal: {:?}", udp.payload());
                     socket.write_all(udp.payload()).await?;
                 }
-                ProxySelect::Closed => warn!("UDP socket closed"),
+                ProxyNatSelect::Closed => warn!("UDP socket closed"),
             }
         }
     }
