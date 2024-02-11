@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use futures::TryStreamExt;
 use log::warn;
 use smoltcp::iface::{Config, Interface, SocketSet};
+use smoltcp::phy::Medium;
 use smoltcp::time::Instant;
 use smoltcp::wire::{HardwareAddress, IpCidr};
 use std::str::FromStr;
@@ -19,6 +20,7 @@ use tokio::sync::mpsc::{channel, Receiver};
 pub struct NetworkBackend {
     ipv4: String,
     ipv6: String,
+    force_mac_address: Option<MacAddr6>,
     interface: String,
 }
 
@@ -72,10 +74,16 @@ impl NetworkStack<'_> {
 }
 
 impl NetworkBackend {
-    pub fn new(ipv4: &str, ipv6: &str, interface: &str) -> Result<Self> {
+    pub fn new(
+        ipv4: &str,
+        ipv6: &str,
+        force_mac_address: &Option<MacAddr6>,
+        interface: &str,
+    ) -> Result<Self> {
         Ok(Self {
             ipv4: ipv4.to_string(),
             ipv6: ipv6.to_string(),
+            force_mac_address: *force_mac_address,
             interface: interface.to_string(),
         })
     }
@@ -121,10 +129,10 @@ impl NetworkBackend {
             AsyncRawSocket::bound_to_interface(&self.interface, RawSocketProtocol::Ethernet)?;
         let mtu = kdev.mtu_of_interface(&self.interface)?;
         let (tx_sender, tx_receiver) = channel::<Vec<u8>>(4);
-        let mut udev = ChannelDevice::new(mtu, tx_sender.clone());
-        let mac = MacAddr6::random();
+        let mut udev = ChannelDevice::new(mtu, Medium::Ethernet, tx_sender.clone());
+        let mac = self.force_mac_address.unwrap_or_else(MacAddr6::random);
         let mac = smoltcp::wire::EthernetAddress(mac.to_array());
-        let nat = NatRouter::new(proxy, mac, addresses.clone(), tx_sender.clone());
+        let nat = NatRouter::new(mtu, proxy, mac, addresses.clone(), tx_sender.clone());
         let mac = HardwareAddress::Ethernet(mac);
         let config = Config::new(mac);
         let mut iface = Interface::new(config, &mut udev, Instant::now());

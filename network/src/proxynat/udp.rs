@@ -128,6 +128,8 @@ impl ProxyUdpHandler {
             }
         }
 
+        context.reclaim().await?;
+
         Ok(())
     }
 }

@@ -14,7 +14,6 @@ use etherparse::NetSlice;
 use etherparse::SlicedPacket;
 use etherparse::TcpHeaderSlice;
 use etherparse::UdpHeaderSlice;
-use log::warn;
 use log::{debug, trace};
 use smoltcp::wire::EthernetAddress;
 use smoltcp::wire::IpAddress;
@@ -53,7 +52,9 @@ impl Display for NatKey {
     }
 }
 
+#[derive(Debug)]
 pub struct NatHandlerContext {
+    pub mtu: usize,
     pub key: NatKey,
     tx_sender: Sender<Vec<u8>>,
     reclaim_sender: Sender<NatKey>,
@@ -64,13 +65,10 @@ impl NatHandlerContext {
         self.tx_sender.try_send(buffer)?;
         Ok(())
     }
-}
 
-impl Drop for NatHandlerContext {
-    fn drop(&mut self) {
-        if let Err(error) = self.reclaim_sender.try_send(self.key) {
-            warn!("failed to reclaim nat key: {}", error);
-        }
+    pub async fn reclaim(&self) -> Result<()> {
+        self.reclaim_sender.try_send(self.key)?;
+        Ok(())
     }
 }
 
@@ -103,6 +101,7 @@ impl NatTable {
 }
 
 pub struct NatRouter {
+    mtu: usize,
     local_mac: EthernetAddress,
     local_cidrs: Vec<IpCidr>,
     factory: Box<dyn NatHandlerFactory>,
@@ -114,6 +113,7 @@ pub struct NatRouter {
 
 impl NatRouter {
     pub fn new(
+        mtu: usize,
         factory: Box<dyn NatHandlerFactory>,
         local_mac: EthernetAddress,
         local_cidrs: Vec<IpCidr>,
@@ -121,6 +121,7 @@ impl NatRouter {
     ) -> Self {
         let (reclaim_sender, reclaim_receiver) = channel(4);
         Self {
+            mtu,
             local_mac,
             local_cidrs,
             factory,
@@ -335,6 +336,7 @@ impl NatRouter {
         }
 
         let context = NatHandlerContext {
+            mtu: self.mtu,
             key,
             tx_sender: self.tx_sender.clone(),
             reclaim_sender: self.reclaim_sender.clone(),

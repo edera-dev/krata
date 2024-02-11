@@ -205,6 +205,8 @@ impl ProxyIcmpHandler {
             }
         }
 
+        context.reclaim().await?;
+
         Ok(())
     }
 }

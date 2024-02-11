@@ -1,17 +1,23 @@
 // Referenced https://github.com/vi/wgslirpy/blob/master/crates/libwgslirpy/src/channelized_smoltcp_device.rs
-use log::warn;
-use smoltcp::phy::{Checksum, Device};
+use log::{debug, warn};
+use smoltcp::phy::{Checksum, Device, Medium};
 use tokio::sync::mpsc::Sender;
 
 pub struct ChannelDevice {
     pub mtu: usize,
+    pub medium: Medium,
     pub tx: Sender<Vec<u8>>,
     pub rx: Option<Vec<u8>>,
 }
 
 impl ChannelDevice {
-    pub fn new(mtu: usize, tx: Sender<Vec<u8>>) -> Self {
-        Self { mtu, tx, rx: None }
+    pub fn new(mtu: usize, medium: Medium, tx: Sender<Vec<u8>>) -> Self {
+        Self {
+            mtu,
+            medium,
+            tx,
+            rx: None,
+        }
     }
 }
 
@@ -30,7 +36,7 @@ impl Device for ChannelDevice {
 
     fn transmit(&mut self, _timestamp: smoltcp::time::Instant) -> Option<Self::TxToken<'_>> {
         if self.tx.capacity() == 0 {
-            warn!("ran out of transmission capacity");
+            debug!("ran out of transmission capacity");
             return None;
         }
         Some(self)
@@ -38,7 +44,7 @@ impl Device for ChannelDevice {
 
     fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
         let mut capabilities = smoltcp::phy::DeviceCapabilities::default();
-        capabilities.medium = smoltcp::phy::Medium::Ethernet;
+        capabilities.medium = self.medium;
         capabilities.max_transmission_unit = self.mtu;
         capabilities.checksum = smoltcp::phy::ChecksumCapabilities::ignored();
         capabilities.checksum.tcp = Checksum::Tx;

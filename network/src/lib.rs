@@ -1,3 +1,4 @@
+use advmac::MacAddr6;
 use anyhow::Result;
 use futures::TryStreamExt;
 use log::{error, info, warn};
@@ -18,11 +19,20 @@ pub mod raw_socket;
 pub struct NetworkService {
     pub ipv4: String,
     pub ipv6: String,
+    pub force_mac_address: Option<MacAddr6>,
 }
 
 impl NetworkService {
-    pub fn new(ipv4: String, ipv6: String) -> Result<NetworkService> {
-        Ok(NetworkService { ipv4, ipv6 })
+    pub fn new(
+        ipv4: String,
+        ipv6: String,
+        force_mac_address: Option<MacAddr6>,
+    ) -> Result<NetworkService> {
+        Ok(NetworkService {
+            ipv4,
+            ipv6,
+            force_mac_address,
+        })
     }
 }
 
@@ -78,7 +88,8 @@ impl NetworkService {
         spawned: Arc<Mutex<Vec<String>>>,
     ) -> Result<()> {
         let interface = interface.to_string();
-        let mut network = NetworkBackend::new(&self.ipv4, &self.ipv6, &interface)?;
+        let mut network =
+            NetworkBackend::new(&self.ipv4, &self.ipv6, &self.force_mac_address, &interface)?;
         info!("initializing network backend for interface {}", interface);
         network.init().await?;
         tokio::time::sleep(Duration::from_secs(1)).await;

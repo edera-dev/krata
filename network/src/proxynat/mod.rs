@@ -10,8 +10,10 @@ use crate::proxynat::udp::ProxyUdpHandler;
 use crate::nat::{NatHandler, NatHandlerFactory, NatKeyProtocol};
 
 use self::icmp::ProxyIcmpHandler;
+use self::tcp::ProxyTcpHandler;
 
 mod icmp;
+mod tcp;
 mod udp;
 
 pub struct ProxyNatHandlerFactory {}
@@ -56,7 +58,17 @@ impl NatHandlerFactory for ProxyNatHandlerFactory {
                 }
             }
 
-            _ => None,
+            NatKeyProtocol::Tcp => {
+                let (rx_sender, rx_receiver) = channel::<Vec<u8>>(4);
+                let mut handler = ProxyTcpHandler::new(rx_sender);
+
+                if let Err(error) = handler.spawn(context, rx_receiver).await {
+                    warn!("unable to spawn tcp proxy handler: {}", error);
+                    None
+                } else {
+                    Some(Box::new(handler))
+                }
+            }
         }
     }
 }
