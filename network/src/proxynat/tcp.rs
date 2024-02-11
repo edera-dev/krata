@@ -29,6 +29,7 @@ use crate::{
 
 const TCP_BUFFER_SIZE: usize = 65535;
 const TCP_ACCEPT_TIMEOUT_SECS: u64 = 120;
+const TCP_DANGLE_TIMEOUT_SECS: u64 = 10;
 
 pub struct ProxyTcpHandler {
     rx_sender: Sender<Vec<u8>>,
@@ -36,9 +37,13 @@ pub struct ProxyTcpHandler {
 
 #[async_trait]
 impl NatHandler for ProxyTcpHandler {
-    async fn receive(&self, data: &[u8]) -> Result<()> {
-        self.rx_sender.try_send(data.to_vec())?;
-        Ok(())
+    async fn receive(&self, data: &[u8]) -> Result<bool> {
+        if self.rx_sender.is_closed() {
+            Ok(false)
+        } else {
+            self.rx_sender.try_send(data.to_vec())?;
+            Ok(true)
+        }
     }
 }
 
@@ -59,6 +64,13 @@ enum ProxyTcpDataSelect {
     TxIpPacket(Vec<u8>),
     TimePassed,
     DoNothing,
+    Close,
+}
+
+#[derive(Debug)]
+enum ProxyTcpFinishSelect {
+    InternalRecv(Vec<u8>),
+    TxIpPacket(Vec<u8>),
     Close,
 }
 
@@ -95,10 +107,14 @@ impl ProxyTcpHandler {
         mut external_socket: TcpStream,
         mut rx_receiver: Receiver<Vec<u8>>,
     ) -> Result<()> {
-        let (ip_sender, mut ip_receiver) = channel::<Vec<u8>>(4);
+        let (ip_sender, mut ip_receiver) = channel::<Vec<u8>>(300);
         let mut external_buffer = vec![0u8; TCP_BUFFER_SIZE];
 
-        let mut device = ChannelDevice::new(context.mtu, Medium::Ip, ip_sender.clone());
+        let mut device = ChannelDevice::new(
+            context.mtu - Ethernet2Header::LEN,
+            Medium::Ip,
+            ip_sender.clone(),
+        );
         let config = Config::new(HardwareAddress::Ip);
 
         let tcp_rx_buffer = SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]);
@@ -212,10 +228,10 @@ impl ProxyTcpHandler {
             .get_mut::<tcp::Socket>(internal_socket_handle)
             .is_active()
         {
-            debug!("failed to accept tcp connection from client");
             true
         } else {
-            true
+            debug!("failed to accept tcp connection from client");
+            false
         };
 
         let mut already_shutdown = false;
@@ -268,13 +284,13 @@ impl ProxyTcpHandler {
                 if !do_shutdown {
                     select! {
                         biased;
-                        x = rx_receiver.recv() => if let Some(data) = x {
-                            ProxyTcpDataSelect::InternalRecv(data)
+                        x = ip_receiver.recv() => if let Some(data) = x {
+                            ProxyTcpDataSelect::TxIpPacket(data)
                         } else {
                             ProxyTcpDataSelect::Close
                         },
-                        x = ip_receiver.recv() => if let Some(data) = x {
-                            ProxyTcpDataSelect::TxIpPacket(data)
+                        x = rx_receiver.recv() => if let Some(data) = x {
+                            ProxyTcpDataSelect::InternalRecv(data)
                         } else {
                             ProxyTcpDataSelect::Close
                         },
@@ -285,13 +301,13 @@ impl ProxyTcpHandler {
                 } else {
                     select! {
                         biased;
-                        x = rx_receiver.recv() => if let Some(data) = x {
-                            ProxyTcpDataSelect::InternalRecv(data)
+                        x = ip_receiver.recv() => if let Some(data) = x {
+                            ProxyTcpDataSelect::TxIpPacket(data)
                         } else {
                             ProxyTcpDataSelect::Close
                         },
-                        x = ip_receiver.recv() => if let Some(data) = x {
-                            ProxyTcpDataSelect::TxIpPacket(data)
+                        x = rx_receiver.recv() => if let Some(data) = x {
+                            ProxyTcpDataSelect::InternalRecv(data)
                         } else {
                             ProxyTcpDataSelect::Close
                         },
@@ -303,13 +319,13 @@ impl ProxyTcpHandler {
             } else if !do_shutdown {
                 select! {
                     biased;
-                    x = rx_receiver.recv() => if let Some(data) = x {
-                        ProxyTcpDataSelect::InternalRecv(data)
+                    x = ip_receiver.recv() => if let Some(data) = x {
+                        ProxyTcpDataSelect::TxIpPacket(data)
                     } else {
                         ProxyTcpDataSelect::Close
                     },
-                    x = ip_receiver.recv() => if let Some(data) = x {
-                        ProxyTcpDataSelect::TxIpPacket(data)
+                    x = rx_receiver.recv() => if let Some(data) = x {
+                        ProxyTcpDataSelect::InternalRecv(data)
                     } else {
                         ProxyTcpDataSelect::Close
                     },
@@ -320,13 +336,13 @@ impl ProxyTcpHandler {
             } else {
                 select! {
                     biased;
-                    x = rx_receiver.recv() => if let Some(data) = x {
-                        ProxyTcpDataSelect::InternalRecv(data)
+                    x = ip_receiver.recv() => if let Some(data) = x {
+                        ProxyTcpDataSelect::TxIpPacket(data)
                     } else {
                         ProxyTcpDataSelect::Close
                     },
-                    x = ip_receiver.recv() => if let Some(data) = x {
-                        ProxyTcpDataSelect::TxIpPacket(data)
+                    x = rx_receiver.recv() => if let Some(data) = x {
+                        ProxyTcpDataSelect::InternalRecv(data)
                     } else {
                         ProxyTcpDataSelect::Close
                     },
@@ -384,6 +400,58 @@ impl ProxyTcpHandler {
                 }
 
                 ProxyTcpDataSelect::Close => {
+                    break;
+                }
+            }
+        }
+
+        let _ = external_socket.shutdown().await;
+        drop(external_socket);
+
+        loop {
+            let deadline = tokio::time::sleep(Duration::from_secs(TCP_DANGLE_TIMEOUT_SECS));
+            tokio::pin!(deadline);
+
+            let selection = select! {
+                biased;
+                x = ip_receiver.recv() => if let Some(data) = x {
+                    ProxyTcpFinishSelect::TxIpPacket(data)
+                } else {
+                    ProxyTcpFinishSelect::Close
+                },
+                x = rx_receiver.recv() => if let Some(data) = x {
+                    ProxyTcpFinishSelect::InternalRecv(data)
+                } else {
+                    ProxyTcpFinishSelect::Close
+                },
+                _ = deadline => ProxyTcpFinishSelect::Close,
+            };
+
+            match selection {
+                ProxyTcpFinishSelect::InternalRecv(data) => {
+                    let (_, payload) = Ethernet2Header::from_slice(&data)?;
+                    device.rx = Some(payload.to_vec());
+                    iface.poll(Instant::now(), &mut device, &mut sockets);
+                }
+
+                ProxyTcpFinishSelect::TxIpPacket(payload) => {
+                    let mut buffer: Vec<u8> = Vec::new();
+                    let header = Ethernet2Header {
+                        source: context.key.local_mac.0,
+                        destination: context.key.client_mac.0,
+                        ether_type: match context.key.external_ip.addr {
+                            IpAddress::Ipv4(_) => EtherType::IPV4,
+                            IpAddress::Ipv6(_) => EtherType::IPV6,
+                        },
+                    };
+                    header.write(&mut buffer)?;
+                    buffer.extend_from_slice(&payload);
+                    if let Err(error) = context.try_send(buffer) {
+                        debug!("failed to transmit tcp packet: {}", error);
+                    }
+                }
+
+                ProxyTcpFinishSelect::Close => {
                     break;
                 }
             }

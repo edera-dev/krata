@@ -47,7 +47,7 @@ impl NatHandlerFactory for ProxyNatHandlerFactory {
             }
 
             NatKeyProtocol::Icmp => {
-                let (rx_sender, rx_receiver) = channel::<Vec<u8>>(4);
+                let (rx_sender, rx_receiver) = channel::<Vec<u8>>(300);
                 let mut handler = ProxyIcmpHandler::new(rx_sender);
 
                 if let Err(error) = handler.spawn(context, rx_receiver).await {
@@ -59,7 +59,7 @@ impl NatHandlerFactory for ProxyNatHandlerFactory {
             }
 
             NatKeyProtocol::Tcp => {
-                let (rx_sender, rx_receiver) = channel::<Vec<u8>>(4);
+                let (rx_sender, rx_receiver) = channel::<Vec<u8>>(300);
                 let mut handler = ProxyTcpHandler::new(rx_sender);
 
                 if let Err(error) = handler.spawn(context, rx_receiver).await {

@@ -6,12 +6,12 @@ use etherparse::Icmpv4Type;
 use etherparse::Icmpv6Header;
 use etherparse::Icmpv6Type;
 use etherparse::IpNumber;
-use etherparse::IpPayloadSlice;
-use etherparse::Ipv4Slice;
-use etherparse::Ipv6Slice;
+use etherparse::LaxIpPayloadSlice;
+use etherparse::LaxIpv4Slice;
+use etherparse::LaxIpv6Slice;
+use etherparse::LaxNetSlice;
+use etherparse::LaxSlicedPacket;
 use etherparse::LinkSlice;
-use etherparse::NetSlice;
-use etherparse::SlicedPacket;
 use etherparse::TcpHeaderSlice;
 use etherparse::UdpHeaderSlice;
 use log::{debug, trace};
@@ -74,7 +74,7 @@ impl NatHandlerContext {
 
 #[async_trait]
 pub trait NatHandler: Send {
-    async fn receive(&self, packet: &[u8]) -> Result<()>;
+    async fn receive(&self, packet: &[u8]) -> Result<bool>;
 }
 
 #[async_trait]
@@ -134,16 +134,19 @@ impl NatRouter {
 
     pub async fn process_reclaim(&mut self) -> Result<Option<NatKey>> {
         Ok(if let Some(key) = self.reclaim_receiver.recv().await {
-            self.table.inner.remove(&key);
-            debug!("reclaimed nat key: {}", key);
-            Some(key)
+            if self.table.inner.remove(&key).is_some() {
+                debug!("reclaimed nat key: {}", key);
+                Some(key)
+            } else {
+                None
+            }
         } else {
             None
         })
     }
 
     pub async fn process(&mut self, data: &[u8]) -> Result<()> {
-        let packet = SlicedPacket::from_ethernet(data)?;
+        let packet = LaxSlicedPacket::from_ethernet(data)?;
         let Some(ref link) = packet.link else {
             return Ok(());
         };
@@ -167,8 +170,8 @@ impl NatRouter {
         };
 
         match net {
-            NetSlice::Ipv4(ipv4) => self.process_ipv4(data, ether, ipv4).await?,
-            NetSlice::Ipv6(ipv6) => self.process_ipv6(data, ether, ipv6).await?,
+            LaxNetSlice::Ipv4(ipv4) => self.process_ipv4(data, ether, ipv4).await?,
+            LaxNetSlice::Ipv6(ipv6) => self.process_ipv6(data, ether, ipv6).await?,
         }
 
         Ok(())
@@ -178,7 +181,7 @@ impl NatRouter {
         &mut self,
         data: &[u8],
         ether: &Ethernet2Slice<'a>,
-        ipv4: &Ipv4Slice<'a>,
+        ipv4: &LaxIpv4Slice<'a>,
     ) -> Result<()> {
         let source_addr = IpAddress::Ipv4(ipv4.header().source_addr().into());
         let dest_addr = IpAddress::Ipv4(ipv4.header().destination_addr().into());
@@ -208,7 +211,7 @@ impl NatRouter {
         &mut self,
         data: &[u8],
         ether: &Ethernet2Slice<'a>,
-        ipv6: &Ipv6Slice<'a>,
+        ipv6: &LaxIpv6Slice<'a>,
     ) -> Result<()> {
         let source_addr = IpAddress::Ipv6(ipv6.header().source_addr().into());
         let dest_addr = IpAddress::Ipv6(ipv6.header().destination_addr().into());
@@ -240,7 +243,7 @@ impl NatRouter {
         ether: &Ethernet2Slice<'a>,
         source_addr: IpAddress,
         dest_addr: IpAddress,
-        payload: &IpPayloadSlice<'a>,
+        payload: &LaxIpPayloadSlice<'a>,
     ) -> Result<()> {
         let header = TcpHeaderSlice::from_slice(payload.payload)?;
         let source = IpEndpoint::new(source_addr, header.source_port());
@@ -262,7 +265,7 @@ impl NatRouter {
         ether: &Ethernet2Slice<'a>,
         source_addr: IpAddress,
         dest_addr: IpAddress,
-        payload: &IpPayloadSlice<'a>,
+        payload: &LaxIpPayloadSlice<'a>,
     ) -> Result<()> {
         let header = UdpHeaderSlice::from_slice(payload.payload)?;
         let source = IpEndpoint::new(source_addr, header.source_port());
@@ -284,7 +287,7 @@ impl NatRouter {
         ether: &Ethernet2Slice<'a>,
         source_addr: IpAddress,
         dest_addr: IpAddress,
-        payload: &IpPayloadSlice<'a>,
+        payload: &LaxIpPayloadSlice<'a>,
     ) -> Result<()> {
         let (header, _) = Icmpv4Header::from_slice(payload.payload)?;
         let Icmpv4Type::EchoRequest(_) = header.icmp_type else {
@@ -309,7 +312,7 @@ impl NatRouter {
         ether: &Ethernet2Slice<'a>,
         source_addr: IpAddress,
         dest_addr: IpAddress,
-        payload: &IpPayloadSlice<'a>,
+        payload: &LaxIpPayloadSlice<'a>,
     ) -> Result<()> {
         let (header, _) = Icmpv6Header::from_slice(payload.payload)?;
         let Icmpv6Type::EchoRequest(_) = header.icmp_type else {
@@ -354,7 +357,9 @@ impl NatRouter {
         };
 
         if let Some(handler) = handler {
-            handler.receive(data).await?;
+            if !handler.receive(data).await? {
+                self.reclaim_sender.try_send(key)?;
+            }
         }
         Ok(())
     }

@@ -5,7 +5,7 @@ use crate::raw_socket::{AsyncRawSocket, RawSocketProtocol};
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
 use futures::TryStreamExt;
-use log::warn;
+use log::debug;
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::Medium;
 use smoltcp::time::Instant;
@@ -57,13 +57,12 @@ impl NetworkStack<'_> {
 
             NetworkStackSelect::Receive(packet) => {
                 if let Err(error) = self.router.process(packet).await {
-                    warn!("router failed to process packet: {}", error);
+                    debug!("router failed to process packet: {}", error);
                 }
 
                 self.udev.rx = Some(packet.to_vec());
-                let timestamp = Instant::now();
                 self.interface
-                    .poll(timestamp, &mut self.udev, &mut self.sockets);
+                    .poll(Instant::now(), &mut self.udev, &mut self.sockets);
             }
 
             NetworkStackSelect::Reclaim => {}
@@ -128,9 +127,13 @@ impl NetworkBackend {
         let mut kdev =
             AsyncRawSocket::bound_to_interface(&self.interface, RawSocketProtocol::Ethernet)?;
         let mtu = kdev.mtu_of_interface(&self.interface)?;
-        let (tx_sender, tx_receiver) = channel::<Vec<u8>>(4);
+        let (tx_sender, tx_receiver) = channel::<Vec<u8>>(100);
         let mut udev = ChannelDevice::new(mtu, Medium::Ethernet, tx_sender.clone());
-        let mac = self.force_mac_address.unwrap_or_else(MacAddr6::random);
+        let mac = self.force_mac_address.unwrap_or_else(|| {
+            let mut mac = MacAddr6::random();
+            mac.set_local(true);
+            mac
+        });
         let mac = smoltcp::wire::EthernetAddress(mac.to_array());
         let nat = NatRouter::new(mtu, proxy, mac, addresses.clone(), tx_sender.clone());
         let mac = HardwareAddress::Ethernet(mac);

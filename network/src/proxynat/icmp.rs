@@ -27,9 +27,13 @@ pub struct ProxyIcmpHandler {
 
 #[async_trait]
 impl NatHandler for ProxyIcmpHandler {
-    async fn receive(&self, data: &[u8]) -> Result<()> {
-        self.rx_sender.try_send(data.to_vec())?;
-        Ok(())
+    async fn receive(&self, data: &[u8]) -> Result<bool> {
+        if self.rx_sender.is_closed() {
+            Ok(true)
+        } else {
+            self.rx_sender.try_send(data.to_vec())?;
+            Ok(true)
+        }
     }
 }
 
