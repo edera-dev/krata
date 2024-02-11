@@ -12,6 +12,7 @@ use etherparse::NetSlice;
 use etherparse::SlicedPacket;
 use etherparse::TcpHeaderSlice;
 use etherparse::UdpHeaderSlice;
+use log::warn;
 use log::{debug, trace};
 use smoltcp::wire::EthernetAddress;
 use smoltcp::wire::IpAddress;
@@ -50,6 +51,27 @@ impl Display for NatKey {
     }
 }
 
+pub struct NatHandlerContext {
+    pub key: NatKey,
+    tx_sender: Sender<Vec<u8>>,
+    reclaim_sender: Sender<NatKey>,
+}
+
+impl NatHandlerContext {
+    pub fn try_send(&self, buffer: Vec<u8>) -> Result<()> {
+        self.tx_sender.try_send(buffer)?;
+        Ok(())
+    }
+}
+
+impl Drop for NatHandlerContext {
+    fn drop(&mut self) {
+        if let Err(error) = self.reclaim_sender.try_send(self.key) {
+            warn!("failed to reclaim nat key: {}", error);
+        }
+    }
+}
+
 #[async_trait]
 pub trait NatHandler: Send {
     async fn receive(&self, packet: &[u8]) -> Result<()>;
@@ -57,12 +79,7 @@ pub trait NatHandler: Send {
 
 #[async_trait]
 pub trait NatHandlerFactory: Send {
-    async fn nat(
-        &self,
-        key: NatKey,
-        tx_sender: Sender<Vec<u8>>,
-        reclaim_sender: Sender<NatKey>,
-    ) -> Option<Box<dyn NatHandler>>;
+    async fn nat(&self, context: NatHandlerContext) -> Option<Box<dyn NatHandler>>;
 }
 
 pub struct NatTable {
@@ -285,14 +302,15 @@ impl NatRouter {
             }
         }
 
+        let context = NatHandlerContext {
+            key,
+            tx_sender: self.tx_sender.clone(),
+            reclaim_sender: self.reclaim_sender.clone(),
+        };
         let handler: Option<&mut Box<dyn NatHandler>> = match self.table.inner.entry(key) {
             Entry::Occupied(entry) => Some(entry.into_mut()),
             Entry::Vacant(entry) => {
-                if let Some(handler) = self
-                    .factory
-                    .nat(key, self.tx_sender.clone(), self.reclaim_sender.clone())
-                    .await
-                {
+                if let Some(handler) = self.factory.nat(context).await {
                     debug!("creating nat entry for key: {}", key);
                     Some(entry.insert(handler))
                 } else {

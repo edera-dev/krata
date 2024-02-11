@@ -16,12 +16,13 @@ pub mod proxynat;
 pub mod raw_socket;
 
 pub struct NetworkService {
-    pub network: String,
+    pub ipv4: String,
+    pub ipv6: String,
 }
 
 impl NetworkService {
-    pub fn new(network: String) -> Result<NetworkService> {
-        Ok(NetworkService { network })
+    pub fn new(ipv4: String, ipv6: String) -> Result<NetworkService> {
+        Ok(NetworkService { ipv4, ipv6 })
     }
 }
 
@@ -77,7 +78,7 @@ impl NetworkService {
         spawned: Arc<Mutex<Vec<String>>>,
     ) -> Result<()> {
         let interface = interface.to_string();
-        let mut network = NetworkBackend::new(&self.network, &interface)?;
+        let mut network = NetworkBackend::new(&self.ipv4, &self.ipv6, &interface)?;
         info!("initializing network backend for interface {}", interface);
         network.init().await?;
         tokio::time::sleep(Duration::from_secs(1)).await;

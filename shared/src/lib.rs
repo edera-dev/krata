@@ -7,9 +7,16 @@ pub struct LaunchNetworkIpv4 {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct LaunchNetworkIpv6 {
+    pub address: String,
+    pub gateway: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct LaunchNetwork {
     pub link: String,
     pub ipv4: LaunchNetworkIpv4,
+    pub ipv6: Option<LaunchNetworkIpv6>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

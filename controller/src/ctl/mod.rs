@@ -89,6 +89,7 @@ impl Controller {
                     address: format!("{}/24", ipv4),
                     gateway: "192.168.42.1".to_string(),
                 },
+                ipv6: None,
             }),
             env,
             run,

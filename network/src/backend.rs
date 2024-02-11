@@ -17,7 +17,8 @@ use tokio::sync::mpsc::{channel, Receiver};
 
 #[derive(Clone)]
 pub struct NetworkBackend {
-    network: String,
+    ipv4: String,
+    ipv6: String,
     interface: String,
 }
 
@@ -71,9 +72,10 @@ impl NetworkStack<'_> {
 }
 
 impl NetworkBackend {
-    pub fn new(network: &str, interface: &str) -> Result<Self> {
+    pub fn new(ipv4: &str, ipv6: &str, interface: &str) -> Result<Self> {
         Ok(Self {
-            network: network.to_string(),
+            ipv4: ipv4.to_string(),
+            ipv6: ipv6.to_string(),
             interface: interface.to_string(),
         })
     }
@@ -110,9 +112,11 @@ impl NetworkBackend {
 
     fn create_network_stack(&self) -> Result<NetworkStack> {
         let proxy = Box::new(ProxyNatHandlerFactory::new());
-        let address = IpCidr::from_str(&self.network)
-            .map_err(|_| anyhow!("failed to parse cidr: {}", self.network))?;
-        let addresses: Vec<IpCidr> = vec![address];
+        let ipv4 = IpCidr::from_str(&self.ipv4)
+            .map_err(|_| anyhow!("failed to parse ipv4 cidr: {}", self.ipv4))?;
+        let ipv6 = IpCidr::from_str(&self.ipv4)
+            .map_err(|_| anyhow!("failed to parse ipv6 cidr: {}", self.ipv6))?;
+        let addresses: Vec<IpCidr> = vec![ipv4, ipv6];
         let mut kdev =
             AsyncRawSocket::bound_to_interface(&self.interface, RawSocketProtocol::Ethernet)?;
         let mtu = kdev.mtu_of_interface(&self.interface)?;

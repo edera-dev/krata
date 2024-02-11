@@ -1,5 +1,5 @@
-use log::warn;
 // Referenced https://github.com/vi/wgslirpy/blob/master/crates/libwgslirpy/src/channelized_smoltcp_device.rs
+use log::warn;
 use smoltcp::phy::{Checksum, Device};
 use tokio::sync::mpsc::Sender;
 

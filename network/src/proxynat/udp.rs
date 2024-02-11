@@ -15,12 +15,11 @@ use tokio::{
 use tokio::{sync::mpsc::Receiver, sync::mpsc::Sender};
 use udp_stream::UdpStream;
 
-use crate::nat::{NatHandler, NatKey};
+use crate::nat::{NatHandler, NatHandlerContext};
 
 const UDP_TIMEOUT_SECS: u64 = 60;
 
 pub struct ProxyUdpHandler {
-    key: NatKey,
     rx_sender: Sender<Vec<u8>>,
 }
 
@@ -39,31 +38,27 @@ enum ProxyUdpSelect {
 }
 
 impl ProxyUdpHandler {
-    pub fn new(key: NatKey, rx_sender: Sender<Vec<u8>>) -> Self {
-        ProxyUdpHandler { key, rx_sender }
+    pub fn new(rx_sender: Sender<Vec<u8>>) -> Self {
+        ProxyUdpHandler { rx_sender }
     }
 
     pub async fn spawn(
         &mut self,
+        context: NatHandlerContext,
         rx_receiver: Receiver<Vec<u8>>,
-        tx_sender: Sender<Vec<u8>>,
-        reclaim_sender: Sender<NatKey>,
     ) -> Result<()> {
-        let external_addr = match self.key.external_ip.addr {
+        let external_addr = match context.key.external_ip.addr {
             IpAddress::Ipv4(addr) => {
-                SocketAddr::new(IpAddr::V4(addr.0.into()), self.key.external_ip.port)
+                SocketAddr::new(IpAddr::V4(addr.0.into()), context.key.external_ip.port)
             }
             IpAddress::Ipv6(addr) => {
-                SocketAddr::new(IpAddr::V6(addr.0.into()), self.key.external_ip.port)
+                SocketAddr::new(IpAddr::V6(addr.0.into()), context.key.external_ip.port)
             }
         };
 
         let socket = UdpStream::connect(external_addr).await?;
-        let key = self.key;
         tokio::spawn(async move {
-            if let Err(error) =
-                ProxyUdpHandler::process(key, socket, rx_receiver, tx_sender, reclaim_sender).await
-            {
+            if let Err(error) = ProxyUdpHandler::process(context, socket, rx_receiver).await {
                 warn!("processing of udp proxy failed: {}", error);
             }
         });
@@ -71,11 +66,9 @@ impl ProxyUdpHandler {
     }
 
     async fn process(
-        key: NatKey,
+        context: NatHandlerContext,
         mut socket: UdpStream,
         mut rx_receiver: Receiver<Vec<u8>>,
-        tx_sender: Sender<Vec<u8>>,
-        reclaim_sender: Sender<NatKey>,
     ) -> Result<()> {
         let mut external_buffer = vec![0u8; 2048];
 
@@ -94,8 +87,9 @@ impl ProxyUdpHandler {
             match selection {
                 ProxyUdpSelect::External(size) => {
                     let data = &external_buffer[0..size];
-                    let packet = PacketBuilder::ethernet2(key.local_mac.0, key.client_mac.0);
-                    let packet = match (key.external_ip.addr, key.client_ip.addr) {
+                    let packet =
+                        PacketBuilder::ethernet2(context.key.local_mac.0, context.key.client_mac.0);
+                    let packet = match (context.key.external_ip.addr, context.key.client_ip.addr) {
                         (IpAddress::Ipv4(external_addr), IpAddress::Ipv4(client_addr)) => {
                             packet.ipv4(external_addr.0, client_addr.0, 20)
                         }
@@ -106,10 +100,11 @@ impl ProxyUdpHandler {
                             return Err(anyhow!("IP endpoint mismatch"));
                         }
                     };
-                    let packet = packet.udp(key.external_ip.port, key.client_ip.port);
+                    let packet =
+                        packet.udp(context.key.external_ip.port, context.key.client_ip.port);
                     let mut buffer: Vec<u8> = Vec::new();
                     packet.write(&mut buffer, data)?;
-                    if let Err(error) = tx_sender.try_send(buffer) {
+                    if let Err(error) = context.try_send(buffer) {
                         debug!("failed to transmit udp packet: {}", error);
                     }
                 }
@@ -128,7 +123,6 @@ impl ProxyUdpHandler {
                 }
                 ProxyUdpSelect::Close => {
                     drop(socket);
-                    reclaim_sender.send(key).await?;
                     break;
                 }
             }

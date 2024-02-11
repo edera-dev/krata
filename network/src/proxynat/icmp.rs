@@ -3,8 +3,8 @@ use std::{net::IpAddr, time::Duration};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use etherparse::{
-    Icmpv4Header, Icmpv4Type, Icmpv6Header, Icmpv6Type, IpNumber, NetSlice, PacketBuilder,
-    SlicedPacket,
+    Icmpv4Header, Icmpv4Type, Icmpv6Header, Icmpv6Type, IpNumber, Ipv4Slice, Ipv6Slice, NetSlice,
+    PacketBuilder, SlicedPacket,
 };
 use log::{debug, warn};
 use smoltcp::wire::IpAddress;
@@ -15,14 +15,13 @@ use tokio::{
 
 use crate::{
     icmp::{IcmpClient, IcmpProtocol, IcmpReply},
-    nat::{NatHandler, NatKey},
+    nat::{NatHandler, NatHandlerContext},
 };
 
 const ICMP_PING_TIMEOUT_SECS: u64 = 20;
 const ICMP_TIMEOUT_SECS: u64 = 30;
 
 pub struct ProxyIcmpHandler {
-    key: NatKey,
     rx_sender: Sender<Vec<u8>>,
 }
 
@@ -40,22 +39,18 @@ enum ProxyIcmpSelect {
 }
 
 impl ProxyIcmpHandler {
-    pub fn new(key: NatKey, rx_sender: Sender<Vec<u8>>) -> Self {
-        ProxyIcmpHandler { key, rx_sender }
+    pub fn new(rx_sender: Sender<Vec<u8>>) -> Self {
+        ProxyIcmpHandler { rx_sender }
     }
 
     pub async fn spawn(
         &mut self,
+        context: NatHandlerContext,
         rx_receiver: Receiver<Vec<u8>>,
-        tx_sender: Sender<Vec<u8>>,
-        reclaim_sender: Sender<NatKey>,
     ) -> Result<()> {
         let client = IcmpClient::new(IcmpProtocol::Icmp4)?;
-        let key = self.key;
         tokio::spawn(async move {
-            if let Err(error) =
-                ProxyIcmpHandler::process(client, key, rx_receiver, tx_sender, reclaim_sender).await
-            {
+            if let Err(error) = ProxyIcmpHandler::process(client, rx_receiver, context).await {
                 warn!("processing of icmp proxy failed: {}", error);
             }
         });
@@ -64,10 +59,8 @@ impl ProxyIcmpHandler {
 
     async fn process(
         client: IcmpClient,
-        key: NatKey,
         mut rx_receiver: Receiver<Vec<u8>>,
-        tx_sender: Sender<Vec<u8>>,
-        reclaim_sender: Sender<NatKey>,
+        context: NatHandlerContext,
     ) -> Result<()> {
         loop {
             let deadline = tokio::time::sleep(Duration::from_secs(ICMP_TIMEOUT_SECS));
@@ -89,109 +82,123 @@ impl ProxyIcmpHandler {
 
                     match net {
                         NetSlice::Ipv4(ipv4) => {
-                            if ipv4.header().protocol() != IpNumber::ICMP {
-                                continue;
-                            }
-
-                            let (header, payload) =
-                                Icmpv4Header::from_slice(ipv4.payload().payload)?;
-                            if let Icmpv4Type::EchoRequest(echo) = header.icmp_type {
-                                let IpAddr::V4(external_ipv4) = key.external_ip.addr.into() else {
-                                    continue;
-                                };
-
-                                let Some(IcmpReply::Icmp4 {
-                                    header: _,
-                                    echo,
-                                    payload,
-                                }) = client
-                                    .ping4(
-                                        external_ipv4,
-                                        echo.id,
-                                        echo.seq,
-                                        payload,
-                                        Duration::from_secs(ICMP_PING_TIMEOUT_SECS),
-                                    )
-                                    .await?
-                                else {
-                                    continue;
-                                };
-
-                                let packet =
-                                    PacketBuilder::ethernet2(key.local_mac.0, key.client_mac.0);
-                                let packet = match (key.external_ip.addr, key.client_ip.addr) {
-                                    (
-                                        IpAddress::Ipv4(external_addr),
-                                        IpAddress::Ipv4(client_addr),
-                                    ) => packet.ipv4(external_addr.0, client_addr.0, 20),
-                                    _ => {
-                                        return Err(anyhow!("IP endpoint mismatch"));
-                                    }
-                                };
-                                let packet = packet.icmpv4_echo_reply(echo.id, echo.seq);
-                                let mut buffer: Vec<u8> = Vec::new();
-                                packet.write(&mut buffer, &payload)?;
-                                if let Err(error) = tx_sender.try_send(buffer) {
-                                    debug!("failed to transmit icmp packet: {}", error);
-                                }
-                            }
+                            ProxyIcmpHandler::process_ipv4(&context, ipv4, &client).await?
                         }
 
                         NetSlice::Ipv6(ipv6) => {
-                            if ipv6.header().next_header() != IpNumber::ICMP {
-                                continue;
-                            }
-
-                            let (header, payload) =
-                                Icmpv6Header::from_slice(ipv6.payload().payload)?;
-                            if let Icmpv6Type::EchoRequest(echo) = header.icmp_type {
-                                let IpAddr::V6(external_ipv6) = key.external_ip.addr.into() else {
-                                    continue;
-                                };
-
-                                let Some(IcmpReply::Icmp6 {
-                                    header: _,
-                                    echo,
-                                    payload,
-                                }) = client
-                                    .ping6(
-                                        external_ipv6,
-                                        echo.id,
-                                        echo.seq,
-                                        payload,
-                                        Duration::from_secs(ICMP_PING_TIMEOUT_SECS),
-                                    )
-                                    .await?
-                                else {
-                                    continue;
-                                };
-
-                                let packet =
-                                    PacketBuilder::ethernet2(key.local_mac.0, key.client_mac.0);
-                                let packet = match (key.external_ip.addr, key.client_ip.addr) {
-                                    (
-                                        IpAddress::Ipv6(external_addr),
-                                        IpAddress::Ipv6(client_addr),
-                                    ) => packet.ipv6(external_addr.0, client_addr.0, 20),
-                                    _ => {
-                                        return Err(anyhow!("IP endpoint mismatch"));
-                                    }
-                                };
-                                let packet = packet.icmpv6_echo_reply(echo.id, echo.seq);
-                                let mut buffer: Vec<u8> = Vec::new();
-                                packet.write(&mut buffer, &payload)?;
-                                if let Err(error) = tx_sender.try_send(buffer) {
-                                    debug!("failed to transmit icmp packet: {}", error);
-                                }
-                            }
+                            ProxyIcmpHandler::process_ipv6(&context, ipv6, &client).await?
                         }
                     }
                 }
 
                 ProxyIcmpSelect::Close => {
-                    reclaim_sender.send(key).await?;
                     break;
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn process_ipv4(
+        context: &NatHandlerContext,
+        ipv4: &Ipv4Slice<'_>,
+        client: &IcmpClient,
+    ) -> Result<()> {
+        if ipv4.header().protocol() != IpNumber::ICMP {
+            return Ok(());
+        }
+
+        let (header, payload) = Icmpv4Header::from_slice(ipv4.payload().payload)?;
+        if let Icmpv4Type::EchoRequest(echo) = header.icmp_type {
+            let IpAddr::V4(external_ipv4) = context.key.external_ip.addr.into() else {
+                return Ok(());
+            };
+
+            let Some(IcmpReply::Icmp4 {
+                header: _,
+                echo,
+                payload,
+            }) = client
+                .ping4(
+                    external_ipv4,
+                    echo.id,
+                    echo.seq,
+                    payload,
+                    Duration::from_secs(ICMP_PING_TIMEOUT_SECS),
+                )
+                .await?
+            else {
+                return Ok(());
+            };
+
+            let packet =
+                PacketBuilder::ethernet2(context.key.local_mac.0, context.key.client_mac.0);
+            let packet = match (context.key.external_ip.addr, context.key.client_ip.addr) {
+                (IpAddress::Ipv4(external_addr), IpAddress::Ipv4(client_addr)) => {
+                    packet.ipv4(external_addr.0, client_addr.0, 20)
+                }
+                _ => {
+                    return Err(anyhow!("IP endpoint mismatch"));
+                }
+            };
+            let packet = packet.icmpv4_echo_reply(echo.id, echo.seq);
+            let mut buffer: Vec<u8> = Vec::new();
+            packet.write(&mut buffer, &payload)?;
+            if let Err(error) = context.try_send(buffer) {
+                debug!("failed to transmit icmp packet: {}", error);
+            }
+        }
+        Ok(())
+    }
+
+    async fn process_ipv6(
+        context: &NatHandlerContext,
+        ipv6: &Ipv6Slice<'_>,
+        client: &IcmpClient,
+    ) -> Result<()> {
+        if ipv6.header().next_header() != IpNumber::ICMP {
+            return Ok(());
+        }
+
+        let (header, payload) = Icmpv6Header::from_slice(ipv6.payload().payload)?;
+        if let Icmpv6Type::EchoRequest(echo) = header.icmp_type {
+            let IpAddr::V6(external_ipv6) = context.key.external_ip.addr.into() else {
+                return Ok(());
+            };
+
+            let Some(IcmpReply::Icmp6 {
+                header: _,
+                echo,
+                payload,
+            }) = client
+                .ping6(
+                    external_ipv6,
+                    echo.id,
+                    echo.seq,
+                    payload,
+                    Duration::from_secs(ICMP_PING_TIMEOUT_SECS),
+                )
+                .await?
+            else {
+                return Ok(());
+            };
+
+            let packet =
+                PacketBuilder::ethernet2(context.key.local_mac.0, context.key.client_mac.0);
+            let packet = match (context.key.external_ip.addr, context.key.client_ip.addr) {
+                (IpAddress::Ipv6(external_addr), IpAddress::Ipv6(client_addr)) => {
+                    packet.ipv6(external_addr.0, client_addr.0, 20)
+                }
+                _ => {
+                    return Err(anyhow!("IP endpoint mismatch"));
+                }
+            };
+            let packet = packet.icmpv6_echo_reply(echo.id, echo.seq);
+            let mut buffer: Vec<u8> = Vec::new();
+            packet.write(&mut buffer, &payload)?;
+            if let Err(error) = context.try_send(buffer) {
+                debug!("failed to transmit icmp packet: {}", error);
             }
         }
 
