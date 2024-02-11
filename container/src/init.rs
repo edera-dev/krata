@@ -3,11 +3,10 @@ use futures::stream::TryStreamExt;
 use hypha::{LaunchInfo, LaunchNetwork};
 use ipnetwork::IpNetwork;
 use log::{trace, warn};
-use nix::libc::{c_int, dup2, wait};
+use nix::libc::{c_int, dup2, ioctl, wait};
 use nix::unistd::{execve, fork, ForkResult, Pid};
 use oci_spec::image::{Config, ImageConfiguration};
 use std::ffi::{CStr, CString};
-use std::fs;
 use std::fs::{File, OpenOptions, Permissions};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::AsRawFd;
@@ -18,6 +17,7 @@ use std::ptr::addr_of_mut;
 use std::str::FromStr;
 use std::thread::sleep;
 use std::time::Duration;
+use std::{fs, io};
 use sys_mount::{FilesystemType, Mount, MountFlags};
 use walkdir::WalkDir;
 
@@ -66,9 +66,9 @@ impl ContainerInit {
             .write(true)
             .open("/dev/console")
         {
-            Ok(console) => self.map_console(console)?,
+            Ok(console) => self.map_console(&console)?,
             Err(error) => warn!("failed to open console: {}", error),
-        }
+        };
 
         self.mount_squashfs_images()?;
         let config = self.parse_image_config()?;
@@ -133,14 +133,13 @@ impl ContainerInit {
         Ok(())
     }
 
-    fn map_console(&mut self, console: File) -> Result<()> {
+    fn map_console(&mut self, console: &File) -> Result<()> {
         trace!("mapping console");
         unsafe {
             dup2(console.as_raw_fd(), 0);
             dup2(console.as_raw_fd(), 1);
             dup2(console.as_raw_fd(), 2);
         }
-        drop(console);
         Ok(())
     }
 
@@ -388,6 +387,7 @@ impl ContainerInit {
             Some(value) => value.clone(),
         };
         env.push("HYPHA_CONTAINER=1".to_string());
+        env.push("TERM=vt100".to_string());
         if let Some(extra_env) = &launch.env {
             env.extend_from_slice(extra_env.as_slice());
         }
@@ -424,6 +424,11 @@ impl ContainerInit {
         match unsafe { fork()? } {
             ForkResult::Parent { child } => self.background(child),
             ForkResult::Child => {
+                unsafe { nix::libc::setsid() };
+                let result = unsafe { ioctl(io::stdin().as_raw_fd(), nix::libc::TIOCSCTTY, 0) };
+                if result != 0 {
+                    warn!("failed to set controlling terminal, result={}", result);
+                }
                 execve(path, &cmd, &env)?;
                 Ok(())
             }
