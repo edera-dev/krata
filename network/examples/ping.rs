@@ -5,7 +5,7 @@ use hyphanet::icmp::{IcmpClient, IcmpProtocol};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let client = IcmpClient::new(IcmpProtocol::Icmp6)?;
+    let client = IcmpClient::new(IcmpProtocol::Icmpv6)?;
     let payload: [u8; 4] = [12u8, 14u8, 16u8, 32u8];
     let result = client
         .ping6(

@@ -114,7 +114,7 @@ impl NetworkBackend {
         let proxy = Box::new(ProxyNatHandlerFactory::new());
         let ipv4 = IpCidr::from_str(&self.ipv4)
             .map_err(|_| anyhow!("failed to parse ipv4 cidr: {}", self.ipv4))?;
-        let ipv6 = IpCidr::from_str(&self.ipv4)
+        let ipv6 = IpCidr::from_str(&self.ipv6)
             .map_err(|_| anyhow!("failed to parse ipv6 cidr: {}", self.ipv6))?;
         let addresses: Vec<IpCidr> = vec![ipv4, ipv6];
         let mut kdev =

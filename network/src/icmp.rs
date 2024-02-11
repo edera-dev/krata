@@ -21,15 +21,15 @@ use tokio::{
 
 #[derive(Debug)]
 pub enum IcmpProtocol {
-    Icmp4,
-    Icmp6,
+    Icmpv4,
+    Icmpv6,
 }
 
 impl IcmpProtocol {
     pub fn to_socket_protocol(&self) -> RawSocketProtocol {
         match self {
-            IcmpProtocol::Icmp4 => RawSocketProtocol::Icmpv4,
-            IcmpProtocol::Icmp6 => RawSocketProtocol::Icmpv6,
+            IcmpProtocol::Icmpv4 => RawSocketProtocol::Icmpv4,
+            IcmpProtocol::Icmpv6 => RawSocketProtocol::Icmpv6,
         }
     }
 }
@@ -88,7 +88,7 @@ impl IcmpClient {
             let packet = &buffer[0..size];
 
             let (token, reply) = match protocol {
-                IcmpProtocol::Icmp4 => {
+                IcmpProtocol::Icmpv4 => {
                     let sliced = match SlicedPacket::from_ip(packet) {
                         Ok(sliced) => sliced,
                         Err(error) => {
@@ -126,7 +126,7 @@ impl IcmpClient {
                     (token, reply)
                 }
 
-                IcmpProtocol::Icmp6 => {
+                IcmpProtocol::Icmpv6 => {
                     let Ok(icmpv6) = Icmpv6Slice::from_slice(packet) else {
                         continue;
                     };

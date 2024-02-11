@@ -48,7 +48,10 @@ impl ProxyIcmpHandler {
         context: NatHandlerContext,
         rx_receiver: Receiver<Vec<u8>>,
     ) -> Result<()> {
-        let client = IcmpClient::new(IcmpProtocol::Icmp4)?;
+        let client = IcmpClient::new(match context.key.external_ip.addr {
+            IpAddress::Ipv4(_) => IcmpProtocol::Icmpv4,
+            IpAddress::Ipv6(_) => IcmpProtocol::Icmpv6,
+        })?;
         tokio::spawn(async move {
             if let Err(error) = ProxyIcmpHandler::process(client, rx_receiver, context).await {
                 warn!("processing of icmp proxy failed: {}", error);
@@ -157,7 +160,7 @@ impl ProxyIcmpHandler {
         ipv6: &Ipv6Slice<'_>,
         client: &IcmpClient,
     ) -> Result<()> {
-        if ipv6.header().next_header() != IpNumber::ICMP {
+        if ipv6.header().next_header() != IpNumber::IPV6_ICMP {
             return Ok(());
         }
 

@@ -3,6 +3,8 @@ use async_trait::async_trait;
 use etherparse::Ethernet2Slice;
 use etherparse::Icmpv4Header;
 use etherparse::Icmpv4Type;
+use etherparse::Icmpv6Header;
+use etherparse::Icmpv6Type;
 use etherparse::IpNumber;
 use etherparse::IpPayloadSlice;
 use etherparse::Ipv4Slice;
@@ -220,6 +222,11 @@ impl NatRouter {
                     .await?;
             }
 
+            IpNumber::IPV6_ICMP => {
+                self.process_icmpv6(data, ether, source_addr, dest_addr, ipv6.payload())
+                    .await?;
+            }
+
             _ => {}
         }
 
@@ -280,6 +287,31 @@ impl NatRouter {
     ) -> Result<()> {
         let (header, _) = Icmpv4Header::from_slice(payload.payload)?;
         let Icmpv4Type::EchoRequest(_) = header.icmp_type else {
+            return Ok(());
+        };
+        let source = IpEndpoint::new(source_addr, 0);
+        let dest = IpEndpoint::new(dest_addr, 0);
+        let key = NatKey {
+            protocol: NatKeyProtocol::Icmp,
+            client_mac: EthernetAddress(ether.source()),
+            local_mac: EthernetAddress(ether.destination()),
+            client_ip: source,
+            external_ip: dest,
+        };
+        self.process_nat(data, key).await?;
+        Ok(())
+    }
+
+    pub async fn process_icmpv6<'a>(
+        &mut self,
+        data: &'a [u8],
+        ether: &Ethernet2Slice<'a>,
+        source_addr: IpAddress,
+        dest_addr: IpAddress,
+        payload: &IpPayloadSlice<'a>,
+    ) -> Result<()> {
+        let (header, _) = Icmpv6Header::from_slice(payload.payload)?;
+        let Icmpv6Type::EchoRequest(_) = header.icmp_type else {
             return Ok(());
         };
         let source = IpEndpoint::new(source_addr, 0);

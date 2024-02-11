@@ -350,7 +350,7 @@ impl ContainerInit {
             .await?;
 
         if ipv6_ready {
-            handle
+            let ipv6_gw_result = handle
                 .route()
                 .add()
                 .v6()
@@ -358,7 +358,11 @@ impl ContainerInit {
                 .output_interface(link.header.index)
                 .gateway(ipv6_gateway)
                 .execute()
-                .await?;
+                .await;
+
+            if let Err(error) = ipv6_gw_result {
+                warn!("failed to add ipv6 gateway route: {}", error);
+            }
         }
 
         Ok(())
