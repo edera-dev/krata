@@ -132,6 +132,7 @@ impl NetworkBackend {
         let mac = self.force_mac_address.unwrap_or_else(|| {
             let mut mac = MacAddr6::random();
             mac.set_local(true);
+            mac.set_multicast(false);
             mac
         });
         let mac = smoltcp::wire::EthernetAddress(mac.to_array());

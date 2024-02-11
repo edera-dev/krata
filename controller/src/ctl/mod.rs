@@ -85,6 +85,7 @@ impl Controller {
 
         let mut mac = MacAddr6::random();
         mac.set_local(true);
+        mac.set_multicast(false);
         let ipv4 = self.allocate_ipv4()?;
         let ipv6 = mac.to_link_local_ipv6();
         let launch_config = LaunchInfo {
