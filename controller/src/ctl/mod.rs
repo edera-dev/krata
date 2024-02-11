@@ -7,7 +7,9 @@ use crate::image::name::ImageName;
 use crate::image::{ImageCompiler, ImageInfo};
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
-use hypha::{LaunchInfo, LaunchNetwork, LaunchNetworkIpv4};
+use hypha::{
+    LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
+};
 use ipnetwork::Ipv4Network;
 use loopdev::LoopControl;
 use std::io::{Read, Write};
@@ -81,7 +83,10 @@ impl Controller {
         let name = format!("hypha-{uuid}");
         let image_info = self.compile(image)?;
 
+        let mut mac = MacAddr6::random();
+        mac.set_local(true);
         let ipv4 = self.allocate_ipv4()?;
+        let ipv6 = mac.to_link_local_ipv6();
         let launch_config = LaunchInfo {
             network: Some(LaunchNetwork {
                 link: "eth0".to_string(),
@@ -89,7 +94,18 @@ impl Controller {
                     address: format!("{}/24", ipv4),
                     gateway: "192.168.42.1".to_string(),
                 },
-                ipv6: None,
+                ipv6: LaunchNetworkIpv6 {
+                    address: format!("{}/10", ipv6),
+                    gateway: "fe80::1".to_string(),
+                },
+                resolver: LaunchNetworkResolver {
+                    nameservers: vec![
+                        "1.1.1.1".to_string(),
+                        "1.0.0.1".to_string(),
+                        "2606:4700:4700::1111".to_string(),
+                        "2606:4700:4700::1001".to_string(),
+                    ],
+                },
             }),
             env,
             run,
@@ -118,8 +134,6 @@ impl Controller {
         let cmdline_options = [if debug { "debug" } else { "quiet" }, "elevator=noop"];
         let cmdline = cmdline_options.join(" ");
 
-        let mut mac = MacAddr6::random();
-        mac.set_local(true);
         let mac = mac.to_string().replace('-', ":");
         let config = DomainConfig {
             backend_domid: 0,

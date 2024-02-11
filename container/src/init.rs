@@ -9,7 +9,7 @@ use oci_spec::image::{Config, ImageConfiguration};
 use std::ffi::{CStr, CString};
 use std::fs;
 use std::fs::{File, OpenOptions, Permissions};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::fs::{chroot, PermissionsExt};
@@ -283,52 +283,83 @@ impl ContainerInit {
     }
 
     async fn network_setup(&mut self, network: &LaunchNetwork) -> Result<()> {
-        trace!(
-            "setting up network for link {} with ipv4 address {} and gateway {}",
-            network.link,
-            network.ipv4.address,
-            network.ipv4.gateway,
-        );
-
-        let (connection, handle, _) = rtnetlink::new_connection()?;
-        tokio::spawn(connection);
-
-        let ipnet: IpNetwork = network.ipv4.address.parse()?;
-        let gateway: Ipv4Addr = network.ipv4.gateway.parse()?;
-
-        let mut links = handle
-            .link()
-            .get()
-            .match_name(network.link.clone())
-            .execute();
-        if let Some(link) = links.try_next().await? {
-            handle
-                .address()
-                .add(link.header.index, ipnet.ip(), ipnet.prefix())
-                .execute()
-                .await?;
-
-            handle.link().set(link.header.index).up().execute().await?;
-
-            handle
-                .route()
-                .add()
-                .v4()
-                .destination_prefix(Ipv4Addr::new(0, 0, 0, 0), 0)
-                .output_interface(link.header.index)
-                .gateway(gateway)
-                .execute()
-                .await?;
-        } else {
-            warn!("unable to find link named {}", network.link);
-        }
+        trace!("setting up network for link");
 
         let etc = PathBuf::from_str("/etc")?;
         if !etc.exists() {
             fs::create_dir(etc)?;
         }
         let resolv = PathBuf::from_str("/etc/resolv.conf")?;
-        fs::write(resolv, "nameserver 1.1.1.1\n")?;
+        let mut lines = vec!["# hypha resolver configuration".to_string()];
+        for nameserver in &network.resolver.nameservers {
+            lines.push(format!("nameserver {}", nameserver));
+        }
+
+        let mut conf = lines.join("\n");
+        conf.push('\n');
+        fs::write(resolv, conf)?;
+
+        let (connection, handle, _) = rtnetlink::new_connection()?;
+        tokio::spawn(connection);
+
+        let ipv4_network: IpNetwork = network.ipv4.address.parse()?;
+        let ipv4_gateway: Ipv4Addr = network.ipv4.gateway.parse()?;
+        let ipv6_network: IpNetwork = network.ipv6.address.parse()?;
+        let ipv6_gateway: Ipv6Addr = network.ipv6.gateway.parse()?;
+
+        let mut links = handle
+            .link()
+            .get()
+            .match_name(network.link.clone())
+            .execute();
+        let Some(link) = links.try_next().await? else {
+            warn!("unable to find link named {}", network.link);
+            return Ok(());
+        };
+
+        handle
+            .address()
+            .add(link.header.index, ipv4_network.ip(), ipv4_network.prefix())
+            .execute()
+            .await?;
+
+        let ipv6_result = handle
+            .address()
+            .add(link.header.index, ipv6_network.ip(), ipv6_network.prefix())
+            .execute()
+            .await;
+
+        let ipv6_ready = match ipv6_result {
+            Ok(()) => true,
+            Err(error) => {
+                warn!("unable to setup ipv6 network: {}", error);
+                false
+            }
+        };
+
+        handle.link().set(link.header.index).up().execute().await?;
+
+        handle
+            .route()
+            .add()
+            .v4()
+            .destination_prefix(Ipv4Addr::UNSPECIFIED, 0)
+            .output_interface(link.header.index)
+            .gateway(ipv4_gateway)
+            .execute()
+            .await?;
+
+        if ipv6_ready {
+            handle
+                .route()
+                .add()
+                .v6()
+                .destination_prefix(Ipv6Addr::UNSPECIFIED, 0)
+                .output_interface(link.header.index)
+                .gateway(ipv6_gateway)
+                .execute()
+                .await?;
+        }
 
         Ok(())
     }

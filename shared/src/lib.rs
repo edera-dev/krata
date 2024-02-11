@@ -13,10 +13,16 @@ pub struct LaunchNetworkIpv6 {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct LaunchNetworkResolver {
+    pub nameservers: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct LaunchNetwork {
     pub link: String,
     pub ipv4: LaunchNetworkIpv4,
-    pub ipv6: Option<LaunchNetworkIpv6>,
+    pub ipv6: LaunchNetworkIpv6,
+    pub resolver: LaunchNetworkResolver,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
