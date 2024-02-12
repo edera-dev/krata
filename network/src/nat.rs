@@ -25,6 +25,8 @@ use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 
+const RECLAIM_CHANNEL_QUEUE_LEN: usize = 10;
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub enum NatKeyProtocol {
     Tcp,
@@ -118,7 +120,7 @@ impl NatRouter {
         local_cidrs: Vec<IpCidr>,
         tx_sender: Sender<BytesMut>,
     ) -> Self {
-        let (reclaim_sender, reclaim_receiver) = channel(4);
+        let (reclaim_sender, reclaim_receiver) = channel(RECLAIM_CHANNEL_QUEUE_LEN);
         Self {
             mtu,
             local_mac,

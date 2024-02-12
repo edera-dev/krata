@@ -21,9 +21,9 @@ use tokio::{
 
 const BROADCAST_MAC_ADDR: &[u8; 6] = &[0xff; 6];
 
-const BRIDGE_TX_QUEUE_LEN: usize = 4;
-const BRIDGE_RX_QUEUE_LEN: usize = 4;
-const BROADCAST_RX_QUEUE_LEN: usize = 4;
+const BRIDGE_TX_QUEUE_LEN: usize = 50;
+const BRIDGE_RX_QUEUE_LEN: usize = 50;
+const BROADCAST_RX_QUEUE_LEN: usize = 50;
 
 #[derive(Debug)]
 struct BridgeMember {

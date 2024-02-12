@@ -19,6 +19,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver};
 
+const TX_CHANNEL_BUFFER_LEN: usize = 300;
+
 #[derive(Clone)]
 pub struct NetworkBackend {
     metadata: NetworkMetadata,
@@ -121,7 +123,7 @@ impl NetworkBackend {
         ];
         let mut kdev = AsyncRawSocket::bound_to_interface(&interface, RawSocketProtocol::Ethernet)?;
         let mtu = kdev.mtu_of_interface(&interface)?;
-        let (tx_sender, tx_receiver) = channel::<BytesMut>(100);
+        let (tx_sender, tx_receiver) = channel::<BytesMut>(TX_CHANNEL_BUFFER_LEN);
         let mut udev = ChannelDevice::new(mtu, Medium::Ethernet, tx_sender.clone());
         let mac = self.metadata.gateway.mac;
         let nat = NatRouter::new(mtu, proxy, mac, addresses.clone(), tx_sender.clone());
