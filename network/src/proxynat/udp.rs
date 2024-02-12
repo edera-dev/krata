@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use bytes::BytesMut;
 use etherparse::{PacketBuilder, SlicedPacket, UdpSlice};
 use log::{debug, warn};
 use smoltcp::wire::IpAddress;
@@ -20,7 +21,7 @@ use crate::nat::{NatHandler, NatHandlerContext};
 const UDP_TIMEOUT_SECS: u64 = 60;
 
 pub struct ProxyUdpHandler {
-    rx_sender: Sender<Vec<u8>>,
+    rx_sender: Sender<BytesMut>,
 }
 
 #[async_trait]
@@ -29,7 +30,7 @@ impl NatHandler for ProxyUdpHandler {
         if self.rx_sender.is_closed() {
             Ok(true)
         } else {
-            self.rx_sender.try_send(data.to_vec())?;
+            self.rx_sender.try_send(data.into())?;
             Ok(true)
         }
     }
@@ -37,19 +38,19 @@ impl NatHandler for ProxyUdpHandler {
 
 enum ProxyUdpSelect {
     External(usize),
-    Internal(Vec<u8>),
+    Internal(BytesMut),
     Close,
 }
 
 impl ProxyUdpHandler {
-    pub fn new(rx_sender: Sender<Vec<u8>>) -> Self {
+    pub fn new(rx_sender: Sender<BytesMut>) -> Self {
         ProxyUdpHandler { rx_sender }
     }
 
     pub async fn spawn(
         &mut self,
         context: NatHandlerContext,
-        rx_receiver: Receiver<Vec<u8>>,
+        rx_receiver: Receiver<BytesMut>,
     ) -> Result<()> {
         let external_addr = match context.key.external_ip.addr {
             IpAddress::Ipv4(addr) => {
@@ -72,7 +73,7 @@ impl ProxyUdpHandler {
     async fn process(
         context: NatHandlerContext,
         mut socket: UdpStream,
-        mut rx_receiver: Receiver<Vec<u8>>,
+        mut rx_receiver: Receiver<BytesMut>,
     ) -> Result<()> {
         let mut external_buffer = vec![0u8; 2048];
 
@@ -108,7 +109,7 @@ impl ProxyUdpHandler {
                         packet.udp(context.key.external_ip.port, context.key.client_ip.port);
                     let mut buffer: Vec<u8> = Vec::new();
                     packet.write(&mut buffer, data)?;
-                    if let Err(error) = context.try_send(buffer) {
+                    if let Err(error) = context.try_send(buffer.as_slice().into()) {
                         debug!("failed to transmit udp packet: {}", error);
                     }
                 }

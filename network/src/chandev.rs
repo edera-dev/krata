@@ -1,27 +1,32 @@
+use bytes::BytesMut;
 // Referenced https://github.com/vi/wgslirpy/blob/master/crates/libwgslirpy/src/channelized_smoltcp_device.rs
 use log::{debug, warn};
 use smoltcp::phy::{Checksum, Device, Medium};
 use tokio::sync::mpsc::Sender;
 
+const TEAR_OFF_BUFFER_SIZE: usize = 65536;
+
 pub struct ChannelDevice {
     pub mtu: usize,
     pub medium: Medium,
-    pub tx: Sender<Vec<u8>>,
-    pub rx: Option<Vec<u8>>,
+    pub tx: Sender<BytesMut>,
+    pub rx: Option<BytesMut>,
+    tear_off_buffer: BytesMut,
 }
 
 impl ChannelDevice {
-    pub fn new(mtu: usize, medium: Medium, tx: Sender<Vec<u8>>) -> Self {
+    pub fn new(mtu: usize, medium: Medium, tx: Sender<BytesMut>) -> Self {
         Self {
             mtu,
             medium,
             tx,
             rx: None,
+            tear_off_buffer: BytesMut::with_capacity(TEAR_OFF_BUFFER_SIZE),
         }
     }
 }
 
-pub struct RxToken(pub Vec<u8>);
+pub struct RxToken(pub BytesMut);
 
 impl Device for ChannelDevice {
     type RxToken<'a> = RxToken where Self: 'a;
@@ -69,10 +74,15 @@ impl<'a> smoltcp::phy::TxToken for &'a mut ChannelDevice {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let mut buffer = vec![0u8; len];
-        let result = f(&mut buffer[..]);
-        if let Err(error) = self.tx.try_send(buffer) {
+        self.tear_off_buffer.resize(len, 0);
+        let result = f(&mut self.tear_off_buffer[..]);
+        let chunk = self.tear_off_buffer.split();
+        if let Err(error) = self.tx.try_send(chunk) {
             warn!("failed to transmit packet: {}", error);
+        }
+
+        if self.tear_off_buffer.capacity() < self.mtu {
+            self.tear_off_buffer = BytesMut::with_capacity(TEAR_OFF_BUFFER_SIZE);
         }
         result
     }

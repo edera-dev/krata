@@ -6,6 +6,7 @@ use crate::proxynat::ProxyNatHandlerFactory;
 use crate::raw_socket::{AsyncRawSocket, RawSocketProtocol};
 use crate::vbridge::{BridgeJoinHandle, VirtualBridge};
 use anyhow::{anyhow, Result};
+use bytes::BytesMut;
 use etherparse::SlicedPacket;
 use futures::TryStreamExt;
 use log::{debug, info, trace, warn};
@@ -26,13 +27,13 @@ pub struct NetworkBackend {
 
 enum NetworkStackSelect<'a> {
     Receive(&'a [u8]),
-    Send(Option<Vec<u8>>),
+    Send(Option<BytesMut>),
     Reclaim,
 }
 
 struct NetworkStack<'a> {
     mtu: usize,
-    tx: Receiver<Vec<u8>>,
+    tx: Receiver<BytesMut>,
     kdev: AsyncRawSocket,
     udev: ChannelDevice,
     interface: Interface,
@@ -53,7 +54,7 @@ impl NetworkStack<'_> {
 
         match what {
             NetworkStackSelect::Receive(packet) => {
-                if let Err(error) = self.bridge.bridge_tx_sender.try_send(packet.to_vec()) {
+                if let Err(error) = self.bridge.bridge_tx_sender.try_send(packet.into()) {
                     trace!("failed to send guest packet to bridge: {}", error);
                 }
 
@@ -63,7 +64,7 @@ impl NetworkStack<'_> {
                     debug!("router failed to process packet: {}", error);
                 }
 
-                self.udev.rx = Some(packet.raw.to_vec());
+                self.udev.rx = Some(packet.raw.into());
                 self.interface
                     .poll(Instant::now(), &mut self.udev, &mut self.sockets);
             }
@@ -120,7 +121,7 @@ impl NetworkBackend {
         ];
         let mut kdev = AsyncRawSocket::bound_to_interface(&interface, RawSocketProtocol::Ethernet)?;
         let mtu = kdev.mtu_of_interface(&interface)?;
-        let (tx_sender, tx_receiver) = channel::<Vec<u8>>(100);
+        let (tx_sender, tx_receiver) = channel::<BytesMut>(100);
         let mut udev = ChannelDevice::new(mtu, Medium::Ethernet, tx_sender.clone());
         let mac = self.metadata.gateway.mac;
         let nat = NatRouter::new(mtu, proxy, mac, addresses.clone(), tx_sender.clone());

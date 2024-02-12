@@ -19,6 +19,7 @@ smoltcp = { workspace = true }
 etherparse = { workspace = true }
 async-trait = { workspace = true }
 uuid = { workspace = true }
+bytes = { workspace = true }
 
 [dependencies.advmac]
 path = "../libs/advmac"

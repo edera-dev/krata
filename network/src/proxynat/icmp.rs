@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use bytes::BytesMut;
 use etherparse::{
     IcmpEchoHeader, Icmpv4Header, Icmpv4Type, Icmpv6Header, Icmpv6Type, IpNumber, Ipv4Slice,
     Ipv6Slice, NetSlice, PacketBuilder, SlicedPacket,
@@ -25,7 +26,7 @@ const ICMP_PING_TIMEOUT_SECS: u64 = 20;
 const ICMP_TIMEOUT_SECS: u64 = 30;
 
 pub struct ProxyIcmpHandler {
-    rx_sender: Sender<Vec<u8>>,
+    rx_sender: Sender<BytesMut>,
 }
 
 #[async_trait]
@@ -34,26 +35,26 @@ impl NatHandler for ProxyIcmpHandler {
         if self.rx_sender.is_closed() {
             Ok(true)
         } else {
-            self.rx_sender.try_send(data.to_vec())?;
+            self.rx_sender.try_send(data.into())?;
             Ok(true)
         }
     }
 }
 
 enum ProxyIcmpSelect {
-    Internal(Vec<u8>),
+    Internal(BytesMut),
     Close,
 }
 
 impl ProxyIcmpHandler {
-    pub fn new(rx_sender: Sender<Vec<u8>>) -> Self {
+    pub fn new(rx_sender: Sender<BytesMut>) -> Self {
         ProxyIcmpHandler { rx_sender }
     }
 
     pub async fn spawn(
         &mut self,
         context: NatHandlerContext,
-        rx_receiver: Receiver<Vec<u8>>,
+        rx_receiver: Receiver<BytesMut>,
     ) -> Result<()> {
         let client = IcmpClient::new(match context.key.external_ip.addr {
             IpAddress::Ipv4(_) => IcmpProtocol::Icmpv4,
@@ -69,7 +70,7 @@ impl ProxyIcmpHandler {
 
     async fn process(
         client: IcmpClient,
-        mut rx_receiver: Receiver<Vec<u8>>,
+        mut rx_receiver: Receiver<BytesMut>,
         context: NatHandlerContext,
     ) -> Result<()> {
         loop {
@@ -222,7 +223,7 @@ impl ProxyIcmpHandler {
         let packet = packet.icmpv4_echo_reply(echo.id, echo.seq);
         let mut buffer: Vec<u8> = Vec::new();
         packet.write(&mut buffer, &payload)?;
-        if let Err(error) = context.try_send(buffer) {
+        if let Err(error) = context.try_send(buffer.as_slice().into()) {
             debug!("failed to transmit icmp packet: {}", error);
         }
         Ok(())
@@ -265,7 +266,7 @@ impl ProxyIcmpHandler {
         let packet = packet.icmpv6_echo_reply(echo.id, echo.seq);
         let mut buffer: Vec<u8> = Vec::new();
         packet.write(&mut buffer, &payload)?;
-        if let Err(error) = context.try_send(buffer) {
+        if let Err(error) = context.try_send(buffer.as_slice().into()) {
             debug!("failed to transmit icmp packet: {}", error);
         }
         Ok(())

@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use bytes::BytesMut;
 use etherparse::{EtherType, Ethernet2Header};
 use log::{debug, warn};
 use smoltcp::{
@@ -32,7 +33,7 @@ const TCP_ACCEPT_TIMEOUT_SECS: u64 = 120;
 const TCP_DANGLE_TIMEOUT_SECS: u64 = 10;
 
 pub struct ProxyTcpHandler {
-    rx_sender: Sender<Vec<u8>>,
+    rx_sender: Sender<BytesMut>,
 }
 
 #[async_trait]
@@ -41,7 +42,7 @@ impl NatHandler for ProxyTcpHandler {
         if self.rx_sender.is_closed() {
             Ok(false)
         } else {
-            self.rx_sender.try_send(data.to_vec())?;
+            self.rx_sender.try_send(data.into())?;
             Ok(true)
         }
     }
@@ -49,8 +50,8 @@ impl NatHandler for ProxyTcpHandler {
 
 #[derive(Debug)]
 enum ProxyTcpAcceptSelect {
-    Internal(Vec<u8>),
-    TxIpPacket(Vec<u8>),
+    Internal(BytesMut),
+    TxIpPacket(BytesMut),
     TimePassed,
     DoNothing,
     Close,
@@ -60,8 +61,8 @@ enum ProxyTcpAcceptSelect {
 enum ProxyTcpDataSelect {
     ExternalRecv(usize),
     ExternalSent(usize),
-    InternalRecv(Vec<u8>),
-    TxIpPacket(Vec<u8>),
+    InternalRecv(BytesMut),
+    TxIpPacket(BytesMut),
     TimePassed,
     DoNothing,
     Close,
@@ -69,20 +70,20 @@ enum ProxyTcpDataSelect {
 
 #[derive(Debug)]
 enum ProxyTcpFinishSelect {
-    InternalRecv(Vec<u8>),
-    TxIpPacket(Vec<u8>),
+    InternalRecv(BytesMut),
+    TxIpPacket(BytesMut),
     Close,
 }
 
 impl ProxyTcpHandler {
-    pub fn new(rx_sender: Sender<Vec<u8>>) -> Self {
+    pub fn new(rx_sender: Sender<BytesMut>) -> Self {
         ProxyTcpHandler { rx_sender }
     }
 
     pub async fn spawn(
         &mut self,
         context: NatHandlerContext,
-        rx_receiver: Receiver<Vec<u8>>,
+        rx_receiver: Receiver<BytesMut>,
     ) -> Result<()> {
         let external_addr = match context.key.external_ip.addr {
             IpAddress::Ipv4(addr) => {
@@ -105,9 +106,9 @@ impl ProxyTcpHandler {
     async fn process(
         context: NatHandlerContext,
         mut external_socket: TcpStream,
-        mut rx_receiver: Receiver<Vec<u8>>,
+        mut rx_receiver: Receiver<BytesMut>,
     ) -> Result<()> {
-        let (ip_sender, mut ip_receiver) = channel::<Vec<u8>>(300);
+        let (ip_sender, mut ip_receiver) = channel::<BytesMut>(300);
         let mut external_buffer = vec![0u8; TCP_BUFFER_SIZE];
 
         let mut device = ChannelDevice::new(
@@ -197,7 +198,7 @@ impl ProxyTcpHandler {
 
                 ProxyTcpAcceptSelect::Internal(data) => {
                     let (_, payload) = Ethernet2Header::from_slice(&data)?;
-                    device.rx = Some(payload.to_vec());
+                    device.rx = Some(payload.into());
                     iface.poll(Instant::now(), &mut device, &mut sockets);
                 }
 
@@ -213,7 +214,7 @@ impl ProxyTcpHandler {
                     };
                     header.write(&mut buffer)?;
                     buffer.extend_from_slice(&payload);
-                    if let Err(error) = context.try_send(buffer) {
+                    if let Err(error) = context.try_send(buffer.as_slice().into()) {
                         debug!("failed to transmit tcp packet: {}", error);
                     }
                 }
@@ -370,7 +371,7 @@ impl ProxyTcpHandler {
 
                 ProxyTcpDataSelect::InternalRecv(data) => {
                     let (_, payload) = Ethernet2Header::from_slice(&data)?;
-                    device.rx = Some(payload.to_vec());
+                    device.rx = Some(payload.into());
                     iface.poll(Instant::now(), &mut device, &mut sockets);
                 }
 
@@ -386,7 +387,7 @@ impl ProxyTcpHandler {
                     };
                     header.write(&mut buffer)?;
                     buffer.extend_from_slice(&payload);
-                    if let Err(error) = context.try_send(buffer) {
+                    if let Err(error) = context.try_send(buffer.as_slice().into()) {
                         debug!("failed to transmit tcp packet: {}", error);
                     }
                 }
@@ -430,7 +431,7 @@ impl ProxyTcpHandler {
             match selection {
                 ProxyTcpFinishSelect::InternalRecv(data) => {
                     let (_, payload) = Ethernet2Header::from_slice(&data)?;
-                    device.rx = Some(payload.to_vec());
+                    device.rx = Some(payload.into());
                     iface.poll(Instant::now(), &mut device, &mut sockets);
                 }
 
@@ -446,7 +447,7 @@ impl ProxyTcpHandler {
                     };
                     header.write(&mut buffer)?;
                     buffer.extend_from_slice(&payload);
-                    if let Err(error) = context.try_send(buffer) {
+                    if let Err(error) = context.try_send(buffer.as_slice().into()) {
                         debug!("failed to transmit tcp packet: {}", error);
                     }
                 }

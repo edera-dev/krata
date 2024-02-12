@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use bytes::BytesMut;
 use etherparse::Ethernet2Header;
 use log::{debug, trace, warn};
 use smoltcp::wire::EthernetAddress;
@@ -26,33 +27,33 @@ const BROADCAST_RX_QUEUE_LEN: usize = 4;
 
 #[derive(Debug)]
 struct BridgeMember {
-    pub bridge_rx_sender: Sender<Vec<u8>>,
+    pub bridge_rx_sender: Sender<BytesMut>,
 }
 
 pub struct BridgeJoinHandle {
-    pub bridge_tx_sender: Sender<Vec<u8>>,
-    pub bridge_rx_receiver: Receiver<Vec<u8>>,
-    pub broadcast_rx_receiver: BroadcastReceiver<Vec<u8>>,
+    pub bridge_tx_sender: Sender<BytesMut>,
+    pub bridge_rx_receiver: Receiver<BytesMut>,
+    pub broadcast_rx_receiver: BroadcastReceiver<BytesMut>,
 }
 
 type VirtualBridgeMemberMap = Arc<Mutex<HashMap<[u8; 6], BridgeMember>>>;
 
 #[derive(Clone)]
 pub struct VirtualBridge {
-    bridge_tx_sender: Sender<Vec<u8>>,
     members: VirtualBridgeMemberMap,
-    broadcast_rx_sender: BroadcastSender<Vec<u8>>,
+    bridge_tx_sender: Sender<BytesMut>,
+    broadcast_rx_sender: BroadcastSender<BytesMut>,
     _task: Arc<JoinHandle<()>>,
 }
 
 enum VirtualBridgeSelect {
-    BroadcastSent(Option<Vec<u8>>),
-    PacketReceived(Option<Vec<u8>>),
+    BroadcastSent(Option<BytesMut>),
+    PacketReceived(Option<BytesMut>),
 }
 
 impl VirtualBridge {
     pub fn new() -> Result<VirtualBridge> {
-        let (bridge_tx_sender, bridge_tx_receiver) = channel::<Vec<u8>>(BRIDGE_TX_QUEUE_LEN);
+        let (bridge_tx_sender, bridge_tx_receiver) = channel::<BytesMut>(BRIDGE_TX_QUEUE_LEN);
         let (broadcast_rx_sender, broadcast_rx_receiver) =
             broadcast_channel(BROADCAST_RX_QUEUE_LEN);
 
@@ -83,7 +84,7 @@ impl VirtualBridge {
     }
 
     pub async fn join(&self, mac: EthernetAddress) -> Result<BridgeJoinHandle> {
-        let (bridge_rx_sender, bridge_rx_receiver) = channel::<Vec<u8>>(BRIDGE_RX_QUEUE_LEN);
+        let (bridge_rx_sender, bridge_rx_receiver) = channel::<BytesMut>(BRIDGE_RX_QUEUE_LEN);
         let member = BridgeMember { bridge_rx_sender };
 
         match self.members.lock().await.entry(mac.0) {
@@ -107,9 +108,9 @@ impl VirtualBridge {
 
     async fn process(
         members: VirtualBridgeMemberMap,
-        mut bridge_tx_receiver: Receiver<Vec<u8>>,
-        broadcast_rx_sender: BroadcastSender<Vec<u8>>,
-        mut broadcast_rx_receiver: BroadcastReceiver<Vec<u8>>,
+        mut bridge_tx_receiver: Receiver<BytesMut>,
+        broadcast_rx_sender: BroadcastSender<BytesMut>,
+        mut broadcast_rx_receiver: BroadcastReceiver<BytesMut>,
     ) -> Result<()> {
         loop {
             let selection = select! {

@@ -53,6 +53,7 @@ udp-stream = "0.0.11"
 smoltcp = "0.11.0"
 etherparse = "0.14.2"
 async-trait = "0.1.77"
+bytes = "1.5.0"
 
 [workspace.dependencies.uuid]
 version = "1.6.1"

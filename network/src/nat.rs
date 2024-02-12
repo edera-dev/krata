@@ -2,6 +2,7 @@ use crate::pkt::RecvPacket;
 use crate::pkt::RecvPacketIp;
 use anyhow::Result;
 use async_trait::async_trait;
+use bytes::BytesMut;
 use etherparse::Icmpv4Header;
 use etherparse::Icmpv4Type;
 use etherparse::Icmpv6Header;
@@ -54,12 +55,12 @@ impl Display for NatKey {
 pub struct NatHandlerContext {
     pub mtu: usize,
     pub key: NatKey,
-    tx_sender: Sender<Vec<u8>>,
+    tx_sender: Sender<BytesMut>,
     reclaim_sender: Sender<NatKey>,
 }
 
 impl NatHandlerContext {
-    pub fn try_send(&self, buffer: Vec<u8>) -> Result<()> {
+    pub fn try_send(&self, buffer: BytesMut) -> Result<()> {
         self.tx_sender.try_send(buffer)?;
         Ok(())
     }
@@ -104,7 +105,7 @@ pub struct NatRouter {
     local_cidrs: Vec<IpCidr>,
     factory: Box<dyn NatHandlerFactory>,
     table: NatTable,
-    tx_sender: Sender<Vec<u8>>,
+    tx_sender: Sender<BytesMut>,
     reclaim_sender: Sender<NatKey>,
     reclaim_receiver: Receiver<NatKey>,
 }
@@ -115,7 +116,7 @@ impl NatRouter {
         factory: Box<dyn NatHandlerFactory>,
         local_mac: EthernetAddress,
         local_cidrs: Vec<IpCidr>,
-        tx_sender: Sender<Vec<u8>>,
+        tx_sender: Sender<BytesMut>,
     ) -> Self {
         let (reclaim_sender, reclaim_receiver) = channel(4);
         Self {
