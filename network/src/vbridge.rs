@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use etherparse::Ethernet2Header;
+use etherparse::{EtherType, Ethernet2Header, IpNumber, Ipv4Header, TcpHeader};
 use log::{debug, trace, warn};
 use smoltcp::wire::EthernetAddress;
 use std::{
@@ -121,13 +121,32 @@ impl VirtualBridge {
 
             match selection {
                 VirtualBridgeSelect::PacketReceived(Some(packet)) => {
-                    let header = match Ethernet2Header::from_slice(&packet) {
-                        Ok((header, _)) => header,
+                    let mut packet: Vec<u8> = packet.into();
+                    let (header, payload) = match Ethernet2Header::from_slice(&packet) {
+                        Ok(data) => data,
                         Err(error) => {
                             debug!("virtual bridge failed to parse ethernet header: {}", error);
                             continue;
                         }
                     };
+
+                    if header.ether_type == EtherType::IPV4 {
+                        let (ipv4, payload) = Ipv4Header::from_slice(payload)?;
+
+                        // recalculate TCP checksums when routing packets.
+                        // the xen network backend / frontend drivers for linux
+                        // are very stupid and do not calculate these properly
+                        // despite all best attempts as making it do so.
+                        if ipv4.protocol == IpNumber::TCP {
+                            let (mut tcp, payload) = TcpHeader::from_slice(payload)?;
+                            tcp.checksum = tcp.calc_checksum_ipv4(&ipv4, payload)?;
+                            let tcp_header_offset = Ethernet2Header::LEN + ipv4.header_len();
+                            let tcp_header_bytes = tcp.to_bytes();
+                            for (i, b) in tcp_header_bytes.iter().enumerate() {
+                                packet[tcp_header_offset + i] = *b;
+                            }
+                        }
+                    }
 
                     let destination = &header.destination;
                     if destination == BROADCAST_MAC_ADDR {
@@ -135,12 +154,12 @@ impl VirtualBridge {
                             "broadcasting bridged packet from {}",
                             EthernetAddress(header.source)
                         );
-                        broadcast_rx_sender.send(packet)?;
+                        broadcast_rx_sender.send(packet.as_slice().into())?;
                         continue;
                     }
                     match members.lock().await.get(destination) {
                         Some(member) => {
-                            member.bridge_rx_sender.try_send(packet)?;
+                            member.bridge_rx_sender.try_send(packet.as_slice().into())?;
                             trace!(
                                 "sending bridged packet from {} to {}",
                                 EthernetAddress(header.source),
