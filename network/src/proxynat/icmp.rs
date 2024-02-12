@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use bytes::BytesMut;
+use bytes::{BufMut, BytesMut};
 use etherparse::{
     IcmpEchoHeader, Icmpv4Header, Icmpv4Type, Icmpv6Header, Icmpv6Type, IpNumber, Ipv4Slice,
     Ipv6Slice, NetSlice, PacketBuilder, SlicedPacket,
@@ -221,9 +221,11 @@ impl ProxyIcmpHandler {
             }
         };
         let packet = packet.icmpv4_echo_reply(echo.id, echo.seq);
-        let mut buffer: Vec<u8> = Vec::new();
-        packet.write(&mut buffer, &payload)?;
-        if let Err(error) = context.try_send(buffer.as_slice().into()) {
+        let buffer = BytesMut::with_capacity(packet.size(payload.len()));
+        let mut writer = buffer.writer();
+        packet.write(&mut writer, &payload)?;
+        let buffer = writer.into_inner();
+        if let Err(error) = context.try_send(buffer) {
             debug!("failed to transmit icmp packet: {}", error);
         }
         Ok(())
@@ -264,9 +266,11 @@ impl ProxyIcmpHandler {
             }
         };
         let packet = packet.icmpv6_echo_reply(echo.id, echo.seq);
-        let mut buffer: Vec<u8> = Vec::new();
-        packet.write(&mut buffer, &payload)?;
-        if let Err(error) = context.try_send(buffer.as_slice().into()) {
+        let buffer = BytesMut::with_capacity(packet.size(payload.len()));
+        let mut writer = buffer.writer();
+        packet.write(&mut writer, &payload)?;
+        let buffer = writer.into_inner();
+        if let Err(error) = context.try_send(buffer) {
             debug!("failed to transmit icmp packet: {}", error);
         }
         Ok(())

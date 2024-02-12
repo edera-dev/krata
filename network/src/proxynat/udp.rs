@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use bytes::BytesMut;
+use bytes::{BufMut, BytesMut};
 use etherparse::{PacketBuilder, SlicedPacket, UdpSlice};
 use log::{debug, warn};
 use smoltcp::wire::IpAddress;
@@ -107,9 +107,11 @@ impl ProxyUdpHandler {
                     };
                     let packet =
                         packet.udp(context.key.external_ip.port, context.key.client_ip.port);
-                    let mut buffer: Vec<u8> = Vec::new();
-                    packet.write(&mut buffer, data)?;
-                    if let Err(error) = context.try_send(buffer.as_slice().into()) {
+                    let buffer = BytesMut::with_capacity(packet.size(data.len()));
+                    let mut writer = buffer.writer();
+                    packet.write(&mut writer, data)?;
+                    let buffer = writer.into_inner();
+                    if let Err(error) = context.try_send(buffer) {
                         debug!("failed to transmit udp packet: {}", error);
                     }
                 }

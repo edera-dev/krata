@@ -203,7 +203,7 @@ impl ProxyTcpHandler {
                 }
 
                 ProxyTcpAcceptSelect::TxIpPacket(payload) => {
-                    let mut buffer: Vec<u8> = Vec::new();
+                    let mut buffer = BytesMut::with_capacity(Ethernet2Header::LEN + payload.len());
                     let header = Ethernet2Header {
                         source: context.key.local_mac.0,
                         destination: context.key.client_mac.0,
@@ -212,9 +212,9 @@ impl ProxyTcpHandler {
                             IpAddress::Ipv6(_) => EtherType::IPV6,
                         },
                     };
-                    header.write(&mut buffer)?;
+                    buffer.extend_from_slice(&header.to_bytes());
                     buffer.extend_from_slice(&payload);
-                    if let Err(error) = context.try_send(buffer.as_slice().into()) {
+                    if let Err(error) = context.try_send(buffer) {
                         debug!("failed to transmit tcp packet: {}", error);
                     }
                 }
@@ -376,7 +376,7 @@ impl ProxyTcpHandler {
                 }
 
                 ProxyTcpDataSelect::TxIpPacket(payload) => {
-                    let mut buffer: Vec<u8> = Vec::new();
+                    let mut buffer = BytesMut::with_capacity(Ethernet2Header::LEN + payload.len());
                     let header = Ethernet2Header {
                         source: context.key.local_mac.0,
                         destination: context.key.client_mac.0,
@@ -385,9 +385,9 @@ impl ProxyTcpHandler {
                             IpAddress::Ipv6(_) => EtherType::IPV6,
                         },
                     };
-                    header.write(&mut buffer)?;
+                    buffer.extend_from_slice(&header.to_bytes());
                     buffer.extend_from_slice(&payload);
-                    if let Err(error) = context.try_send(buffer.as_slice().into()) {
+                    if let Err(error) = context.try_send(buffer) {
                         debug!("failed to transmit tcp packet: {}", error);
                     }
                 }
@@ -436,7 +436,7 @@ impl ProxyTcpHandler {
                 }
 
                 ProxyTcpFinishSelect::TxIpPacket(payload) => {
-                    let mut buffer: Vec<u8> = Vec::new();
+                    let mut buffer = BytesMut::with_capacity(Ethernet2Header::LEN + payload.len());
                     let header = Ethernet2Header {
                         source: context.key.local_mac.0,
                         destination: context.key.client_mac.0,
@@ -445,9 +445,9 @@ impl ProxyTcpHandler {
                             IpAddress::Ipv6(_) => EtherType::IPV6,
                         },
                     };
-                    header.write(&mut buffer)?;
+                    buffer.extend_from_slice(&header.to_bytes());
                     buffer.extend_from_slice(&payload);
-                    if let Err(error) = context.try_send(buffer.as_slice().into()) {
+                    if let Err(error) = context.try_send(buffer) {
                         debug!("failed to transmit tcp packet: {}", error);
                     }
                 }
