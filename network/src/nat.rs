@@ -1,17 +1,15 @@
+use crate::pkt::RecvPacket;
+use crate::pkt::RecvPacketIp;
 use anyhow::Result;
 use async_trait::async_trait;
-use etherparse::Ethernet2Slice;
 use etherparse::Icmpv4Header;
 use etherparse::Icmpv4Type;
 use etherparse::Icmpv6Header;
 use etherparse::Icmpv6Type;
 use etherparse::IpNumber;
-use etherparse::LaxIpPayloadSlice;
-use etherparse::LaxIpv4Slice;
-use etherparse::LaxIpv6Slice;
-use etherparse::LaxNetSlice;
-use etherparse::LaxSlicedPacket;
-use etherparse::LinkSlice;
+use etherparse::IpPayloadSlice;
+use etherparse::Ipv4Slice;
+use etherparse::Ipv6Slice;
 use etherparse::TcpHeaderSlice;
 use etherparse::UdpHeaderSlice;
 use log::{debug, trace};
@@ -145,13 +143,8 @@ impl NatRouter {
         })
     }
 
-    pub async fn process(&mut self, data: &[u8]) -> Result<()> {
-        let packet = LaxSlicedPacket::from_ethernet(data)?;
-        let Some(ref link) = packet.link else {
-            return Ok(());
-        };
-
-        let LinkSlice::Ethernet2(ref ether) = link else {
+    pub async fn process<'a>(&mut self, packet: &RecvPacket<'a>) -> Result<()> {
+        let Some(ether) = packet.ether else {
             return Ok(());
         };
 
@@ -165,173 +158,16 @@ impl NatRouter {
             return Ok(());
         }
 
-        let Some(ref net) = packet.net else {
+        let key = match packet.ip {
+            Some(RecvPacketIp::Ipv4(ipv4)) => self.extract_key_ipv4(packet, ipv4)?,
+            Some(RecvPacketIp::Ipv6(ipv6)) => self.extract_key_ipv6(packet, ipv6)?,
+            _ => None,
+        };
+
+        let Some(key) = key else {
             return Ok(());
         };
 
-        match net {
-            LaxNetSlice::Ipv4(ipv4) => self.process_ipv4(data, ether, ipv4).await?,
-            LaxNetSlice::Ipv6(ipv6) => self.process_ipv6(data, ether, ipv6).await?,
-        }
-
-        Ok(())
-    }
-
-    pub async fn process_ipv4<'a>(
-        &mut self,
-        data: &[u8],
-        ether: &Ethernet2Slice<'a>,
-        ipv4: &LaxIpv4Slice<'a>,
-    ) -> Result<()> {
-        let source_addr = IpAddress::Ipv4(ipv4.header().source_addr().into());
-        let dest_addr = IpAddress::Ipv4(ipv4.header().destination_addr().into());
-        match ipv4.header().protocol() {
-            IpNumber::TCP => {
-                self.process_tcp(data, ether, source_addr, dest_addr, ipv4.payload())
-                    .await?;
-            }
-
-            IpNumber::UDP => {
-                self.process_udp(data, ether, source_addr, dest_addr, ipv4.payload())
-                    .await?;
-            }
-
-            IpNumber::ICMP => {
-                self.process_icmpv4(data, ether, source_addr, dest_addr, ipv4.payload())
-                    .await?;
-            }
-
-            _ => {}
-        }
-
-        Ok(())
-    }
-
-    pub async fn process_ipv6<'a>(
-        &mut self,
-        data: &[u8],
-        ether: &Ethernet2Slice<'a>,
-        ipv6: &LaxIpv6Slice<'a>,
-    ) -> Result<()> {
-        let source_addr = IpAddress::Ipv6(ipv6.header().source_addr().into());
-        let dest_addr = IpAddress::Ipv6(ipv6.header().destination_addr().into());
-        match ipv6.header().next_header() {
-            IpNumber::TCP => {
-                self.process_tcp(data, ether, source_addr, dest_addr, ipv6.payload())
-                    .await?;
-            }
-
-            IpNumber::UDP => {
-                self.process_udp(data, ether, source_addr, dest_addr, ipv6.payload())
-                    .await?;
-            }
-
-            IpNumber::IPV6_ICMP => {
-                self.process_icmpv6(data, ether, source_addr, dest_addr, ipv6.payload())
-                    .await?;
-            }
-
-            _ => {}
-        }
-
-        Ok(())
-    }
-
-    pub async fn process_tcp<'a>(
-        &mut self,
-        data: &'a [u8],
-        ether: &Ethernet2Slice<'a>,
-        source_addr: IpAddress,
-        dest_addr: IpAddress,
-        payload: &LaxIpPayloadSlice<'a>,
-    ) -> Result<()> {
-        let header = TcpHeaderSlice::from_slice(payload.payload)?;
-        let source = IpEndpoint::new(source_addr, header.source_port());
-        let dest = IpEndpoint::new(dest_addr, header.destination_port());
-        let key = NatKey {
-            protocol: NatKeyProtocol::Tcp,
-            client_mac: EthernetAddress(ether.source()),
-            local_mac: EthernetAddress(ether.destination()),
-            client_ip: source,
-            external_ip: dest,
-        };
-        self.process_nat(data, key).await?;
-        Ok(())
-    }
-
-    pub async fn process_udp<'a>(
-        &mut self,
-        data: &'a [u8],
-        ether: &Ethernet2Slice<'a>,
-        source_addr: IpAddress,
-        dest_addr: IpAddress,
-        payload: &LaxIpPayloadSlice<'a>,
-    ) -> Result<()> {
-        let header = UdpHeaderSlice::from_slice(payload.payload)?;
-        let source = IpEndpoint::new(source_addr, header.source_port());
-        let dest = IpEndpoint::new(dest_addr, header.destination_port());
-        let key = NatKey {
-            protocol: NatKeyProtocol::Udp,
-            client_mac: EthernetAddress(ether.source()),
-            local_mac: EthernetAddress(ether.destination()),
-            client_ip: source,
-            external_ip: dest,
-        };
-        self.process_nat(data, key).await?;
-        Ok(())
-    }
-
-    pub async fn process_icmpv4<'a>(
-        &mut self,
-        data: &'a [u8],
-        ether: &Ethernet2Slice<'a>,
-        source_addr: IpAddress,
-        dest_addr: IpAddress,
-        payload: &LaxIpPayloadSlice<'a>,
-    ) -> Result<()> {
-        let (header, _) = Icmpv4Header::from_slice(payload.payload)?;
-        let Icmpv4Type::EchoRequest(_) = header.icmp_type else {
-            return Ok(());
-        };
-        let source = IpEndpoint::new(source_addr, 0);
-        let dest = IpEndpoint::new(dest_addr, 0);
-        let key = NatKey {
-            protocol: NatKeyProtocol::Icmp,
-            client_mac: EthernetAddress(ether.source()),
-            local_mac: EthernetAddress(ether.destination()),
-            client_ip: source,
-            external_ip: dest,
-        };
-        self.process_nat(data, key).await?;
-        Ok(())
-    }
-
-    pub async fn process_icmpv6<'a>(
-        &mut self,
-        data: &'a [u8],
-        ether: &Ethernet2Slice<'a>,
-        source_addr: IpAddress,
-        dest_addr: IpAddress,
-        payload: &LaxIpPayloadSlice<'a>,
-    ) -> Result<()> {
-        let (header, _) = Icmpv6Header::from_slice(payload.payload)?;
-        let Icmpv6Type::EchoRequest(_) = header.icmp_type else {
-            return Ok(());
-        };
-        let source = IpEndpoint::new(source_addr, 0);
-        let dest = IpEndpoint::new(dest_addr, 0);
-        let key = NatKey {
-            protocol: NatKeyProtocol::Icmp,
-            client_mac: EthernetAddress(ether.source()),
-            local_mac: EthernetAddress(ether.destination()),
-            client_ip: source,
-            external_ip: dest,
-        };
-        self.process_nat(data, key).await?;
-        Ok(())
-    }
-
-    pub async fn process_nat(&mut self, data: &[u8], key: NatKey) -> Result<()> {
         for cidr in &self.local_cidrs {
             if cidr.contains_addr(&key.external_ip.addr) {
                 return Ok(());
@@ -357,10 +193,152 @@ impl NatRouter {
         };
 
         if let Some(handler) = handler {
-            if !handler.receive(data).await? {
+            if !handler.receive(packet.raw).await? {
                 self.reclaim_sender.try_send(key)?;
             }
         }
         Ok(())
+    }
+
+    pub fn extract_key_ipv4<'a>(
+        &mut self,
+        packet: &RecvPacket<'a>,
+        ipv4: &Ipv4Slice<'a>,
+    ) -> Result<Option<NatKey>> {
+        let source_addr = IpAddress::Ipv4(ipv4.header().source_addr().into());
+        let dest_addr = IpAddress::Ipv4(ipv4.header().destination_addr().into());
+        Ok(match ipv4.header().protocol() {
+            IpNumber::TCP => {
+                self.extract_key_tcp(packet, source_addr, dest_addr, ipv4.payload())?
+            }
+
+            IpNumber::UDP => {
+                self.extract_key_udp(packet, source_addr, dest_addr, ipv4.payload())?
+            }
+
+            IpNumber::ICMP => {
+                self.extract_key_icmpv4(packet, source_addr, dest_addr, ipv4.payload())?
+            }
+
+            _ => None,
+        })
+    }
+
+    pub fn extract_key_ipv6<'a>(
+        &mut self,
+        packet: &RecvPacket<'a>,
+        ipv6: &Ipv6Slice<'a>,
+    ) -> Result<Option<NatKey>> {
+        let source_addr = IpAddress::Ipv6(ipv6.header().source_addr().into());
+        let dest_addr = IpAddress::Ipv6(ipv6.header().destination_addr().into());
+        Ok(match ipv6.header().next_header() {
+            IpNumber::TCP => {
+                self.extract_key_tcp(packet, source_addr, dest_addr, ipv6.payload())?
+            }
+
+            IpNumber::UDP => {
+                self.extract_key_udp(packet, source_addr, dest_addr, ipv6.payload())?
+            }
+
+            IpNumber::IPV6_ICMP => {
+                self.extract_key_icmpv6(packet, source_addr, dest_addr, ipv6.payload())?
+            }
+
+            _ => None,
+        })
+    }
+
+    pub fn extract_key_tcp<'a>(
+        &mut self,
+        packet: &RecvPacket<'a>,
+        source_addr: IpAddress,
+        dest_addr: IpAddress,
+        payload: &IpPayloadSlice<'a>,
+    ) -> Result<Option<NatKey>> {
+        let Some(ether) = packet.ether else {
+            return Ok(None);
+        };
+        let header = TcpHeaderSlice::from_slice(payload.payload)?;
+        let source = IpEndpoint::new(source_addr, header.source_port());
+        let dest = IpEndpoint::new(dest_addr, header.destination_port());
+        Ok(Some(NatKey {
+            protocol: NatKeyProtocol::Tcp,
+            client_mac: EthernetAddress(ether.source()),
+            local_mac: EthernetAddress(ether.destination()),
+            client_ip: source,
+            external_ip: dest,
+        }))
+    }
+
+    pub fn extract_key_udp<'a>(
+        &mut self,
+        packet: &RecvPacket<'a>,
+        source_addr: IpAddress,
+        dest_addr: IpAddress,
+        payload: &IpPayloadSlice<'a>,
+    ) -> Result<Option<NatKey>> {
+        let Some(ether) = packet.ether else {
+            return Ok(None);
+        };
+        let header = UdpHeaderSlice::from_slice(payload.payload)?;
+        let source = IpEndpoint::new(source_addr, header.source_port());
+        let dest = IpEndpoint::new(dest_addr, header.destination_port());
+        Ok(Some(NatKey {
+            protocol: NatKeyProtocol::Udp,
+            client_mac: EthernetAddress(ether.source()),
+            local_mac: EthernetAddress(ether.destination()),
+            client_ip: source,
+            external_ip: dest,
+        }))
+    }
+
+    pub fn extract_key_icmpv4<'a>(
+        &mut self,
+        packet: &RecvPacket<'a>,
+        source_addr: IpAddress,
+        dest_addr: IpAddress,
+        payload: &IpPayloadSlice<'a>,
+    ) -> Result<Option<NatKey>> {
+        let Some(ether) = packet.ether else {
+            return Ok(None);
+        };
+        let (header, _) = Icmpv4Header::from_slice(payload.payload)?;
+        let Icmpv4Type::EchoRequest(_) = header.icmp_type else {
+            return Ok(None);
+        };
+        let source = IpEndpoint::new(source_addr, 0);
+        let dest = IpEndpoint::new(dest_addr, 0);
+        Ok(Some(NatKey {
+            protocol: NatKeyProtocol::Icmp,
+            client_mac: EthernetAddress(ether.source()),
+            local_mac: EthernetAddress(ether.destination()),
+            client_ip: source,
+            external_ip: dest,
+        }))
+    }
+
+    pub fn extract_key_icmpv6<'a>(
+        &mut self,
+        packet: &RecvPacket<'a>,
+        source_addr: IpAddress,
+        dest_addr: IpAddress,
+        payload: &IpPayloadSlice<'a>,
+    ) -> Result<Option<NatKey>> {
+        let Some(ether) = packet.ether else {
+            return Ok(None);
+        };
+        let (header, _) = Icmpv6Header::from_slice(payload.payload)?;
+        let Icmpv6Type::EchoRequest(_) = header.icmp_type else {
+            return Ok(None);
+        };
+        let source = IpEndpoint::new(source_addr, 0);
+        let dest = IpEndpoint::new(dest_addr, 0);
+        Ok(Some(NatKey {
+            protocol: NatKeyProtocol::Icmp,
+            client_mac: EthernetAddress(ether.source()),
+            local_mac: EthernetAddress(ether.destination()),
+            client_ip: source,
+            external_ip: dest,
+        }))
     }
 }

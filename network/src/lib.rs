@@ -13,6 +13,7 @@ pub mod backend;
 pub mod chandev;
 pub mod icmp;
 pub mod nat;
+pub mod pkt;
 pub mod proxynat;
 pub mod raw_socket;
 

@@ -1,9 +1,11 @@
 use crate::chandev::ChannelDevice;
 use crate::nat::NatRouter;
+use crate::pkt::RecvPacket;
 use crate::proxynat::ProxyNatHandlerFactory;
 use crate::raw_socket::{AsyncRawSocket, RawSocketProtocol};
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
+use etherparse::SlicedPacket;
 use futures::TryStreamExt;
 use log::debug;
 use smoltcp::iface::{Config, Interface, SocketSet};
@@ -41,28 +43,30 @@ struct NetworkStack<'a> {
 }
 
 impl NetworkStack<'_> {
-    async fn poll(&mut self, receive_buffer: &mut [u8]) -> Result<()> {
+    async fn poll(&mut self, buffer: &mut [u8]) -> Result<()> {
         let what = select! {
+            x = self.kdev.read(buffer) => NetworkStackSelect::Receive(&buffer[0..x?]),
             x = self.tx.recv() => NetworkStackSelect::Send(x),
-            x = self.kdev.read(receive_buffer) => NetworkStackSelect::Receive(&receive_buffer[0..x?]),
             _ = self.router.process_reclaim() => NetworkStackSelect::Reclaim,
         };
 
         match what {
+            NetworkStackSelect::Receive(packet) => {
+                let slice = SlicedPacket::from_ethernet(packet)?;
+                let packet = RecvPacket::new(packet, &slice)?;
+                if let Err(error) = self.router.process(&packet).await {
+                    debug!("router failed to process packet: {}", error);
+                }
+
+                self.udev.rx = Some(packet.raw.to_vec());
+                self.interface
+                    .poll(Instant::now(), &mut self.udev, &mut self.sockets);
+            }
+
             NetworkStackSelect::Send(packet) => {
                 if let Some(packet) = packet {
                     self.kdev.write_all(&packet).await?
                 }
-            }
-
-            NetworkStackSelect::Receive(packet) => {
-                if let Err(error) = self.router.process(packet).await {
-                    debug!("router failed to process packet: {}", error);
-                }
-
-                self.udev.rx = Some(packet.to_vec());
-                self.interface
-                    .poll(Instant::now(), &mut self.udev, &mut self.sockets);
             }
 
             NetworkStackSelect::Reclaim => {}
