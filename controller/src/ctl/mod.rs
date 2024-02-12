@@ -41,6 +41,7 @@ pub struct ContainerInfo {
     pub image: String,
     pub loops: Vec<ContainerLoopInfo>,
     pub ipv4: String,
+    pub ipv6: String,
 }
 
 impl Controller {
@@ -83,21 +84,30 @@ impl Controller {
         let name = format!("hypha-{uuid}");
         let image_info = self.compile(image)?;
 
-        let mut mac = MacAddr6::random();
-        mac.set_local(true);
-        mac.set_multicast(false);
-        let ipv4 = self.allocate_ipv4()?;
-        let ipv6 = mac.to_link_local_ipv6();
+        let mut gateway_mac = MacAddr6::random();
+        gateway_mac.set_local(true);
+        gateway_mac.set_multicast(false);
+        let mut container_mac = MacAddr6::random();
+        container_mac.set_local(true);
+        container_mac.set_multicast(false);
+
+        let guest_ipv4 = self.allocate_ipv4()?;
+        let guest_ipv6 = container_mac.to_link_local_ipv6();
+        let gateway_ipv4 = "192.168.42.1";
+        let gateway_ipv6 = "fe80::1";
+        let ipv4_network_mask: u32 = 24;
+        let ipv6_network_mask: u32 = 10;
+
         let launch_config = LaunchInfo {
             network: Some(LaunchNetwork {
                 link: "eth0".to_string(),
                 ipv4: LaunchNetworkIpv4 {
-                    address: format!("{}/24", ipv4),
-                    gateway: "192.168.42.1".to_string(),
+                    address: format!("{}/{}", guest_ipv4, ipv4_network_mask),
+                    gateway: gateway_ipv4.to_string(),
                 },
                 ipv6: LaunchNetworkIpv6 {
-                    address: format!("{}/10", ipv6),
-                    gateway: "fe80::1".to_string(),
+                    address: format!("{}/{}", guest_ipv6, ipv6_network_mask),
+                    gateway: gateway_ipv6.to_string(),
                 },
                 resolver: LaunchNetworkResolver {
                     nameservers: vec![
@@ -135,7 +145,8 @@ impl Controller {
         let cmdline_options = [if debug { "debug" } else { "quiet" }, "elevator=noop"];
         let cmdline = cmdline_options.join(" ");
 
-        let mac = mac.to_string().replace('-', ":");
+        let container_mac_string = container_mac.to_string().replace('-', ":");
+        let gateway_mac_string = gateway_mac.to_string().replace('-', ":");
         let config = DomainConfig {
             backend_domid: 0,
             name: &name,
@@ -158,7 +169,7 @@ impl Controller {
             ],
             consoles: vec![],
             vifs: vec![DomainNetworkInterface {
-                mac: &mac,
+                mac: &container_mac_string,
                 mtu: 1500,
                 bridge: None,
                 script: None,
@@ -178,7 +189,30 @@ impl Controller {
                     ),
                 ),
                 ("hypha/image".to_string(), image.to_string()),
-                ("hypha/ipv4".to_string(), ipv4.to_string()),
+                (
+                    "hypha/network/guest/ipv4".to_string(),
+                    format!("{}/{}", guest_ipv4, ipv4_network_mask),
+                ),
+                (
+                    "hypha/network/guest/ipv6".to_string(),
+                    format!("{}/{}", guest_ipv6, ipv6_network_mask),
+                ),
+                (
+                    "hypha/network/guest/mac".to_string(),
+                    container_mac_string.clone(),
+                ),
+                (
+                    "hypha/network/gateway/ipv4".to_string(),
+                    format!("{}/{}", gateway_ipv4, ipv4_network_mask),
+                ),
+                (
+                    "hypha/network/gateway/ipv6".to_string(),
+                    format!("{}/{}", gateway_ipv6, ipv6_network_mask),
+                ),
+                (
+                    "hypha/network/gateway/mac".to_string(),
+                    gateway_mac_string.clone(),
+                ),
             ],
         };
         match self.client.create(&config) {
@@ -305,7 +339,12 @@ impl Controller {
             let ipv4 = self
                 .client
                 .store
-                .read_string_optional(&format!("{}/hypha/ipv4", &dom_path))?
+                .read_string_optional(&format!("{}/hypha/network/guest/ipv4", &dom_path))?
+                .unwrap_or("unknown".to_string());
+            let ipv6 = self
+                .client
+                .store
+                .read_string_optional(&format!("{}/hypha/network/guest/ipv6", &dom_path))?
                 .unwrap_or("unknown".to_string());
             let loops = Controller::parse_loop_set(&loops);
             containers.push(ContainerInfo {
@@ -314,6 +353,7 @@ impl Controller {
                 image,
                 loops,
                 ipv4,
+                ipv6,
             });
         }
         Ok(containers)
@@ -359,10 +399,11 @@ impl Controller {
         ];
         for domid_candidate in self.client.store.list_any("/local/domain")? {
             let dom_path = format!("/local/domain/{}", domid_candidate);
-            let ip_path = format!("{}/hypha/ipv4", dom_path);
+            let ip_path = format!("{}/hypha/network/guest/ipv4", dom_path);
             let existing_ip = self.client.store.read_string_optional(&ip_path)?;
             if let Some(existing_ip) = existing_ip {
-                used.push(Ipv4Addr::from_str(&existing_ip)?);
+                let ipv4_network = Ipv4Network::from_str(&existing_ip)?;
+                used.push(ipv4_network.ip());
             }
         }
 

@@ -1,18 +1,18 @@
+use crate::autonet::NetworkMetadata;
 use crate::chandev::ChannelDevice;
 use crate::nat::NatRouter;
 use crate::pkt::RecvPacket;
 use crate::proxynat::ProxyNatHandlerFactory;
 use crate::raw_socket::{AsyncRawSocket, RawSocketProtocol};
-use advmac::MacAddr6;
+use crate::vbridge::{BridgeJoinHandle, VirtualBridge};
 use anyhow::{anyhow, Result};
 use etherparse::SlicedPacket;
 use futures::TryStreamExt;
-use log::debug;
+use log::{debug, info, warn};
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::Medium;
 use smoltcp::time::Instant;
 use smoltcp::wire::{HardwareAddress, IpCidr};
-use std::str::FromStr;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::select;
@@ -20,14 +20,13 @@ use tokio::sync::mpsc::{channel, Receiver};
 
 #[derive(Clone)]
 pub struct NetworkBackend {
-    ipv4: String,
-    ipv6: String,
-    force_mac_address: Option<MacAddr6>,
-    interface: String,
+    metadata: NetworkMetadata,
+    bridge: VirtualBridge,
 }
 
 enum NetworkStackSelect<'a> {
     Receive(&'a [u8]),
+    BridgeSend(Option<Vec<u8>>),
     Send(Option<Vec<u8>>),
     Reclaim,
 }
@@ -40,18 +39,25 @@ struct NetworkStack<'a> {
     interface: Interface,
     sockets: SocketSet<'a>,
     router: NatRouter,
+    bridge: BridgeJoinHandle,
 }
 
 impl NetworkStack<'_> {
     async fn poll(&mut self, buffer: &mut [u8]) -> Result<()> {
         let what = select! {
             x = self.kdev.read(buffer) => NetworkStackSelect::Receive(&buffer[0..x?]),
+            x = self.bridge.bridge_rx_receiver.recv() => NetworkStackSelect::BridgeSend(x),
+            x = self.bridge.broadcast_rx_receiver.recv() => NetworkStackSelect::BridgeSend(x.ok()),
             x = self.tx.recv() => NetworkStackSelect::Send(x),
             _ = self.router.process_reclaim() => NetworkStackSelect::Reclaim,
         };
 
         match what {
             NetworkStackSelect::Receive(packet) => {
+                if let Err(error) = self.bridge.bridge_tx_sender.try_send(packet.to_vec()) {
+                    warn!("failed to send guest packet to bridge: {}", error);
+                }
+
                 let slice = SlicedPacket::from_ethernet(packet)?;
                 let packet = RecvPacket::new(packet, &slice)?;
                 if let Err(error) = self.router.process(&packet).await {
@@ -62,6 +68,14 @@ impl NetworkStack<'_> {
                 self.interface
                     .poll(Instant::now(), &mut self.udev, &mut self.sockets);
             }
+
+            NetworkStackSelect::BridgeSend(Some(packet)) => {
+                if let Err(error) = self.udev.tx.try_send(packet) {
+                    warn!("failed to send bridge packet to guest: {}", error);
+                }
+            }
+
+            NetworkStackSelect::BridgeSend(None) => {}
 
             NetworkStackSelect::Send(packet) => {
                 if let Some(packet) = packet {
@@ -77,34 +91,21 @@ impl NetworkStack<'_> {
 }
 
 impl NetworkBackend {
-    pub fn new(
-        ipv4: &str,
-        ipv6: &str,
-        force_mac_address: &Option<MacAddr6>,
-        interface: &str,
-    ) -> Result<Self> {
-        Ok(Self {
-            ipv4: ipv4.to_string(),
-            ipv6: ipv6.to_string(),
-            force_mac_address: *force_mac_address,
-            interface: interface.to_string(),
-        })
+    pub fn new(metadata: NetworkMetadata, bridge: VirtualBridge) -> Result<Self> {
+        Ok(Self { metadata, bridge })
     }
 
     pub async fn init(&mut self) -> Result<()> {
+        let interface = self.metadata.interface();
         let (connection, handle, _) = rtnetlink::new_connection()?;
         tokio::spawn(connection);
 
-        let mut links = handle
-            .link()
-            .get()
-            .match_name(self.interface.to_string())
-            .execute();
+        let mut links = handle.link().get().match_name(interface.clone()).execute();
         let link = links.try_next().await?;
         if link.is_none() {
             return Err(anyhow!(
                 "unable to find network interface named {}",
-                self.interface
+                interface
             ));
         }
         let link = link.unwrap();
@@ -114,35 +115,28 @@ impl NetworkBackend {
     }
 
     pub async fn run(&self) -> Result<()> {
-        let mut stack = self.create_network_stack()?;
+        let mut stack = self.create_network_stack().await?;
         let mut buffer = vec![0u8; stack.mtu];
         loop {
             stack.poll(&mut buffer).await?;
         }
     }
 
-    fn create_network_stack(&self) -> Result<NetworkStack> {
+    async fn create_network_stack(&self) -> Result<NetworkStack> {
+        let interface = self.metadata.interface();
         let proxy = Box::new(ProxyNatHandlerFactory::new());
-        let ipv4 = IpCidr::from_str(&self.ipv4)
-            .map_err(|_| anyhow!("failed to parse ipv4 cidr: {}", self.ipv4))?;
-        let ipv6 = IpCidr::from_str(&self.ipv6)
-            .map_err(|_| anyhow!("failed to parse ipv6 cidr: {}", self.ipv6))?;
-        let addresses: Vec<IpCidr> = vec![ipv4, ipv6];
-        let mut kdev =
-            AsyncRawSocket::bound_to_interface(&self.interface, RawSocketProtocol::Ethernet)?;
-        let mtu = kdev.mtu_of_interface(&self.interface)?;
+        let addresses: Vec<IpCidr> = vec![
+            self.metadata.gateway.ipv4.into(),
+            self.metadata.gateway.ipv6.into(),
+        ];
+        let mut kdev = AsyncRawSocket::bound_to_interface(&interface, RawSocketProtocol::Ethernet)?;
+        let mtu = kdev.mtu_of_interface(&interface)?;
         let (tx_sender, tx_receiver) = channel::<Vec<u8>>(100);
         let mut udev = ChannelDevice::new(mtu, Medium::Ethernet, tx_sender.clone());
-        let mac = self.force_mac_address.unwrap_or_else(|| {
-            let mut mac = MacAddr6::random();
-            mac.set_local(true);
-            mac.set_multicast(false);
-            mac
-        });
-        let mac = smoltcp::wire::EthernetAddress(mac.to_array());
+        let mac = self.metadata.gateway.mac;
         let nat = NatRouter::new(mtu, proxy, mac, addresses.clone(), tx_sender.clone());
-        let mac = HardwareAddress::Ethernet(mac);
-        let config = Config::new(mac);
+        let hardware_addr = HardwareAddress::Ethernet(mac);
+        let config = Config::new(hardware_addr);
         let mut iface = Interface::new(config, &mut udev, Instant::now());
         iface.update_ip_addrs(|addrs| {
             addrs
@@ -150,6 +144,7 @@ impl NetworkBackend {
                 .expect("failed to set ip addresses");
         });
         let sockets = SocketSet::new(vec![]);
+        let handle = self.bridge.join(self.metadata.guest.mac).await?;
         Ok(NetworkStack {
             mtu,
             tx: tx_receiver,
@@ -158,6 +153,23 @@ impl NetworkBackend {
             interface: iface,
             sockets,
             router: nat,
+            bridge: handle,
         })
+    }
+
+    pub async fn launch(self) -> Result<()> {
+        tokio::task::spawn(async move {
+            info!(
+                "lauched network backend for hypha guest {}",
+                self.metadata.uuid
+            );
+            if let Err(error) = self.run().await {
+                warn!(
+                    "network backend for hypha guest {} failed: {}",
+                    self.metadata.uuid, error
+                );
+            }
+        });
+        Ok(())
     }
 }

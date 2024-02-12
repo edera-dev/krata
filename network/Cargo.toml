@@ -18,9 +18,13 @@ udp-stream = { workspace = true }
 smoltcp = { workspace = true }
 etherparse = { workspace = true }
 async-trait = { workspace = true }
+uuid = { workspace = true }
 
 [dependencies.advmac]
 path = "../libs/advmac"
+
+[dependencies.xenstore]
+path = "../libs/xen/xenstore"
 
 [lib]
 path = "src/lib.rs"
@@ -32,3 +36,7 @@ path = "bin/network.rs"
 [[example]]
 name = "ping"
 path = "examples/ping.rs"
+
+[[example]]
+name = "autonet"
+path = "examples/autonet.rs"

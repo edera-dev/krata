@@ -110,10 +110,15 @@ fn main() -> Result<()> {
         Commands::List { .. } => {
             let containers = controller.list()?;
             let mut table = cli_tables::Table::new();
-            let header = vec!["uuid", "ipv4", "image"];
+            let header = vec!["uuid", "ipv4", "ipv6", "image"];
             table.push_row(&header)?;
             for container in containers {
-                let row = vec![container.uuid.to_string(), container.ipv4, container.image];
+                let row = vec![
+                    container.uuid.to_string(),
+                    container.ipv4,
+                    container.ipv6,
+                    container.image,
+                ];
                 table.push_row_string(&row)?;
             }
 
