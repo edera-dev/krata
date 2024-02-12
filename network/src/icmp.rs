@@ -39,13 +39,13 @@ struct IcmpHandlerToken(IpAddr, Option<u16>, u16);
 
 #[derive(Debug)]
 pub enum IcmpReply {
-    Icmp4 {
+    Icmpv4 {
         header: Icmpv4Header,
         echo: IcmpEchoHeader,
         payload: Vec<u8>,
     },
 
-    Icmp6 {
+    Icmpv6 {
         header: Icmpv6Header,
         echo: IcmpEchoHeader,
         payload: Vec<u8>,
@@ -53,6 +53,8 @@ pub enum IcmpReply {
 }
 
 type IcmpHandlerMap = Arc<Mutex<HashMap<IcmpHandlerToken, oneshot::Sender<IcmpReply>>>>;
+
+#[derive(Clone)]
 pub struct IcmpClient {
     socket: Arc<UdpSocket>,
     handlers: IcmpHandlerMap,
@@ -118,7 +120,7 @@ impl IcmpClient {
                         Some(echo.id),
                         echo.seq,
                     );
-                    let reply = IcmpReply::Icmp4 {
+                    let reply = IcmpReply::Icmpv4 {
                         header: icmpv4.header(),
                         echo,
                         payload: icmpv4.payload().to_vec(),
@@ -141,7 +143,7 @@ impl IcmpClient {
 
                     let token = IcmpHandlerToken(IpAddr::V6(*addr.ip()), Some(echo.id), echo.seq);
 
-                    let reply = IcmpReply::Icmp6 {
+                    let reply = IcmpReply::Icmpv6 {
                         header: icmpv6.header(),
                         echo,
                         payload: icmpv6.payload().to_vec(),

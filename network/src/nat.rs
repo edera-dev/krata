@@ -50,7 +50,7 @@ impl Display for NatKey {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NatHandlerContext {
     pub mtu: usize,
     pub key: NatKey,

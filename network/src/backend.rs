@@ -8,7 +8,7 @@ use crate::vbridge::{BridgeJoinHandle, VirtualBridge};
 use anyhow::{anyhow, Result};
 use etherparse::SlicedPacket;
 use futures::TryStreamExt;
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::Medium;
 use smoltcp::time::Instant;
@@ -26,7 +26,6 @@ pub struct NetworkBackend {
 
 enum NetworkStackSelect<'a> {
     Receive(&'a [u8]),
-    BridgeSend(Option<Vec<u8>>),
     Send(Option<Vec<u8>>),
     Reclaim,
 }
@@ -46,8 +45,8 @@ impl NetworkStack<'_> {
     async fn poll(&mut self, buffer: &mut [u8]) -> Result<()> {
         let what = select! {
             x = self.kdev.read(buffer) => NetworkStackSelect::Receive(&buffer[0..x?]),
-            x = self.bridge.bridge_rx_receiver.recv() => NetworkStackSelect::BridgeSend(x),
-            x = self.bridge.broadcast_rx_receiver.recv() => NetworkStackSelect::BridgeSend(x.ok()),
+            x = self.bridge.bridge_rx_receiver.recv() => NetworkStackSelect::Send(x),
+            x = self.bridge.broadcast_rx_receiver.recv() => NetworkStackSelect::Send(x.ok()),
             x = self.tx.recv() => NetworkStackSelect::Send(x),
             _ = self.router.process_reclaim() => NetworkStackSelect::Reclaim,
         };
@@ -55,7 +54,7 @@ impl NetworkStack<'_> {
         match what {
             NetworkStackSelect::Receive(packet) => {
                 if let Err(error) = self.bridge.bridge_tx_sender.try_send(packet.to_vec()) {
-                    warn!("failed to send guest packet to bridge: {}", error);
+                    trace!("failed to send guest packet to bridge: {}", error);
                 }
 
                 let slice = SlicedPacket::from_ethernet(packet)?;
@@ -69,19 +68,9 @@ impl NetworkStack<'_> {
                     .poll(Instant::now(), &mut self.udev, &mut self.sockets);
             }
 
-            NetworkStackSelect::BridgeSend(Some(packet)) => {
-                if let Err(error) = self.udev.tx.try_send(packet) {
-                    warn!("failed to send bridge packet to guest: {}", error);
-                }
-            }
+            NetworkStackSelect::Send(Some(packet)) => self.kdev.write_all(&packet).await?,
 
-            NetworkStackSelect::BridgeSend(None) => {}
-
-            NetworkStackSelect::Send(packet) => {
-                if let Some(packet) = packet {
-                    self.kdev.write_all(&packet).await?
-                }
-            }
+            NetworkStackSelect::Send(None) => {}
 
             NetworkStackSelect::Reclaim => {}
         }
