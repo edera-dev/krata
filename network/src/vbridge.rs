@@ -19,8 +19,6 @@ use tokio::{
     task::JoinHandle,
 };
 
-const BROADCAST_MAC_ADDR: &[u8; 6] = &[0xff; 6];
-
 const BRIDGE_TX_QUEUE_LEN: usize = 50;
 const BRIDGE_RX_QUEUE_LEN: usize = 50;
 const BROADCAST_RX_QUEUE_LEN: usize = 50;
@@ -36,7 +34,7 @@ pub struct BridgeJoinHandle {
     pub broadcast_rx_receiver: BroadcastReceiver<BytesMut>,
 }
 
-type VirtualBridgeMemberMap = Arc<Mutex<HashMap<[u8; 6], BridgeMember>>>;
+type VirtualBridgeMemberMap = Arc<Mutex<HashMap<EthernetAddress, BridgeMember>>>;
 
 #[derive(Clone)]
 pub struct VirtualBridge {
@@ -87,7 +85,7 @@ impl VirtualBridge {
         let (bridge_rx_sender, bridge_rx_receiver) = channel::<BytesMut>(BRIDGE_RX_QUEUE_LEN);
         let member = BridgeMember { bridge_rx_sender };
 
-        match self.members.lock().await.entry(mac.0) {
+        match self.members.lock().await.entry(mac) {
             Entry::Occupied(_) => {
                 return Err(anyhow!(
                     "virtual bridge already has a member with address {}",
@@ -136,7 +134,7 @@ impl VirtualBridge {
                         // recalculate TCP checksums when routing packets.
                         // the xen network backend / frontend drivers for linux
                         // are very stupid and do not calculate these properly
-                        // despite all best attempts as making it do so.
+                        // despite all best attempts at making it do so.
                         if ipv4.protocol == IpNumber::TCP {
                             let (mut tcp, payload) = TcpHeader::from_slice(payload)?;
                             tcp.checksum = tcp.calc_checksum_ipv4(&ipv4, payload)?;
@@ -148,8 +146,8 @@ impl VirtualBridge {
                         }
                     }
 
-                    let destination = &header.destination;
-                    if destination == BROADCAST_MAC_ADDR {
+                    let destination = EthernetAddress(header.destination);
+                    if destination.is_multicast() {
                         trace!(
                             "broadcasting bridged packet from {}",
                             EthernetAddress(header.source)
@@ -157,7 +155,7 @@ impl VirtualBridge {
                         broadcast_rx_sender.send(packet.as_slice().into())?;
                         continue;
                     }
-                    match members.lock().await.get(destination) {
+                    match members.lock().await.get(&destination) {
                         Some(member) => {
                             member.bridge_rx_sender.try_send(packet.as_slice().into())?;
                             trace!(
@@ -167,10 +165,7 @@ impl VirtualBridge {
                             );
                         }
                         None => {
-                            trace!(
-                                "no bridge member with address: {}",
-                                EthernetAddress(*destination)
-                            );
+                            trace!("no bridge member with address: {}", destination);
                         }
                     }
                 }
