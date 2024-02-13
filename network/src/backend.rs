@@ -16,6 +16,7 @@ use smoltcp::time::Instant;
 use smoltcp::wire::{HardwareAddress, IpCidr};
 use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver};
+use tokio::task::JoinHandle;
 
 const TX_CHANNEL_BUFFER_LEN: usize = 300;
 
@@ -43,7 +44,7 @@ struct NetworkStack<'a> {
 }
 
 impl NetworkStack<'_> {
-    async fn poll(&mut self) -> Result<()> {
+    async fn poll(&mut self) -> Result<bool> {
         let what = select! {
             x = self.kdev.receiver.recv() => NetworkStackSelect::Receive(x),
             x = self.bridge.from_bridge_receiver.recv() => NetworkStackSelect::Send(x),
@@ -76,13 +77,14 @@ impl NetworkStack<'_> {
                 }
             }
 
-            NetworkStackSelect::Receive(None) => {}
-            NetworkStackSelect::Send(None) => {}
+            NetworkStackSelect::Receive(None) | NetworkStackSelect::Send(None) => {
+                return Ok(false);
+            }
 
             NetworkStackSelect::Reclaim => {}
         }
 
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -112,8 +114,11 @@ impl NetworkBackend {
     pub async fn run(&self) -> Result<()> {
         let mut stack = self.create_network_stack().await?;
         loop {
-            stack.poll().await?;
+            if !stack.poll().await? {
+                break;
+            }
         }
+        Ok(())
     }
 
     async fn create_network_stack(&self) -> Result<NetworkStack> {
@@ -152,8 +157,8 @@ impl NetworkBackend {
         })
     }
 
-    pub async fn launch(self) -> Result<()> {
-        tokio::task::spawn(async move {
+    pub async fn launch(self) -> Result<JoinHandle<()>> {
+        Ok(tokio::task::spawn(async move {
             info!(
                 "lauched network backend for hypha guest {}",
                 self.metadata.uuid
@@ -164,7 +169,15 @@ impl NetworkBackend {
                     self.metadata.uuid, error
                 );
             }
-        });
-        Ok(())
+        }))
+    }
+}
+
+impl Drop for NetworkBackend {
+    fn drop(&mut self) {
+        info!(
+            "destroyed network backend for hypha guest {}",
+            self.metadata.uuid
+        );
     }
 }
