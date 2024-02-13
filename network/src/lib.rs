@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use anyhow::Result;
 use autonet::{AutoNetworkChangeset, AutoNetworkCollector, NetworkMetadata};
+use futures::{future::join_all, TryFutureExt};
+use log::warn;
 use tokio::time::sleep;
+use uuid::Uuid;
 use vbridge::VirtualBridge;
 
 use crate::backend::NetworkBackend;
@@ -34,25 +37,50 @@ impl NetworkService {
         let mut collector = AutoNetworkCollector::new()?;
         loop {
             let changeset = collector.read_changes()?;
-            self.process_network_changeset(changeset)?;
+            self.process_network_changeset(&mut collector, changeset)?;
             sleep(Duration::from_secs(2)).await;
         }
     }
 
-    fn process_network_changeset(&mut self, changeset: AutoNetworkChangeset) -> Result<()> {
-        for metadata in &changeset.added {
-            futures::executor::block_on(async {
-                self.add_network_backend(metadata.clone()).await
-            })?;
+    fn process_network_changeset(
+        &mut self,
+        collector: &mut AutoNetworkCollector,
+        changeset: AutoNetworkChangeset,
+    ) -> Result<()> {
+        let futures = changeset
+            .added
+            .iter()
+            .map(|metadata| {
+                self.add_network_backend(metadata.clone())
+                    .map_err(|x| (metadata.clone(), x))
+            })
+            .collect::<Vec<_>>();
+
+        let failed = futures::executor::block_on(async move {
+            let mut failed: Vec<Uuid> = Vec::new();
+            let results = join_all(futures).await;
+            for result in results {
+                if let Err((metadata, error)) = result {
+                    warn!(
+                        "failed to launch network backend for hypha guest {}: {}",
+                        metadata.uuid, error
+                    );
+                    failed.push(metadata.uuid);
+                }
+            }
+            failed
+        });
+
+        for uuid in failed {
+            collector.mark_unknown(uuid)?;
         }
 
         Ok(())
     }
 
-    async fn add_network_backend(&mut self, metadata: NetworkMetadata) -> Result<()> {
+    async fn add_network_backend(&self, metadata: NetworkMetadata) -> Result<()> {
         let mut network = NetworkBackend::new(metadata, self.bridge.clone())?;
         network.init().await?;
-        tokio::time::sleep(Duration::from_secs(1)).await;
         network.launch().await?;
         Ok(())
     }

@@ -178,4 +178,8 @@ impl AutoNetworkCollector {
 
         Ok(AutoNetworkChangeset { added, removed })
     }
+
+    pub fn mark_unknown(&mut self, uuid: Uuid) -> Result<bool> {
+        Ok(self.known.remove(&uuid).is_some())
+    }
 }

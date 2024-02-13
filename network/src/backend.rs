@@ -60,15 +60,16 @@ impl NetworkStack<'_> {
                     trace!("failed to send guest packet to bridge: {}", error);
                 }
 
-                let slice = SlicedPacket::from_ethernet(packet)?;
-                let packet = RecvPacket::new(packet, &slice)?;
-                if let Err(error) = self.router.process(&packet).await {
-                    debug!("router failed to process packet: {}", error);
-                }
+                if let Ok(slice) = SlicedPacket::from_ethernet(packet) {
+                    let packet = RecvPacket::new(packet, &slice)?;
+                    if let Err(error) = self.router.process(&packet).await {
+                        debug!("router failed to process packet: {}", error);
+                    }
 
-                self.udev.rx = Some(packet.raw.into());
-                self.interface
-                    .poll(Instant::now(), &mut self.udev, &mut self.sockets);
+                    self.udev.rx = Some(packet.raw.into());
+                    self.interface
+                        .poll(Instant::now(), &mut self.udev, &mut self.sockets);
+                }
             }
 
             NetworkStackSelect::Send(Some(packet)) => self.kdev.write_all(&packet).await?,
