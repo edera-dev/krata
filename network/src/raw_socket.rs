@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use log::warn;
+use log::{debug, warn};
 use std::io::ErrorKind;
 use std::os::fd::{FromRawFd, IntoRawFd};
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -253,7 +253,7 @@ impl AsyncRawSocketChannel {
                             }
                             let buffer = (&buffer[0..len]).into();
                             if let Err(error) = receive_sender.try_send(buffer) {
-                                warn!("raw socket failed to process received packet: {}", error);
+                                debug!("raw socket failed to process received packet: {}", error);
                             }
                         }
 
@@ -271,7 +271,7 @@ impl AsyncRawSocketChannel {
                         Ok(_len) => {}
                         Err(ref error) => {
                             if error.kind() == ErrorKind::WouldBlock {
-                                warn!("failed to transmit: would block");
+                                debug!("failed to transmit: would block");
                                 continue;
                             }
                             return Err(anyhow!("failed to write to raw socket: {}", error));
