@@ -14,7 +14,6 @@ use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::Medium;
 use smoltcp::time::Instant;
 use smoltcp::wire::{HardwareAddress, IpCidr};
-use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver};
@@ -103,7 +102,6 @@ impl NetworkBackend {
         }
         let link = link.unwrap();
         handle.link().set(link.header.index).up().execute().await?;
-        tokio::time::sleep(Duration::from_secs(3)).await;
         Ok(())
     }
 

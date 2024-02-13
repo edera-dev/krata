@@ -189,10 +189,12 @@ impl IcmpClient {
         let rx = self.add_handler(token.clone()).await?;
 
         let echo = IcmpEchoHeader { id, seq };
-        let header = Icmpv4Header::new(Icmpv4Type::EchoRequest(echo));
+        let mut header = Icmpv4Header::new(Icmpv4Type::EchoRequest(echo));
+        header.update_checksum(payload);
         let mut buffer: Vec<u8> = Vec::new();
         header.write(&mut buffer)?;
         buffer.extend_from_slice(payload);
+
         self.socket
             .send_to(&buffer, SocketAddr::V4(SocketAddrV4::new(addr, 0)))
             .await?;
@@ -223,6 +225,7 @@ impl IcmpClient {
         let mut buffer: Vec<u8> = Vec::new();
         header.write(&mut buffer)?;
         buffer.extend_from_slice(payload);
+
         self.socket
             .send_to(&buffer, SocketAddr::V6(SocketAddrV6::new(addr, 0, 0, 0)))
             .await?;
