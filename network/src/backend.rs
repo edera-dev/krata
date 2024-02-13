@@ -3,7 +3,7 @@ use crate::chandev::ChannelDevice;
 use crate::nat::NatRouter;
 use crate::pkt::RecvPacket;
 use crate::proxynat::ProxyNatHandlerFactory;
-use crate::raw_socket::{AsyncRawSocket, RawSocketProtocol};
+use crate::raw_socket::{AsyncRawSocketChannel, RawSocketHandle, RawSocketProtocol};
 use crate::vbridge::{BridgeJoinHandle, VirtualBridge};
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
@@ -14,7 +14,6 @@ use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::Medium;
 use smoltcp::time::Instant;
 use smoltcp::wire::{HardwareAddress, IpCidr};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver};
 
@@ -26,16 +25,16 @@ pub struct NetworkBackend {
     bridge: VirtualBridge,
 }
 
-enum NetworkStackSelect<'a> {
-    Receive(&'a [u8]),
+#[derive(Debug)]
+enum NetworkStackSelect {
+    Receive(Option<BytesMut>),
     Send(Option<BytesMut>),
     Reclaim,
 }
 
 struct NetworkStack<'a> {
-    mtu: usize,
     tx: Receiver<BytesMut>,
-    kdev: AsyncRawSocket,
+    kdev: AsyncRawSocketChannel,
     udev: ChannelDevice,
     interface: Interface,
     sockets: SocketSet<'a>,
@@ -44,23 +43,23 @@ struct NetworkStack<'a> {
 }
 
 impl NetworkStack<'_> {
-    async fn poll(&mut self, buffer: &mut [u8]) -> Result<()> {
+    async fn poll(&mut self) -> Result<()> {
         let what = select! {
-            x = self.kdev.read(buffer) => NetworkStackSelect::Receive(&buffer[0..x?]),
-            x = self.bridge.bridge_rx_receiver.recv() => NetworkStackSelect::Send(x),
-            x = self.bridge.broadcast_rx_receiver.recv() => NetworkStackSelect::Send(x.ok()),
+            x = self.kdev.receiver.recv() => NetworkStackSelect::Receive(x),
+            x = self.bridge.from_bridge_receiver.recv() => NetworkStackSelect::Send(x),
+            x = self.bridge.from_broadcast_receiver.recv() => NetworkStackSelect::Send(x.ok()),
             x = self.tx.recv() => NetworkStackSelect::Send(x),
             _ = self.router.process_reclaim() => NetworkStackSelect::Reclaim,
         };
 
         match what {
-            NetworkStackSelect::Receive(packet) => {
-                if let Err(error) = self.bridge.bridge_tx_sender.try_send(packet.into()) {
+            NetworkStackSelect::Receive(Some(packet)) => {
+                if let Err(error) = self.bridge.to_bridge_sender.try_send(packet.clone()) {
                     trace!("failed to send guest packet to bridge: {}", error);
                 }
 
-                if let Ok(slice) = SlicedPacket::from_ethernet(packet) {
-                    let packet = RecvPacket::new(packet, &slice)?;
+                if let Ok(slice) = SlicedPacket::from_ethernet(&packet) {
+                    let packet = RecvPacket::new(&packet, &slice)?;
                     if let Err(error) = self.router.process(&packet).await {
                         debug!("router failed to process packet: {}", error);
                     }
@@ -71,8 +70,13 @@ impl NetworkStack<'_> {
                 }
             }
 
-            NetworkStackSelect::Send(Some(packet)) => self.kdev.write_all(&packet).await?,
+            NetworkStackSelect::Send(Some(packet)) => {
+                if let Err(error) = self.kdev.sender.try_send(packet) {
+                    warn!("failed to transmit packet to interface: {}", error);
+                }
+            }
 
+            NetworkStackSelect::Receive(None) => {}
             NetworkStackSelect::Send(None) => {}
 
             NetworkStackSelect::Reclaim => {}
@@ -107,9 +111,8 @@ impl NetworkBackend {
 
     pub async fn run(&self) -> Result<()> {
         let mut stack = self.create_network_stack().await?;
-        let mut buffer = vec![0u8; stack.mtu];
         loop {
-            stack.poll(&mut buffer).await?;
+            stack.poll().await?;
         }
     }
 
@@ -120,7 +123,8 @@ impl NetworkBackend {
             self.metadata.gateway.ipv4.into(),
             self.metadata.gateway.ipv6.into(),
         ];
-        let mut kdev = AsyncRawSocket::bound_to_interface(&interface, RawSocketProtocol::Ethernet)?;
+        let mut kdev =
+            RawSocketHandle::bound_to_interface(&interface, RawSocketProtocol::Ethernet)?;
         let mtu = kdev.mtu_of_interface(&interface)?;
         let (tx_sender, tx_receiver) = channel::<BytesMut>(TX_CHANNEL_BUFFER_LEN);
         let mut udev = ChannelDevice::new(mtu, Medium::Ethernet, tx_sender.clone());
@@ -136,8 +140,8 @@ impl NetworkBackend {
         });
         let sockets = SocketSet::new(vec![]);
         let handle = self.bridge.join(self.metadata.guest.mac).await?;
+        let kdev = AsyncRawSocketChannel::new(kdev)?;
         Ok(NetworkStack {
-            mtu,
             tx: tx_receiver,
             kdev,
             udev,

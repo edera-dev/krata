@@ -19,19 +19,19 @@ use tokio::{
     task::JoinHandle,
 };
 
-const BRIDGE_TX_QUEUE_LEN: usize = 50;
-const BRIDGE_RX_QUEUE_LEN: usize = 50;
-const BROADCAST_RX_QUEUE_LEN: usize = 50;
+const TO_BRIDGE_QUEUE_LEN: usize = 50;
+const FROM_BRIDGE_QUEUE_LEN: usize = 50;
+const BROADCAST_QUEUE_LEN: usize = 50;
 
 #[derive(Debug)]
 struct BridgeMember {
-    pub bridge_rx_sender: Sender<BytesMut>,
+    pub from_bridge_sender: Sender<BytesMut>,
 }
 
 pub struct BridgeJoinHandle {
-    pub bridge_tx_sender: Sender<BytesMut>,
-    pub bridge_rx_receiver: Receiver<BytesMut>,
-    pub broadcast_rx_receiver: BroadcastReceiver<BytesMut>,
+    pub to_bridge_sender: Sender<BytesMut>,
+    pub from_bridge_receiver: Receiver<BytesMut>,
+    pub from_broadcast_receiver: BroadcastReceiver<BytesMut>,
 }
 
 type VirtualBridgeMemberMap = Arc<Mutex<HashMap<EthernetAddress, BridgeMember>>>;
@@ -39,8 +39,8 @@ type VirtualBridgeMemberMap = Arc<Mutex<HashMap<EthernetAddress, BridgeMember>>>
 #[derive(Clone)]
 pub struct VirtualBridge {
     members: VirtualBridgeMemberMap,
-    bridge_tx_sender: Sender<BytesMut>,
-    broadcast_rx_sender: BroadcastSender<BytesMut>,
+    to_bridge_sender: Sender<BytesMut>,
+    from_broadcast_sender: BroadcastSender<BytesMut>,
     _task: Arc<JoinHandle<()>>,
 }
 
@@ -51,20 +51,20 @@ enum VirtualBridgeSelect {
 
 impl VirtualBridge {
     pub fn new() -> Result<VirtualBridge> {
-        let (bridge_tx_sender, bridge_tx_receiver) = channel::<BytesMut>(BRIDGE_TX_QUEUE_LEN);
-        let (broadcast_rx_sender, broadcast_rx_receiver) =
-            broadcast_channel(BROADCAST_RX_QUEUE_LEN);
+        let (to_bridge_sender, to_bridge_receiver) = channel::<BytesMut>(TO_BRIDGE_QUEUE_LEN);
+        let (from_broadcast_sender, from_broadcast_receiver) =
+            broadcast_channel(BROADCAST_QUEUE_LEN);
 
         let members = Arc::new(Mutex::new(HashMap::new()));
         let handle = {
             let members = members.clone();
-            let broadcast_rx_sender = broadcast_rx_sender.clone();
+            let broadcast_rx_sender = from_broadcast_sender.clone();
             tokio::task::spawn(async move {
                 if let Err(error) = VirtualBridge::process(
                     members,
-                    bridge_tx_receiver,
+                    to_bridge_receiver,
                     broadcast_rx_sender,
-                    broadcast_rx_receiver,
+                    from_broadcast_receiver,
                 )
                 .await
                 {
@@ -74,52 +74,48 @@ impl VirtualBridge {
         };
 
         Ok(VirtualBridge {
-            bridge_tx_sender,
+            to_bridge_sender,
             members,
-            broadcast_rx_sender,
+            from_broadcast_sender,
             _task: Arc::new(handle),
         })
     }
 
     pub async fn join(&self, mac: EthernetAddress) -> Result<BridgeJoinHandle> {
-        let (bridge_rx_sender, bridge_rx_receiver) = channel::<BytesMut>(BRIDGE_RX_QUEUE_LEN);
-        let member = BridgeMember { bridge_rx_sender };
+        let (from_bridge_sender, from_bridge_receiver) = channel::<BytesMut>(FROM_BRIDGE_QUEUE_LEN);
+        let member = BridgeMember { from_bridge_sender };
 
         match self.members.lock().await.entry(mac) {
             Entry::Occupied(_) => {
-                return Err(anyhow!(
-                    "virtual bridge already has a member with address {}",
-                    mac
-                ));
+                return Err(anyhow!("virtual bridge member {} already exists", mac));
             }
             Entry::Vacant(entry) => {
                 entry.insert(member);
             }
         };
-        debug!("virtual bridge member has joined: {}", mac);
+        debug!("virtual bridge member {} has joined", mac);
         Ok(BridgeJoinHandle {
-            bridge_rx_receiver,
-            broadcast_rx_receiver: self.broadcast_rx_sender.subscribe(),
-            bridge_tx_sender: self.bridge_tx_sender.clone(),
+            from_bridge_receiver,
+            from_broadcast_receiver: self.from_broadcast_sender.subscribe(),
+            to_bridge_sender: self.to_bridge_sender.clone(),
         })
     }
 
     async fn process(
         members: VirtualBridgeMemberMap,
-        mut bridge_tx_receiver: Receiver<BytesMut>,
+        mut to_bridge_receiver: Receiver<BytesMut>,
         broadcast_rx_sender: BroadcastSender<BytesMut>,
-        mut broadcast_rx_receiver: BroadcastReceiver<BytesMut>,
+        mut from_broadcast_receiver: BroadcastReceiver<BytesMut>,
     ) -> Result<()> {
         loop {
             let selection = select! {
                 biased;
-                x = bridge_tx_receiver.recv() => VirtualBridgeSelect::PacketReceived(x),
-                x = broadcast_rx_receiver.recv() => VirtualBridgeSelect::BroadcastSent(x.ok()),
+                x = from_broadcast_receiver.recv() => VirtualBridgeSelect::BroadcastSent(x.ok()),
+                x = to_bridge_receiver.recv() => VirtualBridgeSelect::PacketReceived(x),
             };
 
             match selection {
-                VirtualBridgeSelect::PacketReceived(Some(packet)) => {
-                    let mut packet: Vec<u8> = packet.into();
+                VirtualBridgeSelect::PacketReceived(Some(mut packet)) => {
                     let (header, payload) = match Ethernet2Header::from_slice(&packet) {
                         Ok(data) => data,
                         Err(error) => {
@@ -149,15 +145,15 @@ impl VirtualBridge {
                     let destination = EthernetAddress(header.destination);
                     if destination.is_multicast() {
                         trace!(
-                            "broadcasting bridged packet from {}",
+                            "broadcasting bridge packet from {}",
                             EthernetAddress(header.source)
                         );
-                        broadcast_rx_sender.send(packet.as_slice().into())?;
+                        broadcast_rx_sender.send(packet)?;
                         continue;
                     }
                     match members.lock().await.get(&destination) {
                         Some(member) => {
-                            member.bridge_rx_sender.try_send(packet.as_slice().into())?;
+                            member.from_bridge_sender.try_send(packet)?;
                             trace!(
                                 "sending bridged packet from {} to {}",
                                 EthernetAddress(header.source),
