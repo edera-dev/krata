@@ -19,7 +19,7 @@ use tokio::{
 
 use crate::{
     icmp::{IcmpClient, IcmpProtocol, IcmpReply},
-    nat::{NatHandler, NatHandlerContext},
+    nat::handler::{NatHandler, NatHandlerContext},
 };
 
 const ICMP_PING_TIMEOUT_SECS: u64 = 20;
@@ -223,7 +223,7 @@ impl ProxyIcmpHandler {
         let mut writer = buffer.writer();
         packet.write(&mut writer, &payload)?;
         let buffer = writer.into_inner();
-        if let Err(error) = context.try_send(buffer) {
+        if let Err(error) = context.try_transmit(buffer) {
             debug!("failed to transmit icmp packet: {}", error);
         }
         Ok(())
@@ -268,7 +268,7 @@ impl ProxyIcmpHandler {
         let mut writer = buffer.writer();
         packet.write(&mut writer, &payload)?;
         let buffer = writer.into_inner();
-        if let Err(error) = context.try_send(buffer) {
+        if let Err(error) = context.try_transmit(buffer) {
             debug!("failed to transmit icmp packet: {}", error);
         }
         Ok(())

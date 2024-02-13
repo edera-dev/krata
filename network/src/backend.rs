@@ -1,15 +1,13 @@
 use crate::autonet::NetworkMetadata;
 use crate::chandev::ChannelDevice;
-use crate::nat::NatRouter;
-use crate::pkt::RecvPacket;
+use crate::nat::Nat;
 use crate::proxynat::ProxyNatHandlerFactory;
 use crate::raw_socket::{AsyncRawSocketChannel, RawSocketHandle, RawSocketProtocol};
 use crate::vbridge::{BridgeJoinHandle, VirtualBridge};
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use etherparse::SlicedPacket;
 use futures::TryStreamExt;
-use log::{debug, info, trace, warn};
+use log::{info, trace, warn};
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::Medium;
 use smoltcp::time::Instant;
@@ -30,7 +28,6 @@ pub struct NetworkBackend {
 enum NetworkStackSelect {
     Receive(Option<BytesMut>),
     Send(Option<BytesMut>),
-    Reclaim,
 }
 
 struct NetworkStack<'a> {
@@ -39,7 +36,7 @@ struct NetworkStack<'a> {
     udev: ChannelDevice,
     interface: Interface,
     sockets: SocketSet<'a>,
-    router: NatRouter,
+    nat: Nat,
     bridge: BridgeJoinHandle,
 }
 
@@ -50,7 +47,6 @@ impl NetworkStack<'_> {
             x = self.bridge.from_bridge_receiver.recv() => NetworkStackSelect::Send(x),
             x = self.bridge.from_broadcast_receiver.recv() => NetworkStackSelect::Send(x.ok()),
             x = self.tx.recv() => NetworkStackSelect::Send(x),
-            _ = self.router.process_reclaim() => NetworkStackSelect::Reclaim,
         };
 
         match what {
@@ -59,16 +55,13 @@ impl NetworkStack<'_> {
                     trace!("failed to send guest packet to bridge: {}", error);
                 }
 
-                if let Ok(slice) = SlicedPacket::from_ethernet(&packet) {
-                    let packet = RecvPacket::new(&packet, &slice)?;
-                    if let Err(error) = self.router.process(&packet).await {
-                        debug!("router failed to process packet: {}", error);
-                    }
-
-                    self.udev.rx = Some(packet.raw.into());
-                    self.interface
-                        .poll(Instant::now(), &mut self.udev, &mut self.sockets);
+                if let Err(error) = self.nat.receive_sender.try_send(packet.clone()) {
+                    trace!("failed to send guest packet to nat: {}", error);
                 }
+
+                self.udev.rx = Some(packet);
+                self.interface
+                    .poll(Instant::now(), &mut self.udev, &mut self.sockets);
             }
 
             NetworkStackSelect::Send(Some(packet)) => {
@@ -80,8 +73,6 @@ impl NetworkStack<'_> {
             NetworkStackSelect::Receive(None) | NetworkStackSelect::Send(None) => {
                 return Ok(false);
             }
-
-            NetworkStackSelect::Reclaim => {}
         }
 
         Ok(true)
@@ -134,7 +125,7 @@ impl NetworkBackend {
         let (tx_sender, tx_receiver) = channel::<BytesMut>(TX_CHANNEL_BUFFER_LEN);
         let mut udev = ChannelDevice::new(mtu, Medium::Ethernet, tx_sender.clone());
         let mac = self.metadata.gateway.mac;
-        let nat = NatRouter::new(mtu, proxy, mac, addresses.clone(), tx_sender.clone());
+        let nat = Nat::new(mtu, proxy, mac, addresses.clone(), tx_sender.clone())?;
         let hardware_addr = HardwareAddress::Ethernet(mac);
         let config = Config::new(hardware_addr);
         let mut iface = Interface::new(config, &mut udev, Instant::now());
@@ -145,14 +136,14 @@ impl NetworkBackend {
         });
         let sockets = SocketSet::new(vec![]);
         let handle = self.bridge.join(self.metadata.guest.mac).await?;
-        let kdev = AsyncRawSocketChannel::new(kdev)?;
+        let kdev = AsyncRawSocketChannel::new(mtu, kdev)?;
         Ok(NetworkStack {
             tx: tx_receiver,
             kdev,
             udev,
             interface: iface,
             sockets,
-            router: nat,
+            nat,
             bridge: handle,
         })
     }

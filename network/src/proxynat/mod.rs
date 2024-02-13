@@ -5,10 +5,10 @@ use log::warn;
 
 use tokio::sync::mpsc::channel;
 
-use crate::nat::NatHandlerContext;
 use crate::proxynat::udp::ProxyUdpHandler;
 
-use crate::nat::{NatHandler, NatHandlerFactory, NatKeyProtocol};
+use crate::nat::handler::{NatHandler, NatHandlerContext, NatHandlerFactory};
+use crate::nat::key::NatKeyProtocol;
 
 use self::icmp::ProxyIcmpHandler;
 use self::tcp::ProxyTcpHandler;

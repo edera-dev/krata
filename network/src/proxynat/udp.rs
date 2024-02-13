@@ -16,7 +16,7 @@ use tokio::{
 use tokio::{sync::mpsc::Receiver, sync::mpsc::Sender};
 use udp_stream::UdpStream;
 
-use crate::nat::{NatHandler, NatHandlerContext};
+use crate::nat::handler::{NatHandler, NatHandlerContext};
 
 const UDP_TIMEOUT_SECS: u64 = 60;
 
@@ -111,7 +111,7 @@ impl ProxyUdpHandler {
                     let mut writer = buffer.writer();
                     packet.write(&mut writer, data)?;
                     let buffer = writer.into_inner();
-                    if let Err(error) = context.try_send(buffer) {
+                    if let Err(error) = context.try_transmit(buffer) {
                         debug!("failed to transmit udp packet: {}", error);
                     }
                 }

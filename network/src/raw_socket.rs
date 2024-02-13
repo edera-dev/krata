@@ -204,10 +204,10 @@ enum AsyncRawSocketChannelSelect {
 }
 
 impl AsyncRawSocketChannel {
-    pub fn new(socket: RawSocketHandle) -> Result<AsyncRawSocketChannel> {
+    pub fn new(mtu: usize, socket: RawSocketHandle) -> Result<AsyncRawSocketChannel> {
         let (transmit_sender, transmit_receiver) = channel(RAW_SOCKET_TRANSMIT_QUEUE_LEN);
         let (receive_sender, receive_receiver) = channel(RAW_SOCKET_RECEIVE_QUEUE_LEN);
-        let task = AsyncRawSocketChannel::launch(socket, transmit_receiver, receive_sender)?;
+        let task = AsyncRawSocketChannel::launch(mtu, socket, transmit_receiver, receive_sender)?;
         Ok(AsyncRawSocketChannel {
             sender: transmit_sender,
             receiver: receive_receiver,
@@ -216,13 +216,14 @@ impl AsyncRawSocketChannel {
     }
 
     fn launch(
+        mtu: usize,
         socket: RawSocketHandle,
         transmit_receiver: Receiver<BytesMut>,
         receive_sender: Sender<BytesMut>,
     ) -> Result<JoinHandle<()>> {
         Ok(tokio::task::spawn(async move {
             if let Err(error) =
-                AsyncRawSocketChannel::process(socket, transmit_receiver, receive_sender).await
+                AsyncRawSocketChannel::process(mtu, socket, transmit_receiver, receive_sender).await
             {
                 warn!("failed to process raw socket: {}", error);
             }
@@ -230,6 +231,7 @@ impl AsyncRawSocketChannel {
     }
 
     async fn process(
+        mtu: usize,
         socket: RawSocketHandle,
         mut transmit_receiver: Receiver<BytesMut>,
         receive_sender: Sender<BytesMut>,
@@ -237,6 +239,7 @@ impl AsyncRawSocketChannel {
         let socket = unsafe { std::net::UdpSocket::from_raw_fd(socket.into_raw_fd()) };
         let socket = UdpSocket::from_std(socket)?;
 
+        let mut buffer = vec![0; mtu];
         loop {
             let selection = select! {
                 x = transmit_receiver.recv() => AsyncRawSocketChannelSelect::TransmitPacket(x),
@@ -245,7 +248,6 @@ impl AsyncRawSocketChannel {
 
             match selection {
                 AsyncRawSocketChannelSelect::Readable(_) => {
-                    let mut buffer = vec![0; 1500];
                     match socket.try_recv(&mut buffer) {
                         Ok(len) => {
                             if len == 0 {

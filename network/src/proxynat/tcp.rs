@@ -25,7 +25,7 @@ use tokio::{sync::mpsc::Receiver, sync::mpsc::Sender};
 
 use crate::{
     chandev::ChannelDevice,
-    nat::{NatHandler, NatHandlerContext},
+    nat::handler::{NatHandler, NatHandlerContext},
 };
 
 const TCP_BUFFER_SIZE: usize = 65535;
@@ -216,7 +216,7 @@ impl ProxyTcpHandler {
                     };
                     buffer.extend_from_slice(&header.to_bytes());
                     buffer.extend_from_slice(&payload);
-                    if let Err(error) = context.try_send(buffer) {
+                    if let Err(error) = context.try_transmit(buffer) {
                         debug!("failed to transmit tcp packet: {}", error);
                     }
                 }
@@ -389,7 +389,7 @@ impl ProxyTcpHandler {
                     };
                     buffer.extend_from_slice(&header.to_bytes());
                     buffer.extend_from_slice(&payload);
-                    if let Err(error) = context.try_send(buffer) {
+                    if let Err(error) = context.try_transmit(buffer) {
                         debug!("failed to transmit tcp packet: {}", error);
                     }
                 }
@@ -449,7 +449,7 @@ impl ProxyTcpHandler {
                     };
                     buffer.extend_from_slice(&header.to_bytes());
                     buffer.extend_from_slice(&payload);
-                    if let Err(error) = context.try_send(buffer) {
+                    if let Err(error) = context.try_transmit(buffer) {
                         debug!("failed to transmit tcp packet: {}", error);
                     }
                 }

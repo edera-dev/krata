@@ -1,7 +1,6 @@
 use crate::pkt::RecvPacket;
 use crate::pkt::RecvPacketIp;
 use anyhow::Result;
-use async_trait::async_trait;
 use bytes::BytesMut;
 use etherparse::Icmpv4Header;
 use etherparse::Icmpv4Type;
@@ -11,126 +10,110 @@ use etherparse::IpNumber;
 use etherparse::IpPayloadSlice;
 use etherparse::Ipv4Slice;
 use etherparse::Ipv6Slice;
+use etherparse::SlicedPacket;
 use etherparse::TcpHeaderSlice;
 use etherparse::UdpHeaderSlice;
+use log::warn;
 use log::{debug, trace};
 use smoltcp::wire::EthernetAddress;
 use smoltcp::wire::IpAddress;
 use smoltcp::wire::IpCidr;
 use smoltcp::wire::IpEndpoint;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::fmt::Display;
+use tokio::select;
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
+use tokio::task::JoinHandle;
+
+use super::handler::NatHandler;
+use super::handler::NatHandlerContext;
+use super::handler::NatHandlerFactory;
+use super::key::NatKey;
+use super::key::NatKeyProtocol;
+use super::table::NatTable;
 
 const RECLAIM_CHANNEL_QUEUE_LEN: usize = 10;
+const RECEIVE_CHANNEL_QUEUE_LEN: usize = 30;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
-pub enum NatKeyProtocol {
-    Tcp,
-    Udp,
-    Icmp,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
-pub struct NatKey {
-    pub protocol: NatKeyProtocol,
-    pub client_mac: EthernetAddress,
-    pub local_mac: EthernetAddress,
-    pub client_ip: IpEndpoint,
-    pub external_ip: IpEndpoint,
-}
-
-impl Display for NatKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} -> {} {:?} {} -> {}",
-            self.client_mac, self.local_mac, self.protocol, self.client_ip, self.external_ip
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct NatHandlerContext {
-    pub mtu: usize,
-    pub key: NatKey,
-    tx_sender: Sender<BytesMut>,
-    reclaim_sender: Sender<NatKey>,
-}
-
-impl NatHandlerContext {
-    pub fn try_send(&self, buffer: BytesMut) -> Result<()> {
-        self.tx_sender.try_send(buffer)?;
-        Ok(())
-    }
-
-    pub async fn reclaim(&self) -> Result<()> {
-        self.reclaim_sender.try_send(self.key)?;
-        Ok(())
-    }
-}
-
-#[async_trait]
-pub trait NatHandler: Send {
-    async fn receive(&self, packet: &[u8]) -> Result<bool>;
-}
-
-#[async_trait]
-pub trait NatHandlerFactory: Send {
-    async fn nat(&self, context: NatHandlerContext) -> Option<Box<dyn NatHandler>>;
-}
-
-pub struct NatTable {
-    inner: HashMap<NatKey, Box<dyn NatHandler>>,
-}
-
-impl Default for NatTable {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl NatTable {
-    pub fn new() -> Self {
-        Self {
-            inner: HashMap::new(),
-        }
-    }
-}
-
-pub struct NatRouter {
+pub struct NatProcessor {
     mtu: usize,
     local_mac: EthernetAddress,
     local_cidrs: Vec<IpCidr>,
-    factory: Box<dyn NatHandlerFactory>,
     table: NatTable,
-    tx_sender: Sender<BytesMut>,
+    factory: Box<dyn NatHandlerFactory>,
+    transmit_sender: Sender<BytesMut>,
     reclaim_sender: Sender<NatKey>,
     reclaim_receiver: Receiver<NatKey>,
+    receive_receiver: Receiver<BytesMut>,
 }
 
-impl NatRouter {
-    pub fn new(
+enum NatProcessorSelect {
+    Reclaim(Option<NatKey>),
+    ReceivedPacket(Option<BytesMut>),
+}
+
+impl NatProcessor {
+    pub fn launch(
         mtu: usize,
         factory: Box<dyn NatHandlerFactory>,
         local_mac: EthernetAddress,
         local_cidrs: Vec<IpCidr>,
-        tx_sender: Sender<BytesMut>,
-    ) -> Self {
+        transmit_sender: Sender<BytesMut>,
+    ) -> Result<(Sender<BytesMut>, JoinHandle<()>)> {
         let (reclaim_sender, reclaim_receiver) = channel(RECLAIM_CHANNEL_QUEUE_LEN);
-        Self {
+        let (receive_sender, receive_receiver) = channel(RECEIVE_CHANNEL_QUEUE_LEN);
+        let mut processor = Self {
             mtu,
             local_mac,
             local_cidrs,
             factory,
             table: NatTable::new(),
-            tx_sender,
+            transmit_sender,
             reclaim_sender,
+            receive_receiver,
             reclaim_receiver,
+        };
+
+        let handle = tokio::task::spawn(async move {
+            if let Err(error) = processor.process().await {
+                warn!("nat processing failed: {}", error);
+            }
+        });
+
+        Ok((receive_sender, handle))
+    }
+
+    pub async fn process(&mut self) -> Result<()> {
+        loop {
+            let selection = select! {
+                x = self.reclaim_receiver.recv() => NatProcessorSelect::Reclaim(x),
+                x = self.receive_receiver.recv() => NatProcessorSelect::ReceivedPacket(x),
+            };
+
+            match selection {
+                NatProcessorSelect::Reclaim(Some(key)) => {
+                    if self.table.inner.remove(&key).is_some() {
+                        debug!("reclaimed nat key: {}", key);
+                    }
+                }
+
+                NatProcessorSelect::ReceivedPacket(Some(packet)) => {
+                    if let Ok(slice) = SlicedPacket::from_ethernet(&packet) {
+                        let Ok(packet) = RecvPacket::new(&packet, &slice) else {
+                            continue;
+                        };
+
+                        self.process_packet(&packet).await?;
+                    }
+                }
+
+                NatProcessorSelect::ReceivedPacket(None) | NatProcessorSelect::Reclaim(None) => {
+                    break
+                }
+            }
         }
+        Ok(())
     }
 
     pub async fn process_reclaim(&mut self) -> Result<Option<NatKey>> {
@@ -146,7 +129,7 @@ impl NatRouter {
         })
     }
 
-    pub async fn process<'a>(&mut self, packet: &RecvPacket<'a>) -> Result<()> {
+    pub async fn process_packet<'a>(&mut self, packet: &RecvPacket<'a>) -> Result<()> {
         let Some(ether) = packet.ether else {
             return Ok(());
         };
@@ -180,7 +163,7 @@ impl NatRouter {
         let context = NatHandlerContext {
             mtu: self.mtu,
             key,
-            tx_sender: self.tx_sender.clone(),
+            transmit_sender: self.transmit_sender.clone(),
             reclaim_sender: self.reclaim_sender.clone(),
         };
         let handler: Option<&mut Box<dyn NatHandler>> = match self.table.inner.entry(key) {
@@ -251,28 +234,6 @@ impl NatRouter {
         })
     }
 
-    pub fn extract_key_tcp<'a>(
-        &mut self,
-        packet: &RecvPacket<'a>,
-        source_addr: IpAddress,
-        dest_addr: IpAddress,
-        payload: &IpPayloadSlice<'a>,
-    ) -> Result<Option<NatKey>> {
-        let Some(ether) = packet.ether else {
-            return Ok(None);
-        };
-        let header = TcpHeaderSlice::from_slice(payload.payload)?;
-        let source = IpEndpoint::new(source_addr, header.source_port());
-        let dest = IpEndpoint::new(dest_addr, header.destination_port());
-        Ok(Some(NatKey {
-            protocol: NatKeyProtocol::Tcp,
-            client_mac: EthernetAddress(ether.source()),
-            local_mac: EthernetAddress(ether.destination()),
-            client_ip: source,
-            external_ip: dest,
-        }))
-    }
-
     pub fn extract_key_udp<'a>(
         &mut self,
         packet: &RecvPacket<'a>,
@@ -338,6 +299,28 @@ impl NatRouter {
         let dest = IpEndpoint::new(dest_addr, 0);
         Ok(Some(NatKey {
             protocol: NatKeyProtocol::Icmp,
+            client_mac: EthernetAddress(ether.source()),
+            local_mac: EthernetAddress(ether.destination()),
+            client_ip: source,
+            external_ip: dest,
+        }))
+    }
+
+    pub fn extract_key_tcp<'a>(
+        &mut self,
+        packet: &RecvPacket<'a>,
+        source_addr: IpAddress,
+        dest_addr: IpAddress,
+        payload: &IpPayloadSlice<'a>,
+    ) -> Result<Option<NatKey>> {
+        let Some(ether) = packet.ether else {
+            return Ok(None);
+        };
+        let header = TcpHeaderSlice::from_slice(payload.payload)?;
+        let source = IpEndpoint::new(source_addr, header.source_port());
+        let dest = IpEndpoint::new(dest_addr, header.destination_port());
+        Ok(Some(NatKey {
+            protocol: NatKeyProtocol::Tcp,
             client_mac: EthernetAddress(ether.source()),
             local_mac: EthernetAddress(ether.destination()),
             client_ip: source,
