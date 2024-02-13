@@ -1,7 +1,12 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use env_logger::Env;
-use hyphactrl::ctl::Controller;
+use hyphactrl::ctl::{
+    console::ControllerConsole,
+    destroy::ControllerDestroy,
+    launch::{ControllerLaunch, ControllerLaunchRequest},
+    ControllerContext,
+};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -27,8 +32,6 @@ enum Commands {
         cpus: u32,
         #[arg(short, long, default_value_t = 512)]
         mem: u64,
-        #[arg(long)]
-        config_bundle: Option<String>,
         #[arg[short, long]]
         env: Option<Vec<String>>,
         #[arg(short, long)]
@@ -65,7 +68,7 @@ fn main() -> Result<()> {
         .map(|x| x.to_string())
         .ok_or_else(|| anyhow!("unable to convert store path to string"))?;
 
-    let mut controller = Controller::new(store_path.clone())?;
+    let mut context = ControllerContext::new(store_path.clone())?;
 
     match args.command {
         Commands::Launch {
@@ -74,7 +77,6 @@ fn main() -> Result<()> {
             image,
             cpus,
             mem,
-            config_bundle,
             attach,
             env,
             run,
@@ -82,33 +84,37 @@ fn main() -> Result<()> {
         } => {
             let kernel = map_kernel_path(&store_path, kernel);
             let initrd = map_initrd_path(&store_path, initrd);
-            let (uuid, _domid) = controller.launch(
-                &kernel,
-                &initrd,
-                config_bundle.as_deref(),
-                &image,
-                cpus,
+            let mut launch = ControllerLaunch::new(&mut context);
+            let request = ControllerLaunchRequest {
+                kernel_path: &kernel,
+                initrd_path: &initrd,
+                image: &image,
+                vcpus: cpus,
                 mem,
                 env,
-                if run.is_empty() { None } else { Some(run) },
+                run: if run.is_empty() { None } else { Some(run) },
                 debug,
-            )?;
+            };
+            let (uuid, _domid) = launch.perform(request)?;
             println!("launched container: {}", uuid);
             if attach {
-                controller.console(&uuid.to_string())?;
+                let mut console = ControllerConsole::new(&mut context);
+                console.perform(&uuid.to_string())?;
             }
         }
 
         Commands::Destroy { container } => {
-            controller.destroy(&container)?;
+            let mut destroy = ControllerDestroy::new(&mut context);
+            destroy.perform(&container)?;
         }
 
         Commands::Console { container } => {
-            controller.console(&container)?;
+            let mut console = ControllerConsole::new(&mut context);
+            console.perform(&container)?;
         }
 
         Commands::List { .. } => {
-            let containers = controller.list()?;
+            let containers = context.list()?;
             let mut table = cli_tables::Table::new();
             let header = vec!["uuid", "ipv4", "ipv6", "image"];
             table.push_row(&header)?;

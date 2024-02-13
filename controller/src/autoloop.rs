@@ -7,7 +7,7 @@ pub struct AutoLoop {
 }
 
 impl AutoLoop {
-    pub(crate) fn new(control: LoopControl) -> AutoLoop {
+    pub fn new(control: LoopControl) -> AutoLoop {
         AutoLoop { control }
     }
 
