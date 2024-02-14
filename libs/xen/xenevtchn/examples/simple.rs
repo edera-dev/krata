@@ -1,11 +1,12 @@
 use xenevtchn::error::Result;
 use xenevtchn::EventChannel;
 
-fn main() -> Result<()> {
-    let mut channel = EventChannel::open()?;
-    println!("Channel opened.");
-    let port = channel.bind_unbound_port(1)?;
+#[tokio::main]
+async fn main() -> Result<()> {
+    let channel = EventChannel::open().await?;
+    println!("channel opened");
+    let port = channel.bind_unbound_port(0).await?;
     println!("port: {}", port);
-    channel.unbind(port)?;
+    channel.unbind(port).await?;
     Ok(())
 }
