@@ -35,3 +35,67 @@ Currently no external contributions are accepted. hypha is in it's early days an
 ### What are the future plans?
 
 Mycelium is trying to build a company to compete in the hypervisor space with fully open-source technology. More information to come soon on official channels.
+
+## Development Guide
+
+### Structure
+
+hypha is composed of three major executables:
+
+| Executable | Runs On | User Interaction | Dev Runner                  | Code Path   |
+| ---------- | ------- | ---------------- | --------------------------- | ----------- |
+| hyphanet   | host    | backend daemon   | ./scripts/hyphanet-debug.sh | network     |
+| hyphactl   | host    | CLI tool         | ./scripts/hyphactl-debug.sh | controller  |
+| hyphactr   | guest   | none, guest init | N/A                         | container   |
+
+You will find the code to each executable available in the bin/ and src/ directories inside
+it's coresponding code path from the above table.
+
+### Environment
+
+| Component     | Specification | Notes                                                                             |
+| ------------- | ------------- | --------------------------------------------------------------------------------- |
+| Architecture  | x86_64        | aarch64 support requires minimal effort, but limited to x86 for research phase    |
+| Memory        | At least 6GB  | dom0 will need to be configured will lower memory limit to give hypha guests room | 
+| Xen           | 4.17          | Temporary due to hardcoded interface version constants                            |
+| Debian        | sid / stable  | Debian is recommended due to the ease of Xen setup                                |
+| musl-gcc      | any           | hyphactr is built for musl to allow static linking, as initrd is a single file    |
+| rustup        | any           | Install Rustup from https://rustup.rs                                             |
+
+### Setup
+
+1. Install the specified Debian version on a x86_64 host _capable_ of KVM (NOTE: KVM is not used, Xen is a type-1 hypervisor).
+
+2. Ensure you have installed Xen (apt install xen-system-amd64) and configure `/etc/default/grub.d/xen.cfg` to give hypha guests
+   some room:
+
+```sh
+# Configure dom0_mem to be 4GB, but leave the rest of the RAM for hypha guests.
+GRUB_CMDLINE_XEN_DEFAULT="dom0_mem=4G,max:4G"
+```
+
+3. Build a guest kernel image:
+
+```sh
+$ ./kernel/build.sh -j4
+```
+
+4. Copy the guest kernel image to `/var/lib/hypha/default/kernel` to have it automatically detected by hyphactl.
+5. Launch `./scripts/hyphanet-debug.sh` and keep it running in the foreground.
+6. Run hyphactl to launch a container:
+
+```sh
+$ ./scripts/hyphactl-debug.sh launch --attach mirror.gcr.io/library/alpine:latest /bin/busybox sh
+```
+
+To detach from the container console, use `Ctrl + ]` on your keyboard.
+
+To list the running containers, run:
+```sh
+$ ./scripts/hyphactl-debug.sh list
+```
+
+To destroy a running container, copy it's UUID from either the launch command or the container list and run:
+```sh
+$ ./scripts/hyphactl-debug.sh destroy CONTAINER_UUID
+```
