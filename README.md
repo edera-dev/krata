@@ -80,7 +80,7 @@ GRUB_CMDLINE_XEN_DEFAULT="dom0_mem=4G,max:4G"
 $ ./kernel/build.sh -j4
 ```
 
-4. Copy the guest kernel image to `/var/lib/hypha/default/kernel` to have it automatically detected by hyphactl.
+4. Copy the guest kernel image at `kernel/target/kernel` to `/var/lib/hypha/default/kernel` to have it automatically detected by hyphactl.
 5. Launch `./scripts/hyphanet-debug.sh` and keep it running in the foreground.
 6. Run hyphactl to launch a container:
 
