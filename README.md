@@ -24,7 +24,7 @@ pvcalls is extremely interesting, and although it is certainly possible to utili
 
 ### Why is this prototype utilizing AGPL?
 
-This repository is licensed under AGPL. This is because what is here is not intended for anything other than curiousity and research. Mycelium will utilize a different license for any production versions of hypha.
+This repository is licensed under AGPL. This is because what is here is not intended for anything other than curiosity and research. Mycelium will utilize a different license for any production versions of hypha.
 
 As such, no external contributions are accepted at this time.
 
@@ -49,7 +49,7 @@ hypha is composed of three major executables:
 | hyphactr   | guest   | none, guest init | N/A                         | container   |
 
 You will find the code to each executable available in the bin/ and src/ directories inside
-it's coresponding code path from the above table.
+it's corresponding code path from the above table.
 
 ### Environment
 
@@ -58,31 +58,45 @@ it's coresponding code path from the above table.
 | Architecture  | x86_64        | aarch64 support requires minimal effort, but limited to x86 for research phase    |
 | Memory        | At least 6GB  | dom0 will need to be configured will lower memory limit to give hypha guests room | 
 | Xen           | 4.17          | Temporary due to hardcoded interface version constants                            |
-| Debian        | sid / stable  | Debian is recommended due to the ease of Xen setup                                |
-| musl-gcc      | any           | hyphactr is built for musl to allow static linking, as initrd is a single file    |
+| Debian        | stable / sid  | Debian is recommended due to the ease of Xen setup                                |
 | rustup        | any           | Install Rustup from https://rustup.rs                                             |
 
-### Setup
+### Debian Setup
 
 1. Install the specified Debian version on a x86_64 host _capable_ of KVM (NOTE: KVM is not used, Xen is a type-1 hypervisor).
 
-2. Ensure you have installed Xen (apt install xen-system-amd64) and configure `/etc/default/grub.d/xen.cfg` to give hypha guests
-   some room:
+2. Install required packages: `apt install git xen-system-amd64 flex bison libelf-dev libssl-dev bc`
+
+3. Install [rustup](https://rustup.rs) for managing a Rust environment.
+
+4. Configure `/etc/default/grub.d/xen.cfg` to give hypha guests some room:
 
 ```sh
 # Configure dom0_mem to be 4GB, but leave the rest of the RAM for hypha guests.
 GRUB_CMDLINE_XEN_DEFAULT="dom0_mem=4G,max:4G"
 ```
 
-3. Build a guest kernel image:
+After changing the grub config, update grub: `update-grub`
+
+Then reboot to boot the system as a Xen dom0.
+
+You can validate that Xen is setup by running `xl info` and ensuring it returns useful information about the Xen hypervisor.
+
+5. Clone the hypha source code:
+```sh
+$ git clone https://github.com/mycelium-eng/hypha.git hypha
+$ cd hypha
+```
+
+6. Build a guest kernel image:
 
 ```sh
 $ ./kernel/build.sh -j4
 ```
 
-4. Copy the guest kernel image at `kernel/target/kernel` to `/var/lib/hypha/default/kernel` to have it automatically detected by hyphactl.
-5. Launch `./scripts/hyphanet-debug.sh` and keep it running in the foreground.
-6. Run hyphactl to launch a container:
+7. Copy the guest kernel image at `kernel/target/kernel` to `/var/lib/hypha/default/kernel` to have it automatically detected by hyphactl.
+8. Launch `./scripts/hyphanet-debug.sh` and keep it running in the foreground.
+9. Run hyphactl to launch a container:
 
 ```sh
 $ ./scripts/hyphactl-debug.sh launch --attach mirror.gcr.io/library/alpine:latest /bin/busybox sh

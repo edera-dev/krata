@@ -676,13 +676,17 @@ impl XenClient {
     pub fn open_console(&mut self, domid: u32) -> Result<(File, File)> {
         let dom_path = self.store.get_domain_path(domid)?;
         let console_tty_path = format!("{}/console/tty", dom_path);
-        let tty = self
-            .store
-            .read_string_optional(&console_tty_path)?
-            .unwrap_or("".to_string());
-        if tty.is_empty() {
-            return Err(Error::TtyNotFound);
+        let mut tty: Option<String> = None;
+        for _ in 0..5 {
+            tty = self.store.read_string_optional(&console_tty_path)?;
+            if tty.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(200));
         }
+        let Some(tty) = tty else {
+            return Err(Error::TtyNotFound);
+        };
         let read = OpenOptions::new().read(true).write(false).open(&tty)?;
         let write = OpenOptions::new().read(false).write(true).open(&tty)?;
         Ok((read, write))
