@@ -16,7 +16,7 @@ use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::task::JoinHandle;
 
-const TX_CHANNEL_BUFFER_LEN: usize = 300;
+const TX_CHANNEL_BUFFER_LEN: usize = 1000;
 
 #[derive(Clone)]
 pub struct NetworkBackend {
@@ -151,12 +151,12 @@ impl NetworkBackend {
     pub async fn launch(self) -> Result<JoinHandle<()>> {
         Ok(tokio::task::spawn(async move {
             info!(
-                "lauched network backend for hypha guest {}",
+                "lauched network backend for krata guest {}",
                 self.metadata.uuid
             );
             if let Err(error) = self.run().await {
                 warn!(
-                    "network backend for hypha guest {} failed: {}",
+                    "network backend for krata guest {} failed: {}",
                     self.metadata.uuid, error
                 );
             }
@@ -167,7 +167,7 @@ impl NetworkBackend {
 impl Drop for NetworkBackend {
     fn drop(&mut self) {
         info!(
-            "destroyed network backend for hypha guest {}",
+            "destroyed network backend for krata guest {}",
             self.metadata.uuid
         );
     }

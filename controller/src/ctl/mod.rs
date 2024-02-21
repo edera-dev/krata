@@ -60,7 +60,7 @@ impl ControllerContext {
             let uuid_string = match self
                 .xen
                 .store
-                .read_string_optional(&format!("{}/hypha/uuid", &dom_path))?
+                .read_string_optional(&format!("{}/krata/uuid", &dom_path))?
             {
                 None => continue,
                 Some(value) => value,
@@ -71,22 +71,22 @@ impl ControllerContext {
             let image = self
                 .xen
                 .store
-                .read_string_optional(&format!("{}/hypha/image", &dom_path))?
+                .read_string_optional(&format!("{}/krata/image", &dom_path))?
                 .unwrap_or("unknown".to_string());
             let loops = self
                 .xen
                 .store
-                .read_string_optional(&format!("{}/hypha/loops", &dom_path))?
+                .read_string_optional(&format!("{}/krata/loops", &dom_path))?
                 .unwrap_or("".to_string());
             let ipv4 = self
                 .xen
                 .store
-                .read_string_optional(&format!("{}/hypha/network/guest/ipv4", &dom_path))?
+                .read_string_optional(&format!("{}/krata/network/guest/ipv4", &dom_path))?
                 .unwrap_or("unknown".to_string());
             let ipv6: String = self
                 .xen
                 .store
-                .read_string_optional(&format!("{}/hypha/network/guest/ipv6", &dom_path))?
+                .read_string_optional(&format!("{}/krata/network/guest/ipv6", &dom_path))?
                 .unwrap_or("unknown".to_string());
             let loops = ControllerContext::parse_loop_set(&loops);
             containers.push(ContainerInfo {
@@ -105,7 +105,7 @@ impl ControllerContext {
         for container in self.list()? {
             let uuid_string = container.uuid.to_string();
             let domid_string = container.domid.to_string();
-            if uuid_string == id || domid_string == id || id == format!("hypha-{}", uuid_string) {
+            if uuid_string == id || domid_string == id || id == format!("krata-{}", uuid_string) {
                 return Ok(Some(container));
             }
         }

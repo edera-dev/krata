@@ -1,5 +1,5 @@
 [package]
-name = "hyphanet"
+name = "kratanet"
 version.workspace = true
 edition = "2021"
 resolver = "2"
@@ -31,7 +31,7 @@ path = "../libs/xen/xenstore"
 path = "src/lib.rs"
 
 [[bin]]
-name = "hyphanet"
+name = "kratanet"
 path = "bin/network.rs"
 
 [[example]]

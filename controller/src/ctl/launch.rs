@@ -2,10 +2,10 @@ use std::{fs, net::Ipv4Addr, str::FromStr};
 
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
-use hypha::{
+use ipnetwork::Ipv4Network;
+use krata::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
 };
-use ipnetwork::Ipv4Network;
 use uuid::Uuid;
 use xenclient::{DomainConfig, DomainDisk, DomainNetworkInterface};
 use xenstore::client::XsdInterface;
@@ -36,7 +36,7 @@ impl ControllerLaunch<'_> {
 
     pub fn perform(&mut self, request: ControllerLaunchRequest) -> Result<(Uuid, u32)> {
         let uuid = Uuid::new_v4();
-        let name = format!("hypha-{uuid}");
+        let name = format!("krata-{uuid}");
         let image_info = self.compile(request.image)?;
 
         let mut gateway_mac = MacAddr6::random();
@@ -134,9 +134,9 @@ impl ControllerLaunch<'_> {
             }],
             filesystems: vec![],
             extra_keys: vec![
-                ("hypha/uuid".to_string(), uuid.to_string()),
+                ("krata/uuid".to_string(), uuid.to_string()),
                 (
-                    "hypha/loops".to_string(),
+                    "krata/loops".to_string(),
                     format!(
                         "{}:{}:none,{}:{}:{}",
                         &image_squashfs_loop.path,
@@ -146,29 +146,29 @@ impl ControllerLaunch<'_> {
                         cfgblk_dir_path,
                     ),
                 ),
-                ("hypha/image".to_string(), request.image.to_string()),
+                ("krata/image".to_string(), request.image.to_string()),
                 (
-                    "hypha/network/guest/ipv4".to_string(),
+                    "krata/network/guest/ipv4".to_string(),
                     format!("{}/{}", guest_ipv4, ipv4_network_mask),
                 ),
                 (
-                    "hypha/network/guest/ipv6".to_string(),
+                    "krata/network/guest/ipv6".to_string(),
                     format!("{}/{}", guest_ipv6, ipv6_network_mask),
                 ),
                 (
-                    "hypha/network/guest/mac".to_string(),
+                    "krata/network/guest/mac".to_string(),
                     container_mac_string.clone(),
                 ),
                 (
-                    "hypha/network/gateway/ipv4".to_string(),
+                    "krata/network/gateway/ipv4".to_string(),
                     format!("{}/{}", gateway_ipv4, ipv4_network_mask),
                 ),
                 (
-                    "hypha/network/gateway/ipv6".to_string(),
+                    "krata/network/gateway/ipv6".to_string(),
                     format!("{}/{}", gateway_ipv6, ipv6_network_mask),
                 ),
                 (
-                    "hypha/network/gateway/mac".to_string(),
+                    "krata/network/gateway/mac".to_string(),
                     gateway_mac_string.clone(),
                 ),
             ],
@@ -193,7 +193,7 @@ impl ControllerLaunch<'_> {
         ];
         for domid_candidate in self.context.xen.store.list_any("/local/domain")? {
             let dom_path = format!("/local/domain/{}", domid_candidate);
-            let ip_path = format!("{}/hypha/network/guest/ipv4", dom_path);
+            let ip_path = format!("{}/krata/network/guest/ipv4", dom_path);
             let existing_ip = self.context.xen.store.read_string_optional(&ip_path)?;
             if let Some(existing_ip) = existing_ip {
                 let ipv4_network = Ipv4Network::from_str(&existing_ip)?;

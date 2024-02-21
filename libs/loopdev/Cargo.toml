@@ -1,5 +1,5 @@
 # This package is from https://github.com/stratis-storage/loopdev-3
-# Mycelium maintains an in-tree version because the goals of hypha mean that
+# Edera maintains an in-tree version because the goals of krata mean that
 # there is as little binding generation as possible, especially bindings which
 # prevent development from macOS, like the original library.
 [package]

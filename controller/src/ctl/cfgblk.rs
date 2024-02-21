@@ -1,7 +1,7 @@
 use crate::image::ImageInfo;
 use anyhow::Result;
 use backhand::{FilesystemWriter, NodeHeader};
-use hypha::LaunchInfo;
+use krata::LaunchInfo;
 use log::trace;
 use std::fs;
 use std::fs::File;
@@ -17,7 +17,7 @@ pub struct ConfigBlock<'a> {
 impl ConfigBlock<'_> {
     pub fn new<'a>(uuid: &Uuid, image_info: &'a ImageInfo) -> Result<ConfigBlock<'a>> {
         let mut dir = std::env::temp_dir().clone();
-        dir.push(format!("hypha-cfg-{}", uuid));
+        dir.push(format!("krata-cfg-{}", uuid));
         fs::create_dir_all(&dir)?;
         let mut file = dir.clone();
         file.push("config.squashfs");

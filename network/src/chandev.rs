@@ -1,5 +1,5 @@
-use bytes::BytesMut;
 // Referenced https://github.com/vi/wgslirpy/blob/master/crates/libwgslirpy/src/channelized_smoltcp_device.rs
+use bytes::BytesMut;
 use log::{debug, warn};
 use smoltcp::phy::{Checksum, Device, Medium};
 use tokio::sync::mpsc::Sender;

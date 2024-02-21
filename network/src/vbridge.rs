@@ -19,9 +19,9 @@ use tokio::{
     task::JoinHandle,
 };
 
-const TO_BRIDGE_QUEUE_LEN: usize = 50;
-const FROM_BRIDGE_QUEUE_LEN: usize = 50;
-const BROADCAST_QUEUE_LEN: usize = 50;
+const TO_BRIDGE_QUEUE_LEN: usize = 1000;
+const FROM_BRIDGE_QUEUE_LEN: usize = 1000;
+const BROADCAST_QUEUE_LEN: usize = 1000;
 const MEMBER_LEAVE_QUEUE_LEN: usize = 10;
 
 #[derive(Debug)]

@@ -16,7 +16,7 @@ fi
 
 mkdir -p "${OUTPUT_DIR_NAME}"
 
-cp hypha.config "${SRC_DIR_NAME}/.config"
+cp krata.config "${SRC_DIR_NAME}/.config"
 make -C "${SRC_DIR_NAME}" "${@}" olddefconfig
 make -C "${SRC_DIR_NAME}" "${@}" bzImage
 cp "${SRC_DIR_NAME}/arch/x86/boot/bzImage" "${OUTPUT_DIR_NAME}/kernel"

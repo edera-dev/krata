@@ -1,5 +1,5 @@
 # This package is from https://github.com/GamePad64/advmac
-# Mycelium maintains an in-tree version because of dependencies
+# Edera maintains an in-tree version because of dependencies
 # being out of date.
 [package]
 name = "advmac"

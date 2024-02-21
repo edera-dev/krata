@@ -17,7 +17,7 @@ mod icmp;
 mod tcp;
 mod udp;
 
-const RX_CHANNEL_BOUND: usize = 300;
+const RX_CHANNEL_QUEUE_LEN: usize = 1000;
 
 pub struct ProxyNatHandlerFactory {}
 
@@ -38,7 +38,7 @@ impl NatHandlerFactory for ProxyNatHandlerFactory {
     async fn nat(&self, context: NatHandlerContext) -> Option<Box<dyn NatHandler>> {
         match context.key.protocol {
             NatKeyProtocol::Udp => {
-                let (rx_sender, rx_receiver) = channel::<BytesMut>(RX_CHANNEL_BOUND);
+                let (rx_sender, rx_receiver) = channel::<BytesMut>(RX_CHANNEL_QUEUE_LEN);
                 let mut handler = ProxyUdpHandler::new(rx_sender);
 
                 if let Err(error) = handler.spawn(context, rx_receiver).await {
@@ -50,7 +50,7 @@ impl NatHandlerFactory for ProxyNatHandlerFactory {
             }
 
             NatKeyProtocol::Icmp => {
-                let (rx_sender, rx_receiver) = channel::<BytesMut>(RX_CHANNEL_BOUND);
+                let (rx_sender, rx_receiver) = channel::<BytesMut>(RX_CHANNEL_QUEUE_LEN);
                 let mut handler = ProxyIcmpHandler::new(rx_sender);
 
                 if let Err(error) = handler.spawn(context, rx_receiver).await {
@@ -62,7 +62,7 @@ impl NatHandlerFactory for ProxyNatHandlerFactory {
             }
 
             NatKeyProtocol::Tcp => {
-                let (rx_sender, rx_receiver) = channel::<BytesMut>(RX_CHANNEL_BOUND);
+                let (rx_sender, rx_receiver) = channel::<BytesMut>(RX_CHANNEL_QUEUE_LEN);
                 let mut handler = ProxyTcpHandler::new(rx_sender);
 
                 if let Err(error) = handler.spawn(context, rx_receiver).await {

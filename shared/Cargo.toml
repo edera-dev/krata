@@ -1,5 +1,5 @@
 [package]
-name = "hypha"
+name = "krata"
 version.workspace = true
 edition = "2021"
 resolver = "2"

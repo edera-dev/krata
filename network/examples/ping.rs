@@ -1,7 +1,7 @@
 use std::{net::Ipv6Addr, str::FromStr, time::Duration};
 
 use anyhow::Result;
-use hyphanet::icmp::{IcmpClient, IcmpProtocol};
+use kratanet::icmp::{IcmpClient, IcmpProtocol};
 
 #[tokio::main]
 async fn main() -> Result<()> {

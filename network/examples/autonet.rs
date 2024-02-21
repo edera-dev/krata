@@ -1,7 +1,7 @@
 use std::{thread::sleep, time::Duration};
 
 use anyhow::Result;
-use hyphanet::autonet::AutoNetworkCollector;
+use kratanet::autonet::AutoNetworkCollector;
 
 fn main() -> Result<()> {
     let mut collector = AutoNetworkCollector::new()?;

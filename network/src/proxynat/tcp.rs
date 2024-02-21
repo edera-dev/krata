@@ -32,7 +32,7 @@ const TCP_BUFFER_SIZE: usize = 65535;
 const TCP_ACCEPT_TIMEOUT_SECS: u64 = 120;
 const TCP_DANGLE_TIMEOUT_SECS: u64 = 10;
 
-const TCP_IP_BUFFER_LEN: usize = 300;
+const TCP_IP_BUFFER_LEN: usize = 1000;
 
 pub struct ProxyTcpHandler {
     rx_sender: Sender<BytesMut>,

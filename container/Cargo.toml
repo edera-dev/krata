@@ -1,5 +1,5 @@
 [package]
-name = "hyphactr"
+name = "kratactr"
 version.workspace = true
 edition = "2021"
 resolver = "2"
@@ -22,12 +22,12 @@ ipnetwork = { workspace = true }
 workspace = true
 features = ["process"]
 
-[dependencies.hypha]
+[dependencies.krata]
 path = "../shared"
 
 [lib]
 path = "src/lib.rs"
 
 [[bin]]
-name = "hyphactr"
+name = "kratactr"
 path = "bin/init.rs"

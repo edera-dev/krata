@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use futures::stream::TryStreamExt;
-use hypha::{LaunchInfo, LaunchNetwork};
 use ipnetwork::IpNetwork;
+use krata::{LaunchInfo, LaunchNetwork};
 use log::{trace, warn};
 use nix::libc::{c_int, dup2, ioctl, wait};
 use nix::unistd::{execve, fork, ForkResult, Pid};
@@ -289,7 +289,7 @@ impl ContainerInit {
             fs::create_dir(etc)?;
         }
         let resolv = PathBuf::from_str("/etc/resolv.conf")?;
-        let mut lines = vec!["# hypha resolver configuration".to_string()];
+        let mut lines = vec!["# krata resolver configuration".to_string()];
         for nameserver in &network.resolver.nameservers {
             lines.push(format!("nameserver {}", nameserver));
         }
@@ -386,7 +386,7 @@ impl ContainerInit {
             None => vec![],
             Some(value) => value.clone(),
         };
-        env.push("HYPHA_CONTAINER=1".to_string());
+        env.push("KRATA_CONTAINER=1".to_string());
         env.push("TERM=vt100".to_string());
         if let Some(extra_env) = &launch.env {
             env.extend_from_slice(extra_env.as_slice());
@@ -446,8 +446,8 @@ impl ContainerInit {
     }
 
     fn death(&mut self, code: c_int) -> Result<()> {
-        println!("[hypha] container process exited: status = {}", code);
-        println!("[hypha] looping forever");
+        println!("[krata] container process exited: status = {}", code);
+        println!("[krata] looping forever");
         loop {
             sleep(Duration::from_secs(1));
         }

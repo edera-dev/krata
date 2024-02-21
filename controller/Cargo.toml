@@ -1,5 +1,5 @@
 [package]
-name = "hyphactrl"
+name = "kratactrl"
 version.workspace = true
 edition = "2021"
 resolver = "2"
@@ -27,7 +27,7 @@ backhand = { workspace = true }
 uuid = { workspace = true }
 ipnetwork = { workspace = true }
 
-[dependencies.hypha]
+[dependencies.krata]
 path = "../shared"
 
 [dependencies.nix]
@@ -50,5 +50,5 @@ path = "../libs/xen/xenstore"
 path = "src/lib.rs"
 
 [[bin]]
-name = "hyphactl"
+name = "kratactl"
 path = "bin/control.rs"

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use env_logger::Env;
-use hyphactrl::ctl::{
+use kratactrl::ctl::{
     console::ControllerConsole,
     destroy::ControllerDestroy,
     launch::{ControllerLaunch, ControllerLaunchRequest},
@@ -156,9 +156,9 @@ fn default_store_path() -> Option<PathBuf> {
     let user_dirs = directories::UserDirs::new()?;
     let mut path = user_dirs.home_dir().to_path_buf();
     if path == PathBuf::from("/root") {
-        path.push("/var/lib/hypha")
+        path.push("/var/lib/krata")
     } else {
-        path.push(".hypha");
+        path.push(".krata");
     }
     Some(path)
 }

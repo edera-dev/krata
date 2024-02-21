@@ -53,7 +53,7 @@ impl AutoNetworkCollector {
             };
 
             let dom_path = format!("/local/domain/{}", domid_string);
-            let Some(uuid_string) = tx.read_string_optional(&format!("{}/hypha/uuid", dom_path))?
+            let Some(uuid_string) = tx.read_string_optional(&format!("{}/krata/uuid", dom_path))?
             else {
                 continue;
             };
@@ -91,10 +91,10 @@ impl AutoNetworkCollector {
         dom_path: &str,
         side: &str,
     ) -> Result<NetworkSide> {
-        let side_path = format!("{}/hypha/network/{}", dom_path, side);
+        let side_path = format!("{}/krata/network/{}", dom_path, side);
         let Some(ipv4) = tx.read_string_optional(&format!("{}/ipv4", side_path))? else {
             return Err(anyhow!(
-                "hypha domain {} is missing {} ipv4 network entry",
+                "krata domain {} is missing {} ipv4 network entry",
                 uuid,
                 side
             ));
@@ -102,7 +102,7 @@ impl AutoNetworkCollector {
 
         let Some(ipv6) = tx.read_string_optional(&format!("{}/ipv6", side_path))? else {
             return Err(anyhow!(
-                "hypha domain {} is missing {} ipv6 network entry",
+                "krata domain {} is missing {} ipv6 network entry",
                 uuid,
                 side
             ));
@@ -110,7 +110,7 @@ impl AutoNetworkCollector {
 
         let Some(mac) = tx.read_string_optional(&format!("{}/mac", side_path))? else {
             return Err(anyhow!(
-                "hypha domain {} is missing {} mac address entry",
+                "krata domain {} is missing {} mac address entry",
                 uuid,
                 side
             ));
@@ -118,7 +118,7 @@ impl AutoNetworkCollector {
 
         let Ok(ipv4) = Ipv4Cidr::from_str(&ipv4) else {
             return Err(anyhow!(
-                "hypha domain {} has invalid {} ipv4 network cidr entry: {}",
+                "krata domain {} has invalid {} ipv4 network cidr entry: {}",
                 uuid,
                 side,
                 ipv4
@@ -127,7 +127,7 @@ impl AutoNetworkCollector {
 
         let Ok(ipv6) = Ipv6Cidr::from_str(&ipv6) else {
             return Err(anyhow!(
-                "hypha domain {} has invalid {} ipv6 network cidr entry: {}",
+                "krata domain {} has invalid {} ipv6 network cidr entry: {}",
                 uuid,
                 side,
                 ipv6
@@ -136,7 +136,7 @@ impl AutoNetworkCollector {
 
         let Ok(mac) = EthernetAddress::from_str(&mac) else {
             return Err(anyhow!(
-                "hypha domain {} has invalid {} mac address entry: {}",
+                "krata domain {} has invalid {} mac address entry: {}",
                 uuid,
                 side,
                 mac

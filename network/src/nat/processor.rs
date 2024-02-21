@@ -34,7 +34,7 @@ use super::key::NatKeyProtocol;
 use super::table::NatTable;
 
 const RECLAIM_CHANNEL_QUEUE_LEN: usize = 10;
-const RECEIVE_CHANNEL_QUEUE_LEN: usize = 30;
+const RECEIVE_CHANNEL_QUEUE_LEN: usize = 1000;
 
 pub struct NatProcessor {
     mtu: usize,

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, thread, time::Duration};
 
 use anyhow::Result;
 use autonet::{AutoNetworkChangeset, AutoNetworkCollector, NetworkMetadata};
@@ -64,6 +64,7 @@ impl NetworkService {
             })
             .collect::<Vec<_>>();
 
+        thread::sleep(Duration::from_secs(1));
         let (launched, failed) = futures::executor::block_on(async move {
             let mut failed: Vec<Uuid> = Vec::new();
             let mut launched: Vec<(Uuid, JoinHandle<()>)> = Vec::new();
@@ -76,7 +77,7 @@ impl NetworkService {
 
                     Err((metadata, error)) => {
                         warn!(
-                            "failed to launch network backend for hypha guest {}: {}",
+                            "failed to launch network backend for krata guest {}: {}",
                             metadata.uuid, error
                         );
                         failed.push(metadata.uuid);

@@ -97,7 +97,7 @@ impl ImageCompiler<'_> {
     pub fn compile(&self, image: &ImageName) -> Result<ImageInfo> {
         debug!("ImageCompiler compile image={image}");
         let mut tmp_dir = std::env::temp_dir().clone();
-        tmp_dir.push(format!("hypha-compile-{}", Uuid::new_v4()));
+        tmp_dir.push(format!("krata-compile-{}", Uuid::new_v4()));
 
         let mut image_dir = tmp_dir.clone();
         image_dir.push("image");
