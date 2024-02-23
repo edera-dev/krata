@@ -53,7 +53,8 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
 
     let args = ControllerArgs::parse();
@@ -99,7 +100,7 @@ fn main() -> Result<()> {
             println!("launched container: {}", uuid);
             if attach {
                 let mut console = ControllerConsole::new(&mut context);
-                console.perform(&uuid.to_string())?;
+                console.perform(&uuid.to_string()).await?;
             }
         }
 
@@ -110,7 +111,7 @@ fn main() -> Result<()> {
 
         Commands::Console { container } => {
             let mut console = ControllerConsole::new(&mut context);
-            console.perform(&container)?;
+            console.perform(&container).await?;
         }
 
         Commands::List { .. } => {

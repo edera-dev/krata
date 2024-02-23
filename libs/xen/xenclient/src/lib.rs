@@ -11,7 +11,7 @@ use crate::error::{Error, Result};
 use crate::x86::X86BootSetup;
 use log::{trace, warn};
 
-use std::fs::{read, File, OpenOptions};
+use std::fs::read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::thread;
@@ -60,6 +60,11 @@ pub struct DomainNetworkInterface<'a> {
 pub struct DomainConsole {}
 
 #[derive(Debug)]
+pub struct DomainEventChannel<'a> {
+    pub name: &'a str,
+}
+
+#[derive(Debug)]
 pub struct DomainConfig<'a> {
     pub backend_domid: u32,
     pub name: &'a str,
@@ -72,6 +77,7 @@ pub struct DomainConfig<'a> {
     pub consoles: Vec<DomainConsole>,
     pub vifs: Vec<DomainNetworkInterface<'a>>,
     pub filesystems: Vec<DomainFilesystem<'a>>,
+    pub event_channels: Vec<DomainEventChannel<'a>>,
     pub extra_keys: Vec<(String, String)>,
 }
 
@@ -97,90 +103,6 @@ impl XenClient {
                 Err(err)
             }
         }
-    }
-
-    pub fn destroy(&mut self, domid: u32) -> Result<()> {
-        if let Err(err) = self.destroy_store(domid) {
-            warn!("failed to destroy store for domain {}: {}", domid, err);
-        }
-        self.call.destroy_domain(domid)?;
-        Ok(())
-    }
-
-    fn destroy_store(&mut self, domid: u32) -> Result<()> {
-        let dom_path = self.store.get_domain_path(domid)?;
-        let vm_path = self.store.read_string(&format!("{}/vm", dom_path))?;
-        if vm_path.is_empty() {
-            return Err(Error::DomainNonExistent);
-        }
-
-        let mut backend_paths: Vec<String> = Vec::new();
-        let console_frontend_path = format!("{}/console", dom_path);
-        let console_backend_path = self
-            .store
-            .read_string_optional(format!("{}/backend", console_frontend_path).as_str())?;
-
-        for device_category in self
-            .store
-            .list_any(format!("{}/device", dom_path).as_str())?
-        {
-            for device_id in self
-                .store
-                .list_any(format!("{}/device/{}", dom_path, device_category).as_str())?
-            {
-                let device_path = format!("{}/device/{}/{}", dom_path, device_category, device_id);
-                let backend_path = self
-                    .store
-                    .read_string(format!("{}/backend", device_path).as_str())?;
-                backend_paths.push(backend_path);
-            }
-        }
-
-        for backend in &backend_paths {
-            let state_path = format!("{}/state", backend);
-            let online_path = format!("{}/online", backend);
-            let mut tx = self.store.transaction()?;
-            let state = tx.read_string(&state_path)?;
-            if state.is_empty() {
-                break;
-            }
-            tx.write_string(&online_path, "0")?;
-            if !state.is_empty() && u32::from_str(&state).unwrap_or(0) != 6 {
-                tx.write_string(&state_path, "5")?;
-            }
-            tx.commit()?;
-
-            let mut count: u32 = 0;
-            loop {
-                if count >= 100 {
-                    warn!("unable to safely destroy backend: {}", backend);
-                    break;
-                }
-                let state = self.store.read_string(&state_path)?;
-                let state = i64::from_str(&state).unwrap_or(-1);
-                if state == 6 {
-                    break;
-                }
-                thread::sleep(Duration::from_millis(100));
-                count += 1;
-            }
-        }
-
-        let mut tx = self.store.transaction()?;
-        let mut backend_removals: Vec<String> = Vec::new();
-        backend_removals.extend_from_slice(backend_paths.as_slice());
-        if let Some(backend) = console_backend_path {
-            backend_removals.push(backend);
-        }
-        for path in &backend_removals {
-            let path = PathBuf::from(path);
-            let parent = path.parent().ok_or(Error::PathParentNotFound)?;
-            tx.rm(parent.to_str().ok_or(Error::PathStringConversion)?)?;
-        }
-        tx.rm(&vm_path)?;
-        tx.rm(&dom_path)?;
-        tx.commit()?;
-        Ok(())
     }
 
     fn init(&mut self, domid: u32, domain: &CreateDomain, config: &DomainConfig) -> Result<()> {
@@ -401,6 +323,18 @@ impl XenClient {
                 vif,
             )?;
         }
+
+        for channel in &config.event_channels {
+            let id = self
+                .call
+                .evtchn_alloc_unbound(domid, config.backend_domid)?;
+            let channel_path = format!("{}/evtchn/{}", dom_path, channel.name);
+            self.store
+                .write_string(&format!("{}/name", channel_path), channel.name)?;
+            self.store
+                .write_string(&format!("{}/channel", channel_path), &id.to_string())?;
+        }
+
         self.call.unpause_domain(domid)?;
         Ok(())
     }
@@ -673,7 +607,91 @@ impl XenClient {
         Ok(())
     }
 
-    pub fn open_console(&mut self, domid: u32) -> Result<(File, File)> {
+    pub fn destroy(&mut self, domid: u32) -> Result<()> {
+        if let Err(err) = self.destroy_store(domid) {
+            warn!("failed to destroy store for domain {}: {}", domid, err);
+        }
+        self.call.destroy_domain(domid)?;
+        Ok(())
+    }
+
+    fn destroy_store(&mut self, domid: u32) -> Result<()> {
+        let dom_path = self.store.get_domain_path(domid)?;
+        let vm_path = self.store.read_string(&format!("{}/vm", dom_path))?;
+        if vm_path.is_empty() {
+            return Err(Error::DomainNonExistent);
+        }
+
+        let mut backend_paths: Vec<String> = Vec::new();
+        let console_frontend_path = format!("{}/console", dom_path);
+        let console_backend_path = self
+            .store
+            .read_string_optional(format!("{}/backend", console_frontend_path).as_str())?;
+
+        for device_category in self
+            .store
+            .list_any(format!("{}/device", dom_path).as_str())?
+        {
+            for device_id in self
+                .store
+                .list_any(format!("{}/device/{}", dom_path, device_category).as_str())?
+            {
+                let device_path = format!("{}/device/{}/{}", dom_path, device_category, device_id);
+                let backend_path = self
+                    .store
+                    .read_string(format!("{}/backend", device_path).as_str())?;
+                backend_paths.push(backend_path);
+            }
+        }
+
+        for backend in &backend_paths {
+            let state_path = format!("{}/state", backend);
+            let online_path = format!("{}/online", backend);
+            let mut tx = self.store.transaction()?;
+            let state = tx.read_string(&state_path)?;
+            if state.is_empty() {
+                break;
+            }
+            tx.write_string(&online_path, "0")?;
+            if !state.is_empty() && u32::from_str(&state).unwrap_or(0) != 6 {
+                tx.write_string(&state_path, "5")?;
+            }
+            tx.commit()?;
+
+            let mut count: u32 = 0;
+            loop {
+                if count >= 100 {
+                    warn!("unable to safely destroy backend: {}", backend);
+                    break;
+                }
+                let state = self.store.read_string(&state_path)?;
+                let state = i64::from_str(&state).unwrap_or(-1);
+                if state == 6 {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+                count += 1;
+            }
+        }
+
+        let mut tx = self.store.transaction()?;
+        let mut backend_removals: Vec<String> = Vec::new();
+        backend_removals.extend_from_slice(backend_paths.as_slice());
+        if let Some(backend) = console_backend_path {
+            backend_removals.push(backend);
+        }
+        for path in &backend_removals {
+            let path = PathBuf::from(path);
+            let parent = path.parent().ok_or(Error::PathParentNotFound)?;
+            tx.rm(parent.to_str().ok_or(Error::PathStringConversion)?)?;
+        }
+        tx.rm(&vm_path)?;
+        tx.rm(&dom_path)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_console_path(&mut self, domid: u32) -> Result<String> {
         let dom_path = self.store.get_domain_path(domid)?;
         let console_tty_path = format!("{}/console/tty", dom_path);
         let mut tty: Option<String> = None;
@@ -687,8 +705,6 @@ impl XenClient {
         let Some(tty) = tty else {
             return Err(Error::TtyNotFound);
         };
-        let read = OpenOptions::new().read(true).write(false).open(&tty)?;
-        let write = OpenOptions::new().read(false).write(true).open(&tty)?;
-        Ok((read, write))
+        Ok(tty)
     }
 }

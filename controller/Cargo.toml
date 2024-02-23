@@ -26,6 +26,8 @@ oci-spec = { workspace = true }
 backhand = { workspace = true }
 uuid = { workspace = true }
 ipnetwork = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
 
 [dependencies.krata]
 path = "../shared"

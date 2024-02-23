@@ -3,7 +3,7 @@ use futures::stream::TryStreamExt;
 use ipnetwork::IpNetwork;
 use krata::{LaunchInfo, LaunchNetwork};
 use log::{trace, warn};
-use nix::libc::{c_int, dup2, ioctl, wait};
+use nix::libc::{dup2, ioctl};
 use nix::unistd::{execve, fork, ForkResult, Pid};
 use oci_spec::image::{Config, ImageConfiguration};
 use std::ffi::{CStr, CString};
@@ -13,13 +13,12 @@ use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::fs::{chroot, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::ptr::addr_of_mut;
 use std::str::FromStr;
-use std::thread::sleep;
-use std::time::Duration;
 use std::{fs, io};
 use sys_mount::{FilesystemType, Mount, MountFlags};
 use walkdir::WalkDir;
+
+use crate::background::ContainerBackground;
 
 const IMAGE_BLOCK_DEVICE_PATH: &str = "/dev/xvda";
 const CONFIG_BLOCK_DEVICE_PATH: &str = "/dev/xvdb";
@@ -84,7 +83,7 @@ impl ContainerInit {
         }
 
         if let Some(cfg) = config.config() {
-            self.run(cfg, &launch)?;
+            self.run(cfg, &launch).await?;
         } else {
             return Err(anyhow!(
                 "unable to determine what to execute, image config doesn't tell us"
@@ -367,7 +366,7 @@ impl ContainerInit {
         Ok(())
     }
 
-    fn run(&mut self, config: &Config, launch: &LaunchInfo) -> Result<()> {
+    async fn run(&mut self, config: &Config, launch: &LaunchInfo) -> Result<()> {
         let mut cmd = match config.cmd() {
             None => vec![],
             Some(value) => value.clone(),
@@ -408,7 +407,7 @@ impl ContainerInit {
         }
 
         std::env::set_current_dir(&working_dir)?;
-        self.fork_and_exec(&path_cstr, cmd_cstr, env_cstr)?;
+        self.fork_and_exec(&path_cstr, cmd_cstr, env_cstr).await?;
         Ok(())
     }
 
@@ -420,9 +419,14 @@ impl ContainerInit {
         Ok(results)
     }
 
-    fn fork_and_exec(&mut self, path: &CStr, cmd: Vec<CString>, env: Vec<CString>) -> Result<()> {
+    async fn fork_and_exec(
+        &mut self,
+        path: &CStr,
+        cmd: Vec<CString>,
+        env: Vec<CString>,
+    ) -> Result<()> {
         match unsafe { fork()? } {
-            ForkResult::Parent { child } => self.background(child),
+            ForkResult::Parent { child } => self.background(child).await,
             ForkResult::Child => {
                 unsafe { nix::libc::setsid() };
                 let result = unsafe { ioctl(io::stdin().as_raw_fd(), nix::libc::TIOCSCTTY, 0) };
@@ -435,21 +439,9 @@ impl ContainerInit {
         }
     }
 
-    fn background(&mut self, executed: Pid) -> Result<()> {
-        loop {
-            let mut status: c_int = 0;
-            let pid = unsafe { wait(addr_of_mut!(status)) };
-            if executed.as_raw() == pid {
-                return self.death(status);
-            }
-        }
-    }
-
-    fn death(&mut self, code: c_int) -> Result<()> {
-        println!("[krata] container process exited: status = {}", code);
-        println!("[krata] looping forever");
-        loop {
-            sleep(Duration::from_secs(1));
-        }
+    async fn background(&mut self, executed: Pid) -> Result<()> {
+        let mut background = ContainerBackground::new(executed).await?;
+        background.run().await?;
+        Ok(())
     }
 }

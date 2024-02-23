@@ -25,6 +25,9 @@ features = ["process"]
 [dependencies.krata]
 path = "../shared"
 
+[dependencies.xenevtchn]
+path = "../libs/xen/xenevtchn"
+
 [lib]
 path = "src/lib.rs"
 

@@ -26,6 +26,7 @@ fn main() -> Result<()> {
         vifs: vec![],
         filesystems: vec![],
         extra_keys: vec![],
+        event_channels: vec![],
     };
     let domid = client.create(&config)?;
     println!("created domain {}", domid);
