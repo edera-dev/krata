@@ -11,6 +11,11 @@ path = "src/lib.rs"
 thiserror = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }
 
 [dependencies.bytemuck]
 workspace = true

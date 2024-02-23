@@ -2,7 +2,8 @@ use std::{env, process};
 use xenclient::error::Result;
 use xenclient::{DomainConfig, XenClient};
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     env_logger::init();
 
     let args: Vec<String> = env::args().collect();
@@ -12,7 +13,7 @@ fn main() -> Result<()> {
     }
     let kernel_image_path = args.get(1).expect("argument not specified");
     let initrd_path = args.get(2).expect("argument not specified");
-    let mut client = XenClient::open()?;
+    let mut client = XenClient::open().await?;
     let config = DomainConfig {
         backend_domid: 0,
         name: "xenclient-test",
@@ -28,7 +29,7 @@ fn main() -> Result<()> {
         extra_keys: vec![],
         event_channels: vec![],
     };
-    let domid = client.create(&config)?;
+    let domid = client.create(&config).await?;
     println!("created domain {}", domid);
     Ok(())
 }

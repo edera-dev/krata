@@ -36,9 +36,9 @@ impl NetworkService {
 
 impl NetworkService {
     pub async fn watch(&mut self) -> Result<()> {
-        let mut collector = AutoNetworkCollector::new()?;
+        let mut collector = AutoNetworkCollector::new().await?;
         loop {
-            let changeset = collector.read_changes()?;
+            let changeset = collector.read_changes().await?;
             self.process_network_changeset(&mut collector, changeset)?;
             sleep(Duration::from_secs(2)).await;
         }

@@ -35,7 +35,7 @@ impl ControllerLaunch<'_> {
         ControllerLaunch { context }
     }
 
-    pub fn perform(&mut self, request: ControllerLaunchRequest) -> Result<(Uuid, u32)> {
+    pub async fn perform(&mut self, request: ControllerLaunchRequest<'_>) -> Result<(Uuid, u32)> {
         let uuid = Uuid::new_v4();
         let name = format!("krata-{uuid}");
         let image_info = self.compile(request.image)?;
@@ -47,7 +47,7 @@ impl ControllerLaunch<'_> {
         container_mac.set_local(true);
         container_mac.set_multicast(false);
 
-        let guest_ipv4 = self.allocate_ipv4()?;
+        let guest_ipv4 = self.allocate_ipv4().await?;
         let guest_ipv6 = container_mac.to_link_local_ipv6();
         let gateway_ipv4 = "192.168.42.1";
         let gateway_ipv6 = "fe80::1";
@@ -178,7 +178,7 @@ impl ControllerLaunch<'_> {
                 ),
             ],
         };
-        match self.context.xen.create(&config) {
+        match self.context.xen.create(&config).await {
             Ok(domid) => Ok((uuid, domid)),
             Err(error) => {
                 let _ = self.context.autoloop.unloop(&image_squashfs_loop.path);
@@ -189,17 +189,17 @@ impl ControllerLaunch<'_> {
         }
     }
 
-    fn allocate_ipv4(&mut self) -> Result<Ipv4Addr> {
+    async fn allocate_ipv4(&mut self) -> Result<Ipv4Addr> {
         let network = Ipv4Network::new(Ipv4Addr::new(192, 168, 42, 0), 24)?;
         let mut used: Vec<Ipv4Addr> = vec![
             Ipv4Addr::new(192, 168, 42, 0),
             Ipv4Addr::new(192, 168, 42, 1),
             Ipv4Addr::new(192, 168, 42, 255),
         ];
-        for domid_candidate in self.context.xen.store.list_any("/local/domain")? {
+        for domid_candidate in self.context.xen.store.list("/local/domain").await? {
             let dom_path = format!("/local/domain/{}", domid_candidate);
             let ip_path = format!("{}/krata/network/guest/ipv4", dom_path);
-            let existing_ip = self.context.xen.store.read_string_optional(&ip_path)?;
+            let existing_ip = self.context.xen.store.read_string(&ip_path).await?;
             if let Some(existing_ip) = existing_ip {
                 let ipv4_network = Ipv4Network::from_str(&existing_ip)?;
                 used.push(ipv4_network.ip());

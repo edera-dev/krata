@@ -1,13 +1,15 @@
-use std::{thread::sleep, time::Duration};
+use std::time::Duration;
 
 use anyhow::Result;
 use kratanet::autonet::AutoNetworkCollector;
+use tokio::time::sleep;
 
-fn main() -> Result<()> {
-    let mut collector = AutoNetworkCollector::new()?;
+#[tokio::main]
+async fn main() -> Result<()> {
+    let mut collector = AutoNetworkCollector::new().await?;
     loop {
-        let changeset = collector.read_changes()?;
+        let changeset = collector.read_changes().await?;
         println!("{:?}", changeset);
-        sleep(Duration::from_secs(2));
+        sleep(Duration::from_secs(2)).await;
     }
 }

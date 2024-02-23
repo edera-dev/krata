@@ -82,38 +82,43 @@ pub struct DomainConfig<'a> {
 }
 
 impl XenClient {
-    pub fn open() -> Result<XenClient> {
-        let store = XsdClient::open()?;
+    pub async fn open() -> Result<XenClient> {
+        let store = XsdClient::open().await?;
         let call = XenCall::open()?;
         Ok(XenClient { store, call })
     }
 
-    pub fn create(&mut self, config: &DomainConfig) -> Result<u32> {
+    pub async fn create(&mut self, config: &DomainConfig<'_>) -> Result<u32> {
         let domain = CreateDomain {
             max_vcpus: config.max_vcpus,
             ..Default::default()
         };
         let domid = self.call.create_domain(domain)?;
-        match self.init(domid, &domain, config) {
+        match self.init(domid, &domain, config).await {
             Ok(_) => Ok(domid),
             Err(err) => {
                 // ignore since destroying a domain is best
                 // effort when an error occurs
-                let _ = self.destroy(domid);
+                let _ = self.destroy(domid).await;
                 Err(err)
             }
         }
     }
 
-    fn init(&mut self, domid: u32, domain: &CreateDomain, config: &DomainConfig) -> Result<()> {
+    async fn init(
+        &mut self,
+        domid: u32,
+        domain: &CreateDomain,
+        config: &DomainConfig<'_>,
+    ) -> Result<()> {
         trace!(
             "XenClient init domid={} domain={:?} config={:?}",
             domid,
             domain,
             config
         );
-        let backend_dom_path = self.store.get_domain_path(0)?;
-        let dom_path = self.store.get_domain_path(domid)?;
+        let backend_dom_path = self.store.get_domain_path(0).await?;
+        let dom_path = self.store.get_domain_path(domid).await?;
         let uuid_string = Uuid::from_bytes(domain.handle).to_string();
         let vm_path = format!("/vm/{}", uuid_string);
 
@@ -139,57 +144,76 @@ impl XenClient {
         }];
 
         {
-            let mut tx = self.store.transaction()?;
+            let mut tx = self.store.transaction().await?;
 
-            tx.rm(dom_path.as_str())?;
-            tx.mknod(dom_path.as_str(), ro_perm)?;
+            tx.rm(dom_path.as_str()).await?;
+            tx.mknod(dom_path.as_str(), ro_perm).await?;
 
-            tx.rm(vm_path.as_str())?;
-            tx.mknod(vm_path.as_str(), ro_perm)?;
+            tx.rm(vm_path.as_str()).await?;
+            tx.mknod(vm_path.as_str(), ro_perm).await?;
 
-            tx.mknod(vm_path.as_str(), no_perm)?;
-            tx.mknod(format!("{}/device", vm_path).as_str(), no_perm)?;
+            tx.mknod(vm_path.as_str(), no_perm).await?;
+            tx.mknod(format!("{}/device", vm_path).as_str(), no_perm)
+                .await?;
 
-            tx.write_string(format!("{}/vm", dom_path).as_str(), &vm_path)?;
+            tx.write_string(format!("{}/vm", dom_path).as_str(), &vm_path)
+                .await?;
 
-            tx.mknod(format!("{}/cpu", dom_path).as_str(), ro_perm)?;
-            tx.mknod(format!("{}/memory", dom_path).as_str(), ro_perm)?;
+            tx.mknod(format!("{}/cpu", dom_path).as_str(), ro_perm)
+                .await?;
+            tx.mknod(format!("{}/memory", dom_path).as_str(), ro_perm)
+                .await?;
 
-            tx.mknod(format!("{}/control", dom_path).as_str(), ro_perm)?;
+            tx.mknod(format!("{}/control", dom_path).as_str(), ro_perm)
+                .await?;
 
-            tx.mknod(format!("{}/control/shutdown", dom_path).as_str(), rw_perm)?;
+            tx.mknod(format!("{}/control/shutdown", dom_path).as_str(), rw_perm)
+                .await?;
             tx.mknod(
                 format!("{}/control/feature-poweroff", dom_path).as_str(),
                 rw_perm,
-            )?;
+            )
+            .await?;
             tx.mknod(
                 format!("{}/control/feature-reboot", dom_path).as_str(),
                 rw_perm,
-            )?;
+            )
+            .await?;
             tx.mknod(
                 format!("{}/control/feature-suspend", dom_path).as_str(),
                 rw_perm,
-            )?;
-            tx.mknod(format!("{}/control/sysrq", dom_path).as_str(), rw_perm)?;
+            )
+            .await?;
+            tx.mknod(format!("{}/control/sysrq", dom_path).as_str(), rw_perm)
+                .await?;
 
-            tx.mknod(format!("{}/data", dom_path).as_str(), rw_perm)?;
-            tx.mknod(format!("{}/drivers", dom_path).as_str(), rw_perm)?;
-            tx.mknod(format!("{}/feature", dom_path).as_str(), rw_perm)?;
-            tx.mknod(format!("{}/attr", dom_path).as_str(), rw_perm)?;
-            tx.mknod(format!("{}/error", dom_path).as_str(), rw_perm)?;
+            tx.mknod(format!("{}/data", dom_path).as_str(), rw_perm)
+                .await?;
+            tx.mknod(format!("{}/drivers", dom_path).as_str(), rw_perm)
+                .await?;
+            tx.mknod(format!("{}/feature", dom_path).as_str(), rw_perm)
+                .await?;
+            tx.mknod(format!("{}/attr", dom_path).as_str(), rw_perm)
+                .await?;
+            tx.mknod(format!("{}/error", dom_path).as_str(), rw_perm)
+                .await?;
 
             tx.write_string(
                 format!("{}/uuid", vm_path).as_str(),
                 &Uuid::from_bytes(domain.handle).to_string(),
-            )?;
-            tx.write_string(format!("{}/name", dom_path).as_str(), config.name)?;
-            tx.write_string(format!("{}/name", vm_path).as_str(), config.name)?;
+            )
+            .await?;
+            tx.write_string(format!("{}/name", dom_path).as_str(), config.name)
+                .await?;
+            tx.write_string(format!("{}/name", vm_path).as_str(), config.name)
+                .await?;
 
             for (key, value) in &config.extra_keys {
-                tx.write_string(format!("{}/{}", dom_path, key).as_str(), value)?;
+                tx.write_string(format!("{}/{}", dom_path, key).as_str(), value)
+                    .await?;
             }
 
-            tx.commit()?;
+            tx.commit().await?;
         }
 
         self.call.set_max_vcpus(domid, config.max_vcpus)?;
@@ -220,52 +244,63 @@ impl XenClient {
         }
 
         {
-            let mut tx = self.store.transaction()?;
-            tx.write_string(format!("{}/image/os_type", vm_path).as_str(), "linux")?;
+            let mut tx = self.store.transaction().await?;
+            tx.write_string(format!("{}/image/os_type", vm_path).as_str(), "linux")
+                .await?;
             tx.write_string(
                 format!("{}/image/kernel", vm_path).as_str(),
                 config.kernel_path,
-            )?;
+            )
+            .await?;
             tx.write_string(
                 format!("{}/image/ramdisk", vm_path).as_str(),
                 config.initrd_path,
-            )?;
+            )
+            .await?;
             tx.write_string(
                 format!("{}/image/cmdline", vm_path).as_str(),
                 config.cmdline,
-            )?;
+            )
+            .await?;
 
             tx.write_string(
                 format!("{}/memory/static-max", dom_path).as_str(),
                 &(config.mem_mb * 1024).to_string(),
-            )?;
+            )
+            .await?;
             tx.write_string(
                 format!("{}/memory/target", dom_path).as_str(),
                 &(config.mem_mb * 1024).to_string(),
-            )?;
-            tx.write_string(format!("{}/memory/videoram", dom_path).as_str(), "0")?;
-            tx.write_string(format!("{}/domid", dom_path).as_str(), &domid.to_string())?;
+            )
+            .await?;
+            tx.write_string(format!("{}/memory/videoram", dom_path).as_str(), "0")
+                .await?;
+            tx.write_string(format!("{}/domid", dom_path).as_str(), &domid.to_string())
+                .await?;
             tx.write_string(
                 format!("{}/store/port", dom_path).as_str(),
                 &xenstore_evtchn.to_string(),
-            )?;
+            )
+            .await?;
             tx.write_string(
                 format!("{}/store/ring-ref", dom_path).as_str(),
                 &xenstore_mfn.to_string(),
-            )?;
+            )
+            .await?;
             for i in 0..config.max_vcpus {
                 let path = format!("{}/cpu/{}", dom_path, i);
-                tx.mkdir(&path)?;
-                tx.set_perms(&path, ro_perm)?;
+                tx.mkdir(&path).await?;
+                tx.set_perms(&path, ro_perm).await?;
                 let path = format!("{}/cpu/{}/availability", dom_path, i);
-                tx.write_string(&path, "online")?;
-                tx.set_perms(&path, ro_perm)?;
+                tx.write_string(&path, "online").await?;
+                tx.set_perms(&path, ro_perm).await?;
             }
-            tx.commit()?;
+            tx.commit().await?;
         }
         if !self
             .store
-            .introduce_domain(domid, xenstore_mfn, xenstore_evtchn)?
+            .introduce_domain(domid, xenstore_mfn, xenstore_evtchn)
+            .await?
         {
             return Err(Error::IntroduceDomainFailed);
         }
@@ -277,7 +312,8 @@ impl XenClient {
             0,
             Some(console_evtchn),
             Some(console_mfn),
-        )?;
+        )
+        .await?;
 
         for (index, _) in config.consoles.iter().enumerate() {
             self.console_device_add(
@@ -288,7 +324,8 @@ impl XenClient {
                 index + 1,
                 None,
                 None,
-            )?;
+            )
+            .await?;
         }
 
         for (index, disk) in config.disks.iter().enumerate() {
@@ -299,7 +336,8 @@ impl XenClient {
                 domid,
                 index,
                 disk,
-            )?;
+            )
+            .await?;
         }
 
         for (index, filesystem) in config.filesystems.iter().enumerate() {
@@ -310,7 +348,8 @@ impl XenClient {
                 domid,
                 index,
                 filesystem,
-            )?;
+            )
+            .await?;
         }
 
         for (index, vif) in config.vifs.iter().enumerate() {
@@ -321,7 +360,8 @@ impl XenClient {
                 domid,
                 index,
                 vif,
-            )?;
+            )
+            .await?;
         }
 
         for channel in &config.event_channels {
@@ -330,23 +370,25 @@ impl XenClient {
                 .evtchn_alloc_unbound(domid, config.backend_domid)?;
             let channel_path = format!("{}/evtchn/{}", dom_path, channel.name);
             self.store
-                .write_string(&format!("{}/name", channel_path), channel.name)?;
+                .write_string(&format!("{}/name", channel_path), channel.name)
+                .await?;
             self.store
-                .write_string(&format!("{}/channel", channel_path), &id.to_string())?;
+                .write_string(&format!("{}/channel", channel_path), &id.to_string())
+                .await?;
         }
 
         self.call.unpause_domain(domid)?;
         Ok(())
     }
 
-    fn disk_device_add(
+    async fn disk_device_add(
         &mut self,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
         domid: u32,
         index: usize,
-        disk: &DomainDisk,
+        disk: &DomainDisk<'_>,
     ) -> Result<()> {
         let id = (202 << 8) | (index << 4) as u64;
         let backend_items: Vec<(&str, String)> = vec![
@@ -386,12 +428,13 @@ impl XenClient {
             domid,
             frontend_items,
             backend_items,
-        )?;
+        )
+        .await?;
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments, clippy::unnecessary_unwrap)]
-    fn console_device_add(
+    async fn console_device_add(
         &mut self,
         dom_path: &str,
         backend_dom_path: &str,
@@ -444,18 +487,19 @@ impl XenClient {
             domid,
             frontend_entries,
             backend_entries,
-        )?;
+        )
+        .await?;
         Ok(())
     }
 
-    fn fs_9p_device_add(
+    async fn fs_9p_device_add(
         &mut self,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
         domid: u32,
         index: usize,
-        filesystem: &DomainFilesystem,
+        filesystem: &DomainFilesystem<'_>,
     ) -> Result<()> {
         let id = 90 + index as u64;
         let backend_items: Vec<(&str, String)> = vec![
@@ -481,18 +525,19 @@ impl XenClient {
             domid,
             frontend_items,
             backend_items,
-        )?;
+        )
+        .await?;
         Ok(())
     }
 
-    fn vif_device_add(
+    async fn vif_device_add(
         &mut self,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
         domid: u32,
         index: usize,
-        vif: &DomainNetworkInterface,
+        vif: &DomainNetworkInterface<'_>,
     ) -> Result<()> {
         let id = 20 + index as u64;
         let mut backend_items: Vec<(&str, String)> = vec![
@@ -538,12 +583,13 @@ impl XenClient {
             domid,
             frontend_items,
             backend_items,
-        )?;
+        )
+        .await?;
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn device_add(
+    async fn device_add(
         &mut self,
         typ: &str,
         id: u64,
@@ -589,36 +635,36 @@ impl XenClient {
             },
         ];
 
-        let mut tx = self.store.transaction()?;
-        tx.mknod(&frontend_path, frontend_perms)?;
+        let mut tx = self.store.transaction().await?;
+        tx.mknod(&frontend_path, frontend_perms).await?;
         for (p, value) in &frontend_items {
             let path = format!("{}/{}", frontend_path, *p);
-            tx.write_string(&path, value)?;
+            tx.write_string(&path, value).await?;
             if !console_zero {
-                tx.set_perms(&path, frontend_perms)?;
+                tx.set_perms(&path, frontend_perms).await?;
             }
         }
-        tx.mknod(&backend_path, backend_perms)?;
+        tx.mknod(&backend_path, backend_perms).await?;
         for (p, value) in &backend_items {
             let path = format!("{}/{}", backend_path, *p);
-            tx.write_string(&path, value)?;
+            tx.write_string(&path, value).await?;
         }
-        tx.commit()?;
+        tx.commit().await?;
         Ok(())
     }
 
-    pub fn destroy(&mut self, domid: u32) -> Result<()> {
-        if let Err(err) = self.destroy_store(domid) {
+    pub async fn destroy(&mut self, domid: u32) -> Result<()> {
+        if let Err(err) = self.destroy_store(domid).await {
             warn!("failed to destroy store for domain {}: {}", domid, err);
         }
         self.call.destroy_domain(domid)?;
         Ok(())
     }
 
-    fn destroy_store(&mut self, domid: u32) -> Result<()> {
-        let dom_path = self.store.get_domain_path(domid)?;
-        let vm_path = self.store.read_string(&format!("{}/vm", dom_path))?;
-        if vm_path.is_empty() {
+    async fn destroy_store(&mut self, domid: u32) -> Result<()> {
+        let dom_path = self.store.get_domain_path(domid).await?;
+        let vm_path = self.store.read_string(&format!("{}/vm", dom_path)).await?;
+        if vm_path.is_none() {
             return Err(Error::DomainNonExistent);
         }
 
@@ -626,20 +672,27 @@ impl XenClient {
         let console_frontend_path = format!("{}/console", dom_path);
         let console_backend_path = self
             .store
-            .read_string_optional(format!("{}/backend", console_frontend_path).as_str())?;
+            .read_string(format!("{}/backend", console_frontend_path).as_str())
+            .await?;
 
         for device_category in self
             .store
-            .list_any(format!("{}/device", dom_path).as_str())?
+            .list(format!("{}/device", dom_path).as_str())
+            .await?
         {
             for device_id in self
                 .store
-                .list_any(format!("{}/device/{}", dom_path, device_category).as_str())?
+                .list(format!("{}/device/{}", dom_path, device_category).as_str())
+                .await?
             {
                 let device_path = format!("{}/device/{}/{}", dom_path, device_category, device_id);
-                let backend_path = self
+                let Some(backend_path) = self
                     .store
-                    .read_string(format!("{}/backend", device_path).as_str())?;
+                    .read_string(format!("{}/backend", device_path).as_str())
+                    .await?
+                else {
+                    continue;
+                };
                 backend_paths.push(backend_path);
             }
         }
@@ -647,16 +700,16 @@ impl XenClient {
         for backend in &backend_paths {
             let state_path = format!("{}/state", backend);
             let online_path = format!("{}/online", backend);
-            let mut tx = self.store.transaction()?;
-            let state = tx.read_string(&state_path)?;
+            let mut tx = self.store.transaction().await?;
+            let state = tx.read_string(&state_path).await?.unwrap_or(String::new());
             if state.is_empty() {
                 break;
             }
-            tx.write_string(&online_path, "0")?;
+            tx.write_string(&online_path, "0").await?;
             if !state.is_empty() && u32::from_str(&state).unwrap_or(0) != 6 {
-                tx.write_string(&state_path, "5")?;
+                tx.write_string(&state_path, "5").await?;
             }
-            tx.commit()?;
+            tx.commit().await?;
 
             let mut count: u32 = 0;
             loop {
@@ -664,7 +717,9 @@ impl XenClient {
                     warn!("unable to safely destroy backend: {}", backend);
                     break;
                 }
-                let state = self.store.read_string(&state_path)?;
+                let Some(state) = self.store.read_string(&state_path).await? else {
+                    break;
+                };
                 let state = i64::from_str(&state).unwrap_or(-1);
                 if state == 6 {
                     break;
@@ -674,7 +729,7 @@ impl XenClient {
             }
         }
 
-        let mut tx = self.store.transaction()?;
+        let mut tx = self.store.transaction().await?;
         let mut backend_removals: Vec<String> = Vec::new();
         backend_removals.extend_from_slice(backend_paths.as_slice());
         if let Some(backend) = console_backend_path {
@@ -683,20 +738,23 @@ impl XenClient {
         for path in &backend_removals {
             let path = PathBuf::from(path);
             let parent = path.parent().ok_or(Error::PathParentNotFound)?;
-            tx.rm(parent.to_str().ok_or(Error::PathStringConversion)?)?;
+            tx.rm(parent.to_str().ok_or(Error::PathStringConversion)?)
+                .await?;
         }
-        tx.rm(&vm_path)?;
-        tx.rm(&dom_path)?;
-        tx.commit()?;
+        if let Some(vm_path) = vm_path {
+            tx.rm(&vm_path).await?;
+        }
+        tx.rm(&dom_path).await?;
+        tx.commit().await?;
         Ok(())
     }
 
-    pub fn get_console_path(&mut self, domid: u32) -> Result<String> {
-        let dom_path = self.store.get_domain_path(domid)?;
+    pub async fn get_console_path(&mut self, domid: u32) -> Result<String> {
+        let dom_path = self.store.get_domain_path(domid).await?;
         let console_tty_path = format!("{}/console/tty", dom_path);
         let mut tty: Option<String> = None;
         for _ in 0..5 {
-            tty = self.store.read_string_optional(&console_tty_path)?;
+            tty = self.store.read_string(&console_tty_path).await?;
             if tty.is_some() {
                 break;
             }

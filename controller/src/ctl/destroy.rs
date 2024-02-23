@@ -15,15 +15,19 @@ impl ControllerDestroy<'_> {
         ControllerDestroy { context }
     }
 
-    pub fn perform(&mut self, id: &str) -> Result<Uuid> {
+    pub async fn perform(&mut self, id: &str) -> Result<Uuid> {
         let info = self
             .context
-            .resolve(id)?
+            .resolve(id)
+            .await?
             .ok_or_else(|| anyhow!("unable to resolve container: {}", id))?;
         let domid = info.domid;
-        let mut store = XsdClient::open()?;
-        let dom_path = store.get_domain_path(domid)?;
-        let uuid = match store.read_string_optional(format!("{}/krata/uuid", dom_path).as_str())? {
+        let mut store = XsdClient::open().await?;
+        let dom_path = store.get_domain_path(domid).await?;
+        let uuid = match store
+            .read_string(format!("{}/krata/uuid", dom_path).as_str())
+            .await?
+        {
             None => {
                 return Err(anyhow!(
                     "domain {} was not found or not created by krata",
@@ -36,9 +40,11 @@ impl ControllerDestroy<'_> {
             return Err(anyhow!("unable to find krata uuid based on the domain",));
         }
         let uuid = Uuid::parse_str(&uuid)?;
-        let loops = store.read_string(format!("{}/krata/loops", dom_path).as_str())?;
+        let loops = store
+            .read_string(format!("{}/krata/loops", dom_path).as_str())
+            .await?;
         let loops = ControllerContext::parse_loop_set(&loops);
-        self.context.xen.destroy(domid)?;
+        self.context.xen.destroy(domid).await?;
         for info in &loops {
             self.context.autoloop.unloop(&info.device)?;
             match &info.delete {

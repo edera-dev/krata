@@ -37,12 +37,12 @@ pub struct ContainerInfo {
 }
 
 impl ControllerContext {
-    pub fn new(store_path: String) -> Result<ControllerContext> {
+    pub async fn new(store_path: String) -> Result<ControllerContext> {
         let mut image_cache_path = PathBuf::from(store_path);
         image_cache_path.push("cache");
         fs::create_dir_all(&image_cache_path)?;
 
-        let xen = XenClient::open()?;
+        let xen = XenClient::open().await?;
         image_cache_path.push("image");
         fs::create_dir_all(&image_cache_path)?;
         let image_cache = ImageCache::new(&image_cache_path)?;
@@ -53,14 +53,15 @@ impl ControllerContext {
         })
     }
 
-    pub fn list(&mut self) -> Result<Vec<ContainerInfo>> {
+    pub async fn list(&mut self) -> Result<Vec<ContainerInfo>> {
         let mut containers: Vec<ContainerInfo> = Vec::new();
-        for domid_candidate in self.xen.store.list_any("/local/domain")? {
+        for domid_candidate in self.xen.store.list("/local/domain").await? {
             let dom_path = format!("/local/domain/{}", domid_candidate);
             let uuid_string = match self
                 .xen
                 .store
-                .read_string_optional(&format!("{}/krata/uuid", &dom_path))?
+                .read_string(&format!("{}/krata/uuid", &dom_path))
+                .await?
             {
                 None => continue,
                 Some(value) => value,
@@ -71,22 +72,25 @@ impl ControllerContext {
             let image = self
                 .xen
                 .store
-                .read_string_optional(&format!("{}/krata/image", &dom_path))?
+                .read_string(&format!("{}/krata/image", &dom_path))
+                .await?
                 .unwrap_or("unknown".to_string());
             let loops = self
                 .xen
                 .store
-                .read_string_optional(&format!("{}/krata/loops", &dom_path))?
-                .unwrap_or("".to_string());
+                .read_string(&format!("{}/krata/loops", &dom_path))
+                .await?;
             let ipv4 = self
                 .xen
                 .store
-                .read_string_optional(&format!("{}/krata/network/guest/ipv4", &dom_path))?
+                .read_string(&format!("{}/krata/network/guest/ipv4", &dom_path))
+                .await?
                 .unwrap_or("unknown".to_string());
             let ipv6: String = self
                 .xen
                 .store
-                .read_string_optional(&format!("{}/krata/network/guest/ipv6", &dom_path))?
+                .read_string(&format!("{}/krata/network/guest/ipv6", &dom_path))
+                .await?
                 .unwrap_or("unknown".to_string());
             let loops = ControllerContext::parse_loop_set(&loops);
             containers.push(ContainerInfo {
@@ -101,8 +105,8 @@ impl ControllerContext {
         Ok(containers)
     }
 
-    pub fn resolve(&mut self, id: &str) -> Result<Option<ContainerInfo>> {
-        for container in self.list()? {
+    pub async fn resolve(&mut self, id: &str) -> Result<Option<ContainerInfo>> {
+        for container in self.list().await? {
             let uuid_string = container.uuid.to_string();
             let domid_string = container.domid.to_string();
             if uuid_string == id || domid_string == id || id == format!("krata-{}", uuid_string) {
@@ -112,7 +116,10 @@ impl ControllerContext {
         Ok(None)
     }
 
-    fn parse_loop_set(input: &str) -> Vec<ContainerLoopInfo> {
+    fn parse_loop_set(input: &Option<String>) -> Vec<ContainerLoopInfo> {
+        let Some(input) = input else {
+            return Vec::new();
+        };
         let sets = input
             .split(',')
             .map(|x| x.to_string())

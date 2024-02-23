@@ -5,7 +5,8 @@ use std::fs::{self, metadata, File};
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::os::unix::fs::FileTypeExt;
-use std::os::unix::net::UnixStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::UnixStream;
 
 const XEN_BUS_PATHS: &[&str] = &["/dev/xen/xenbus", "/var/run/xenstored/socket"];
 
@@ -19,18 +20,21 @@ fn find_bus_path() -> Option<String> {
     None
 }
 
+#[async_trait::async_trait]
 trait XsdTransport {
-    fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()>;
-    fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()>;
+    async fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()>;
+    async fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()>;
 }
 
+#[async_trait::async_trait]
 impl XsdTransport for UnixStream {
-    fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()> {
-        Ok(self.write_all(buf)?)
+    async fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()> {
+        Ok(self.write_all(buf).await?)
     }
 
-    fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
-        Ok(self.read_exact(buf)?)
+    async fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+        self.read_exact(buf).await?;
+        Ok(())
     }
 }
 
@@ -45,12 +49,13 @@ impl XsdFileTransport {
     }
 }
 
+#[async_trait::async_trait]
 impl XsdTransport for XsdFileTransport {
-    fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+    async fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
         Ok(self.handle.read_exact(buf)?)
     }
 
-    fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()> {
+    async fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()> {
         self.handle.write_all(buf)?;
         self.handle.flush()?;
         Ok(())
@@ -93,7 +98,7 @@ impl XsdResponse {
 }
 
 impl XsdSocket {
-    pub fn dial() -> Result<XsdSocket> {
+    pub async fn open() -> Result<XsdSocket> {
         let path = match find_bus_path() {
             Some(path) => path,
             None => return Err(Error::BusNotFound),
@@ -102,7 +107,7 @@ impl XsdSocket {
         let metadata = fs::metadata(&path)?;
         let file_type = metadata.file_type();
         if file_type.is_socket() {
-            let stream = UnixStream::connect(&path)?;
+            let stream = UnixStream::connect(&path).await?;
             return Ok(XsdSocket {
                 handle: Box::new(stream),
             });
@@ -113,7 +118,7 @@ impl XsdSocket {
         })
     }
 
-    pub fn send(&mut self, tx: u32, typ: u32, buf: &[u8]) -> Result<XsdResponse> {
+    pub async fn send(&mut self, tx: u32, typ: u32, buf: &[u8]) -> Result<XsdResponse> {
         let header = XsdMessageHeader {
             typ,
             req: 0,
@@ -124,12 +129,14 @@ impl XsdSocket {
         let mut composed: Vec<u8> = Vec::new();
         composed.extend_from_slice(header_bytes);
         composed.extend_from_slice(buf);
-        self.handle.xsd_write_all(&composed)?;
+        self.handle.xsd_write_all(&composed).await?;
         let mut result_buf = vec![0u8; size_of::<XsdMessageHeader>()];
-        self.handle.xsd_read_exact(result_buf.as_mut_slice())?;
+        self.handle
+            .xsd_read_exact(result_buf.as_mut_slice())
+            .await?;
         let result_header = bytemuck::from_bytes::<XsdMessageHeader>(&result_buf);
         let mut payload = vec![0u8; result_header.len as usize];
-        self.handle.xsd_read_exact(payload.as_mut_slice())?;
+        self.handle.xsd_read_exact(payload.as_mut_slice()).await?;
         if result_header.typ == XSD_ERROR {
             let error = CString::from_vec_with_nul(payload)?;
             return Err(Error::ResponseError(error.into_string()?));
@@ -138,18 +145,23 @@ impl XsdSocket {
         Ok(response)
     }
 
-    pub fn send_single(&mut self, tx: u32, typ: u32, string: &str) -> Result<XsdResponse> {
+    pub async fn send_single(&mut self, tx: u32, typ: u32, string: &str) -> Result<XsdResponse> {
         let text = CString::new(string)?;
         let buf = text.as_bytes_with_nul();
-        self.send(tx, typ, buf)
+        self.send(tx, typ, buf).await
     }
 
-    pub fn send_multiple(&mut self, tx: u32, typ: u32, array: &[&str]) -> Result<XsdResponse> {
+    pub async fn send_multiple(
+        &mut self,
+        tx: u32,
+        typ: u32,
+        array: &[&str],
+    ) -> Result<XsdResponse> {
         let mut buf: Vec<u8> = Vec::new();
         for item in array {
             buf.extend_from_slice(item.as_bytes());
             buf.push(0);
         }
-        self.send(tx, typ, buf.as_slice())
+        self.send(tx, typ, buf.as_slice()).await
     }
 }

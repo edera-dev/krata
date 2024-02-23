@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
         .map(|x| x.to_string())
         .ok_or_else(|| anyhow!("unable to convert store path to string"))?;
 
-    let mut context = ControllerContext::new(store_path.clone())?;
+    let mut context = ControllerContext::new(store_path.clone()).await?;
 
     match args.command {
         Commands::Launch {
@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
                 run: if run.is_empty() { None } else { Some(run) },
                 debug,
             };
-            let (uuid, _domid) = launch.perform(request)?;
+            let (uuid, _domid) = launch.perform(request).await?;
             println!("launched container: {}", uuid);
             if attach {
                 let mut console = ControllerConsole::new(&mut context);
@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
 
         Commands::Destroy { container } => {
             let mut destroy = ControllerDestroy::new(&mut context);
-            destroy.perform(&container)?;
+            destroy.perform(&container).await?;
         }
 
         Commands::Console { container } => {
@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::List { .. } => {
-            let containers = context.list()?;
+            let containers = context.list().await?;
             let mut table = cli_tables::Table::new();
             let header = vec!["uuid", "ipv4", "ipv6", "image"];
             table.push_row(&header)?;

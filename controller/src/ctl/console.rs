@@ -16,10 +16,11 @@ impl ControllerConsole<'_> {
     pub async fn perform(&mut self, id: &str) -> Result<()> {
         let info = self
             .context
-            .resolve(id)?
+            .resolve(id)
+            .await?
             .ok_or_else(|| anyhow!("unable to resolve container: {}", id))?;
         let domid = info.domid;
-        let tty = self.context.xen.get_console_path(domid)?;
+        let tty = self.context.xen.get_console_path(domid).await?;
         let console = XenConsole::new(&tty).await?;
         console.attach().await?;
         Ok(())
