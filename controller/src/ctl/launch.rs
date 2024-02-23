@@ -4,11 +4,10 @@ use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
 use ipnetwork::Ipv4Network;
 use krata::{
-    LaunchChannels, LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6,
-    LaunchNetworkResolver,
+    LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
 };
 use uuid::Uuid;
-use xenclient::{DomainConfig, DomainDisk, DomainEventChannel, DomainNetworkInterface};
+use xenclient::{DomainConfig, DomainDisk, DomainNetworkInterface};
 use xenstore::client::XsdInterface;
 
 use crate::image::{name::ImageName, ImageCompiler, ImageInfo};
@@ -76,9 +75,6 @@ impl ControllerLaunch<'_> {
             }),
             env: request.env,
             run: request.run,
-            channels: LaunchChannels {
-                exit: "krata-exit".to_string(),
-            },
         };
 
         let cfgblk = ConfigBlock::new(&uuid, &image_info)?;
@@ -137,7 +133,7 @@ impl ControllerLaunch<'_> {
                 script: None,
             }],
             filesystems: vec![],
-            event_channels: vec![DomainEventChannel { name: "krata-exit" }],
+            event_channels: vec![],
             extra_keys: vec![
                 ("krata/uuid".to_string(), uuid.to_string()),
                 (
@@ -177,6 +173,7 @@ impl ControllerLaunch<'_> {
                     gateway_mac_string.clone(),
                 ),
             ],
+            extra_rw_paths: vec!["krata/guest".to_string()],
         };
         match self.context.xen.create(&config).await {
             Ok(domid) => Ok((uuid, domid)),

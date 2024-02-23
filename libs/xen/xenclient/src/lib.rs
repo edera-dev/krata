@@ -79,6 +79,7 @@ pub struct DomainConfig<'a> {
     pub filesystems: Vec<DomainFilesystem<'a>>,
     pub event_channels: Vec<DomainEventChannel<'a>>,
     pub extra_keys: Vec<(String, String)>,
+    pub extra_rw_paths: Vec<String>,
 }
 
 impl XenClient {
@@ -210,6 +211,11 @@ impl XenClient {
 
             for (key, value) in &config.extra_keys {
                 tx.write_string(format!("{}/{}", dom_path, key).as_str(), value)
+                    .await?;
+            }
+
+            for path in &config.extra_rw_paths {
+                tx.mknod(format!("{}/{}", dom_path, path).as_str(), rw_perm)
                     .await?;
             }
 

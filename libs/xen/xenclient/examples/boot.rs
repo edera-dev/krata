@@ -27,6 +27,7 @@ async fn main() -> Result<()> {
         vifs: vec![],
         filesystems: vec![],
         extra_keys: vec![],
+        extra_rw_paths: vec![],
         event_channels: vec![],
     };
     let domid = client.create(&config).await?;

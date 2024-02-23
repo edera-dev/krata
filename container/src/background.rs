@@ -4,6 +4,7 @@ use crate::childwait::{ChildEvent, ChildWait};
 use anyhow::Result;
 use nix::{libc::c_int, unistd::Pid};
 use tokio::{select, time::sleep};
+use xenstore::client::{XsdClient, XsdInterface};
 
 pub struct ContainerBackground {
     child: Pid,
@@ -40,8 +41,11 @@ impl ContainerBackground {
     }
 
     async fn death(&mut self, code: c_int) -> Result<()> {
-        println!("[krata] container process exited: status = {}", code);
-        println!("[krata] looping forever");
+        let mut store = XsdClient::open().await?;
+        store
+            .write_string("krata/guest/exit-code", &code.to_string())
+            .await?;
+        drop(store);
         loop {
             sleep(Duration::from_secs(1)).await;
         }
