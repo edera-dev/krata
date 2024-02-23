@@ -1,13 +1,13 @@
 use crate::error::{Error, Result};
 use crate::sys::{XsdMessageHeader, XSD_ERROR};
 use std::ffi::CString;
-use std::fs::metadata;
+use std::fs::{self, metadata, File};
 use std::io::{Read, Write};
 use std::mem::size_of;
-use std::net::Shutdown;
+use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixStream;
 
-const XEN_BUS_PATHS: &[&str] = &["/var/run/xenstored/socket"];
+const XEN_BUS_PATHS: &[&str] = &["/dev/xen/xenbus", "/var/run/xenstored/socket"];
 
 fn find_bus_path() -> Option<String> {
     for path in XEN_BUS_PATHS {
@@ -19,8 +19,46 @@ fn find_bus_path() -> Option<String> {
     None
 }
 
+trait XsdTransport {
+    fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()>;
+    fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()>;
+}
+
+impl XsdTransport for UnixStream {
+    fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()> {
+        Ok(self.write_all(buf)?)
+    }
+
+    fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+        Ok(self.read_exact(buf)?)
+    }
+}
+
+pub struct XsdFileTransport {
+    handle: File,
+}
+
+impl XsdFileTransport {
+    pub fn new(path: &str) -> Result<XsdFileTransport> {
+        let handle = File::options().read(true).write(true).open(path)?;
+        Ok(XsdFileTransport { handle })
+    }
+}
+
+impl XsdTransport for XsdFileTransport {
+    fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+        Ok(self.handle.read_exact(buf)?)
+    }
+
+    fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()> {
+        self.handle.write_all(buf)?;
+        self.handle.flush()?;
+        Ok(())
+    }
+}
+
 pub struct XsdSocket {
-    handle: UnixStream,
+    handle: Box<dyn XsdTransport>,
 }
 
 #[derive(Debug)]
@@ -60,8 +98,19 @@ impl XsdSocket {
             Some(path) => path,
             None => return Err(Error::BusNotFound),
         };
-        let stream = UnixStream::connect(path)?;
-        Ok(XsdSocket { handle: stream })
+
+        let metadata = fs::metadata(&path)?;
+        let file_type = metadata.file_type();
+        if file_type.is_socket() {
+            let stream = UnixStream::connect(&path)?;
+            return Ok(XsdSocket {
+                handle: Box::new(stream),
+            });
+        }
+        let transport = XsdFileTransport::new(&path)?;
+        Ok(XsdSocket {
+            handle: Box::new(transport),
+        })
     }
 
     pub fn send(&mut self, tx: u32, typ: u32, buf: &[u8]) -> Result<XsdResponse> {
@@ -71,13 +120,16 @@ impl XsdSocket {
             tx,
             len: buf.len() as u32,
         };
-        self.handle.write_all(bytemuck::bytes_of(&header))?;
-        self.handle.write_all(buf)?;
+        let header_bytes = bytemuck::bytes_of(&header);
+        let mut composed: Vec<u8> = Vec::new();
+        composed.extend_from_slice(header_bytes);
+        composed.extend_from_slice(buf);
+        self.handle.xsd_write_all(&composed)?;
         let mut result_buf = vec![0u8; size_of::<XsdMessageHeader>()];
-        self.handle.read_exact(result_buf.as_mut_slice())?;
+        self.handle.xsd_read_exact(result_buf.as_mut_slice())?;
         let result_header = bytemuck::from_bytes::<XsdMessageHeader>(&result_buf);
         let mut payload = vec![0u8; result_header.len as usize];
-        self.handle.read_exact(payload.as_mut_slice())?;
+        self.handle.xsd_read_exact(payload.as_mut_slice())?;
         if result_header.typ == XSD_ERROR {
             let error = CString::from_vec_with_nul(payload)?;
             return Err(Error::ResponseError(error.into_string()?));
@@ -99,11 +151,5 @@ impl XsdSocket {
             buf.push(0);
         }
         self.send(tx, typ, buf.as_slice())
-    }
-}
-
-impl Drop for XsdSocket {
-    fn drop(&mut self) {
-        self.handle.shutdown(Shutdown::Both).unwrap()
     }
 }
