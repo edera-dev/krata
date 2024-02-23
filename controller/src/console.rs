@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use futures::future::join_all;
-use log::warn;
+use log::debug;
 use std::process::exit;
 use termion::raw::IntoRawMode;
 use tokio::{
@@ -34,7 +34,7 @@ impl XenConsole {
         let stdout = unsafe { File::from_raw_fd(terminal.as_raw_fd()) };
         let reader_task = tokio::task::spawn(async move {
             if let Err(error) = XenConsole::copy_stdout(stdout, self.xen_read_handle).await {
-                warn!("failed to copy console output: {}", error);
+                debug!("failed to copy console output: {}", error);
             }
         });
         let writer_task = tokio::task::spawn(async move {
@@ -44,7 +44,7 @@ impl XenConsole {
             )
             .await
             {
-                warn!("failed to intercept stdin: {}", error);
+                debug!("failed to intercept stdin: {}", error);
             }
         });
 

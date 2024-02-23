@@ -1,14 +1,11 @@
 use crate::error::{Error, Result};
 use crate::sys::{XsdMessageHeader, XSD_ERROR};
 use std::ffi::CString;
-use std::fs::{self, metadata, File};
+use std::fs::{metadata, File};
 use std::io::{Read, Write};
 use std::mem::size_of;
-use std::os::unix::fs::FileTypeExt;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
 
-const XEN_BUS_PATHS: &[&str] = &["/dev/xen/xenbus", "/var/run/xenstored/socket"];
+const XEN_BUS_PATHS: &[&str] = &["/dev/xen/xenbus"];
 
 fn find_bus_path() -> Option<String> {
     for path in XEN_BUS_PATHS {
@@ -20,37 +17,16 @@ fn find_bus_path() -> Option<String> {
     None
 }
 
-#[async_trait::async_trait]
-trait XsdTransport {
-    async fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()>;
-    async fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()>;
-}
-
-#[async_trait::async_trait]
-impl XsdTransport for UnixStream {
-    async fn xsd_write_all(&mut self, buf: &[u8]) -> Result<()> {
-        Ok(self.write_all(buf).await?)
-    }
-
-    async fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
-        self.read_exact(buf).await?;
-        Ok(())
-    }
-}
-
 pub struct XsdFileTransport {
     handle: File,
 }
 
 impl XsdFileTransport {
-    pub fn new(path: &str) -> Result<XsdFileTransport> {
+    fn new(path: &str) -> Result<XsdFileTransport> {
         let handle = File::options().read(true).write(true).open(path)?;
         Ok(XsdFileTransport { handle })
     }
-}
 
-#[async_trait::async_trait]
-impl XsdTransport for XsdFileTransport {
     async fn xsd_read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
         Ok(self.handle.read_exact(buf)?)
     }
@@ -63,7 +39,7 @@ impl XsdTransport for XsdFileTransport {
 }
 
 pub struct XsdSocket {
-    handle: Box<dyn XsdTransport>,
+    handle: XsdFileTransport,
 }
 
 #[derive(Debug)]
@@ -103,19 +79,8 @@ impl XsdSocket {
             Some(path) => path,
             None => return Err(Error::BusNotFound),
         };
-
-        let metadata = fs::metadata(&path)?;
-        let file_type = metadata.file_type();
-        if file_type.is_socket() {
-            let stream = UnixStream::connect(&path).await?;
-            return Ok(XsdSocket {
-                handle: Box::new(stream),
-            });
-        }
         let transport = XsdFileTransport::new(&path)?;
-        Ok(XsdSocket {
-            handle: Box::new(transport),
-        })
+        Ok(XsdSocket { handle: transport })
     }
 
     pub async fn send(&mut self, tx: u32, typ: u32, buf: &[u8]) -> Result<XsdResponse> {
