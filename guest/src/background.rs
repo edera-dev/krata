@@ -41,7 +41,7 @@ impl ContainerBackground {
     }
 
     async fn death(&mut self, code: c_int) -> Result<()> {
-        let mut store = XsdClient::open().await?;
+        let store = XsdClient::open().await?;
         store
             .write_string("krata/guest/exit-code", &code.to_string())
             .await?;

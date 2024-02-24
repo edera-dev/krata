@@ -2,11 +2,11 @@ use std::io;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("io issue encountered")]
+    #[error("io issue encountered: {0}")]
     Io(#[from] io::Error),
-    #[error("xenstore issue encountered")]
+    #[error("xenstore issue encountered: {0}")]
     XenStore(#[from] xenstore::error::Error),
-    #[error("xencall issue encountered")]
+    #[error("xencall issue encountered: {0}")]
     XenCall(#[from] xencall::error::Error),
     #[error("domain does not have a tty")]
     TtyNotFound,
@@ -18,7 +18,7 @@ pub enum Error {
     PathParentNotFound,
     #[error("domain does not exist")]
     DomainNonExistent,
-    #[error("elf parse failed")]
+    #[error("elf parse failed: {0}")]
     ElfParseFailed(#[from] elf::ParseError),
     #[error("mmap failed")]
     MmapFailed,

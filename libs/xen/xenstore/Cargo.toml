@@ -13,14 +13,15 @@ libc = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
+byteorder = { workspace = true }
 
 [dev-dependencies]
-futures = { workspace = true }
-
-[dependencies.bytemuck]
-workspace = true
-features = ["derive"]
+env_logger = { workspace = true }
 
 [[example]]
 name = "xenstore-ls"
 path = "examples/list.rs"
+
+[[example]]
+name = "xenstore-watch"
+path = "examples/watch.rs"

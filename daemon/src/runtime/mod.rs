@@ -77,12 +77,16 @@ impl RuntimeContext {
     }
 
     fn detect_guest_file(store: &str, name: &str) -> Result<String> {
-        let path = PathBuf::from(format!("{}/{}", store, name));
+        let mut path = PathBuf::from(format!("{}/guest/{}", store, name));
         if path.is_file() {
             return path_as_string(&path);
         }
 
-        Ok(format!("/usr/share/krata/guest/{}", name))
+        path = PathBuf::from(format!("/usr/share/krata/guest/{}", name));
+        if path.is_file() {
+            return path_as_string(&path);
+        }
+        Err(anyhow!("unable to find required guest file: {}", name))
     }
 
     pub async fn list(&mut self) -> Result<Vec<GuestInfo>> {
