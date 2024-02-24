@@ -6,6 +6,9 @@ use std::ops::DerefMut;
 use ureq::{Agent, Request, Response};
 use url::Url;
 
+const MANIFEST_PICKER_PLATFORM: Os = Os::Linux;
+const MANIFEST_PICKER_ARCHITECTURE: Arch = Arch::Amd64;
+
 pub struct RegistryClient {
     agent: Agent,
     url: Url,
@@ -86,7 +89,9 @@ impl RegistryClient {
     fn pick_manifest(&mut self, index: ImageIndex) -> Option<Descriptor> {
         for item in index.manifests() {
             if let Some(platform) = item.platform() {
-                if *platform.os() == Os::Linux && *platform.architecture() == Arch::Amd64 {
+                if *platform.os() == MANIFEST_PICKER_PLATFORM
+                    && *platform.architecture() == MANIFEST_PICKER_ARCHITECTURE
+                {
                     return Some(item.clone());
                 }
             }
