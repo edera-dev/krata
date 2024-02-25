@@ -6,11 +6,14 @@ use log::{trace, warn};
 use nix::libc::{dup2, ioctl};
 use nix::unistd::{execve, fork, ForkResult, Pid};
 use oci_spec::image::{Config, ImageConfiguration};
-use std::ffi::{CStr, CString};
+use path_absolutize::Absolutize;
+use std::collections::HashMap;
+use std::ffi::CString;
 use std::fs::{File, OpenOptions, Permissions};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{chroot, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -380,25 +383,34 @@ impl ContainerInit {
             cmd.push("/bin/sh".to_string());
         }
 
-        let path = cmd
-            .first()
-            .ok_or_else(|| anyhow!("command is empty"))?
-            .clone();
-        let mut env = match config.env() {
-            None => vec![],
-            Some(value) => value.clone(),
-        };
-        env.push("KRATA_CONTAINER=1".to_string());
-        env.push("TERM=vt100".to_string());
+        let path = cmd.remove(0);
+
+        let mut env = vec!["KRATA_CONTAINER=1".to_string(), "TERM=vt100".to_string()];
+
+        if let Some(config_env) = config.env() {
+            env.extend_from_slice(config_env);
+        }
+
         if let Some(extra_env) = &launch.env {
             env.extend_from_slice(extra_env.as_slice());
         }
 
+        let env = ContainerInit::env_map(env);
+        let path = ContainerInit::resolve_executable(&env, path.into())?;
+        let Some(file_name) = path.file_name() else {
+            return Err(anyhow!("cannot get file name of command path"));
+        };
+        let Some(file_name) = file_name.to_str() else {
+            return Err(anyhow!("cannot get file name of command path as str"));
+        };
+        cmd.insert(0, file_name.to_string());
+        let env = ContainerInit::env_list(env);
+
         trace!("running container command: {}", cmd.join(" "));
 
-        let path_cstr = CString::new(path)?;
-        let cmd_cstr = ContainerInit::strings_as_cstrings(cmd)?;
-        let env_cstr = ContainerInit::strings_as_cstrings(env)?;
+        let path = CString::new(path.as_os_str().as_bytes())?;
+        let cmd = ContainerInit::strings_as_cstrings(cmd)?;
+        let env = ContainerInit::strings_as_cstrings(env)?;
         let mut working_dir = config
             .working_dir()
             .as_ref()
@@ -410,7 +422,7 @@ impl ContainerInit {
         }
 
         std::env::set_current_dir(&working_dir)?;
-        self.fork_and_exec(&path_cstr, cmd_cstr, env_cstr).await?;
+        self.fork_and_exec(path, cmd, env).await?;
         Ok(())
     }
 
@@ -422,24 +434,73 @@ impl ContainerInit {
         Ok(results)
     }
 
+    fn env_map(env: Vec<String>) -> HashMap<String, String> {
+        let mut map = HashMap::<String, String>::new();
+        for item in env {
+            if let Some((key, value)) = item.split_once('=') {
+                map.insert(key.to_string(), value.to_string());
+            }
+        }
+        map
+    }
+
+    fn resolve_executable(env: &HashMap<String, String>, path: PathBuf) -> Result<PathBuf> {
+        if path.is_absolute() {
+            return Ok(path);
+        }
+
+        if path.is_file() {
+            return Ok(path.absolutize()?.to_path_buf());
+        }
+
+        if let Some(path_var) = env.get("PATH") {
+            for item in path_var.split(':') {
+                let mut exe_path: PathBuf = item.into();
+                exe_path.push(&path);
+                if exe_path.is_file() {
+                    return Ok(exe_path);
+                }
+            }
+        }
+        Ok(path)
+    }
+
+    fn env_list(env: HashMap<String, String>) -> Vec<String> {
+        env.iter()
+            .map(|(key, value)| format!("{}={}", key, value))
+            .collect::<Vec<String>>()
+    }
+
     async fn fork_and_exec(
         &mut self,
-        path: &CStr,
+        path: CString,
         cmd: Vec<CString>,
         env: Vec<CString>,
     ) -> Result<()> {
         match unsafe { fork()? } {
             ForkResult::Parent { child } => self.background(child).await,
-            ForkResult::Child => {
-                unsafe { nix::libc::setsid() };
-                let result = unsafe { ioctl(io::stdin().as_raw_fd(), nix::libc::TIOCSCTTY, 0) };
-                if result != 0 {
-                    warn!("failed to set controlling terminal, result={}", result);
-                }
-                execve(path, &cmd, &env)?;
-                Ok(())
-            }
+            ForkResult::Child => self.foreground(path, cmd, env).await,
         }
+    }
+
+    async fn foreground(
+        &mut self,
+        path: CString,
+        cmd: Vec<CString>,
+        env: Vec<CString>,
+    ) -> Result<()> {
+        ContainerInit::set_controlling_terminal()?;
+        execve(&path, &cmd, &env)?;
+        Ok(())
+    }
+
+    fn set_controlling_terminal() -> Result<()> {
+        unsafe { nix::libc::setsid() };
+        let result = unsafe { ioctl(io::stdin().as_raw_fd(), nix::libc::TIOCSCTTY, 0) };
+        if result != 0 {
+            warn!("failed to set controlling terminal, result={}", result);
+        }
+        Ok(())
     }
 
     async fn background(&mut self, executed: Pid) -> Result<()> {

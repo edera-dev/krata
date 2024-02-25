@@ -17,6 +17,7 @@ rtnetlink = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 ipnetwork = { workspace = true }
+path-absolutize = { workspace = true }
 
 [dependencies.nix]
 workspace = true
