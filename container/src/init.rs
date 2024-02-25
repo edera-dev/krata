@@ -380,7 +380,10 @@ impl ContainerInit {
             cmd.push("/bin/sh".to_string());
         }
 
-        let path = cmd.remove(0);
+        let path = cmd
+            .first()
+            .ok_or_else(|| anyhow!("command is empty"))?
+            .clone();
         let mut env = match config.env() {
             None => vec![],
             Some(value) => value.clone(),
