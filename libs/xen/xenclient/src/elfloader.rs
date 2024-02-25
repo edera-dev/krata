@@ -254,7 +254,7 @@ impl BootImageLoader for ElfImageLoader {
         let segments = elf.segments().ok_or(Error::ElfInvalidImage)?;
 
         debug!(
-            "ElfImageLoader load dst={:#x} segments={}",
+            "load dst={:#x} segments={}",
             dst.as_ptr() as u64,
             segments.len()
         );
@@ -267,7 +267,7 @@ impl BootImageLoader for ElfImageLoader {
             let segment_dst = &mut dst[base_offset as usize..];
             let copy_slice = &data[0..filesz as usize];
             debug!(
-                "ElfImageLoader load copy hdr={:?} dst={:#x} len={}",
+                "load copy hdr={:?} dst={:#x} len={}",
                 header,
                 copy_slice.as_ptr() as u64,
                 copy_slice.len()
@@ -276,7 +276,7 @@ impl BootImageLoader for ElfImageLoader {
             if (memsz - filesz) > 0 {
                 let remaining = &mut segment_dst[filesz as usize..memsz as usize];
                 debug!(
-                    "ElfImageLoader load fill_zero hdr={:?} dst={:#x} len={}",
+                    "load fill_zero hdr={:?} dst={:#x} len={}",
                     header.p_offset,
                     remaining.as_ptr() as u64,
                     remaining.len()

@@ -1,56 +1,57 @@
 use anyhow::{anyhow, Result};
+use bytes::Bytes;
 use oci_spec::image::{Arch, Descriptor, ImageIndex, ImageManifest, MediaType, Os, ToDockerV2S2};
-use std::io::copy;
-use std::io::{Read, Write};
-use std::ops::DerefMut;
-use ureq::{Agent, Request, Response};
+use reqwest::{Client, RequestBuilder, Response};
+use tokio::{fs::File, io::AsyncWriteExt};
 use url::Url;
 
 const MANIFEST_PICKER_PLATFORM: Os = Os::Linux;
 const MANIFEST_PICKER_ARCHITECTURE: Arch = Arch::Amd64;
 
 pub struct RegistryClient {
-    agent: Agent,
+    agent: Client,
     url: Url,
 }
 
 impl RegistryClient {
     pub fn new(url: Url) -> Result<RegistryClient> {
         Ok(RegistryClient {
-            agent: Agent::new(),
+            agent: Client::new(),
             url,
         })
     }
 
-    fn call(&mut self, req: Request) -> Result<Response> {
-        Ok(req.call()?)
+    async fn call(&mut self, req: RequestBuilder) -> Result<Response> {
+        self.agent.execute(req.build()?).await.map_err(|x| x.into())
     }
 
-    pub fn get_blob(&mut self, name: &str, descriptor: &Descriptor) -> Result<Vec<u8>> {
+    pub async fn get_blob(&mut self, name: &str, descriptor: &Descriptor) -> Result<Bytes> {
         let url = self
             .url
             .join(&format!("/v2/{}/blobs/{}", name, descriptor.digest()))?;
-        let response = self.call(self.agent.get(url.as_str()))?;
-        let mut buffer: Vec<u8> = Vec::new();
-        response.into_reader().read_to_end(&mut buffer)?;
-        Ok(buffer)
+        let response = self.call(self.agent.get(url.as_str())).await?;
+        Ok(response.bytes().await?)
     }
 
-    pub fn write_blob(
+    pub async fn write_blob_to_file(
         &mut self,
         name: &str,
         descriptor: &Descriptor,
-        dest: &mut dyn Write,
+        mut dest: File,
     ) -> Result<u64> {
         let url = self
             .url
             .join(&format!("/v2/{}/blobs/{}", name, descriptor.digest()))?;
-        let response = self.call(self.agent.get(url.as_str()))?;
-        let mut reader = response.into_reader();
-        Ok(copy(reader.deref_mut(), dest)?)
+        let mut response = self.call(self.agent.get(url.as_str())).await?;
+        let mut size: u64 = 0;
+        while let Some(chunk) = response.chunk().await? {
+            dest.write_all(&chunk).await?;
+            size += chunk.len() as u64;
+        }
+        Ok(size)
     }
 
-    pub fn get_manifest_with_digest(
+    async fn get_raw_manifest_with_digest(
         &mut self,
         name: &str,
         reference: &str,
@@ -65,24 +66,60 @@ impl RegistryClient {
             MediaType::ImageIndex,
             MediaType::ImageIndex.to_docker_v2s2()?,
         );
-        let response = self.call(self.agent.get(url.as_str()).set("Accept", &accept))?;
+        let response = self
+            .call(self.agent.get(url.as_str()).header("Accept", &accept))
+            .await?;
+        let digest = response
+            .headers()
+            .get("Docker-Content-Digest")
+            .ok_or_else(|| anyhow!("fetching manifest did not yield a content digest"))?
+            .to_str()?
+            .to_string();
+        let manifest = serde_json::from_str(&response.text().await?)?;
+        Ok((manifest, digest))
+    }
+
+    pub async fn get_manifest_with_digest(
+        &mut self,
+        name: &str,
+        reference: &str,
+    ) -> Result<(ImageManifest, String)> {
+        let url = self
+            .url
+            .join(&format!("/v2/{}/manifests/{}", name, reference))?;
+        let accept = format!(
+            "{}, {}, {}, {}",
+            MediaType::ImageManifest.to_docker_v2s2()?,
+            MediaType::ImageManifest,
+            MediaType::ImageIndex,
+            MediaType::ImageIndex.to_docker_v2s2()?,
+        );
+        let response = self
+            .call(self.agent.get(url.as_str()).header("Accept", &accept))
+            .await?;
         let content_type = response
-            .header("Content-Type")
-            .ok_or_else(|| anyhow!("registry response did not have a Content-Type header"))?;
+            .headers()
+            .get("Content-Type")
+            .ok_or_else(|| anyhow!("registry response did not have a Content-Type header"))?
+            .to_str()?;
         if content_type == MediaType::ImageIndex.to_string()
             || content_type == MediaType::ImageIndex.to_docker_v2s2()?
         {
-            let index = ImageIndex::from_reader(response.into_reader())?;
+            let index = serde_json::from_str(&response.text().await?)?;
             let descriptor = self
                 .pick_manifest(index)
                 .ok_or_else(|| anyhow!("unable to pick manifest from index"))?;
-            return self.get_manifest_with_digest(name, descriptor.digest());
+            return self
+                .get_raw_manifest_with_digest(name, descriptor.digest())
+                .await;
         }
         let digest = response
-            .header("Docker-Content-Digest")
+            .headers()
+            .get("Docker-Content-Digest")
             .ok_or_else(|| anyhow!("fetching manifest did not yield a content digest"))?
+            .to_str()?
             .to_string();
-        let manifest = ImageManifest::from_reader(response.into_reader())?;
+        let manifest = serde_json::from_str(&response.text().await?)?;
         Ok((manifest, digest))
     }
 

@@ -268,7 +268,7 @@ impl X86BootSetup {
             }
 
             debug!(
-                "BootSetup count_pgtables {:#x}/{}: {:#x} -> {:#x}, {} tables",
+                "count_pgtables {:#x}/{}: {:#x} -> {:#x}, {} tables",
                 mask, bits, map.levels[l].from, map.levels[l].to, map.levels[l].pgtables
             );
             map.area.pgtables += map.levels[l].pgtables;
@@ -342,7 +342,7 @@ impl ArchBootSetup for X86BootSetup {
         let size = self.table.mappings[m].area.pgtables as u64 * X86_PAGE_SIZE;
         let segment = setup.alloc_segment(self, 0, size)?;
         debug!(
-            "BootSetup alloc_page_tables table={:?} segment={:?}",
+            "alloc_page_tables table={:?} segment={:?}",
             self.table, segment
         );
         Ok(segment)
@@ -387,7 +387,7 @@ impl ArchBootSetup for X86BootSetup {
                     let mut pfn = ((max(from, lvl.from) - lvl.from) >> rhs) + lvl.pfn;
 
                     debug!(
-                        "BootSetup setup_page_tables lvl={} map_1={} map_2={} pfn={:#x} p_s={:#x} p_e={:#x}",
+                        "setup_page_tables lvl={} map_1={} map_2={} pfn={:#x} p_s={:#x} p_e={:#x}",
                         l, m1, m2, pfn, p_s, p_e
                     );
 
@@ -439,7 +439,7 @@ impl ArchBootSetup for X86BootSetup {
                 (*info).cmdline[i] = c as c_char;
             }
             (*info).cmdline[MAX_GUEST_CMDLINE - 1] = 0;
-            trace!("BootSetup setup_start_info start_info={:?}", *info);
+            trace!("setup_start_info start_info={:?}", *info);
         }
         Ok(())
     }
@@ -456,7 +456,7 @@ impl ArchBootSetup for X86BootSetup {
             for i in 0..32 {
                 (*info).vcpu_info[i].evtchn_upcall_mask = 1;
             }
-            trace!("BootSetup setup_shared_info shared_info={:?}", *info);
+            trace!("setup_shared_info shared_info={:?}", *info);
         }
         Ok(())
     }
@@ -620,7 +620,7 @@ impl ArchBootSetup for X86BootSetup {
         vcpu.user_regs.cs = 0xe033;
         vcpu.kernel_ss = vcpu.user_regs.ss as u64;
         vcpu.kernel_sp = vcpu.user_regs.rsp;
-        debug!("vcpu context: {:?}", vcpu);
+        trace!("vcpu context: {:?}", vcpu);
         setup.call.set_vcpu_context(setup.domid, 0, &vcpu)?;
         Ok(())
     }

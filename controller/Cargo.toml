@@ -18,6 +18,7 @@ serde_json = { workspace = true }
 sha256 = { workspace = true }
 url = { workspace = true }
 ureq = { workspace = true }
+reqwest = { workspace = true }
 path-clean = { workspace = true }
 termion = { workspace = true }
 cli-tables = { workspace = true }
@@ -28,6 +29,7 @@ uuid = { workspace = true }
 ipnetwork = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
+bytes = { workspace = true }
 
 [dependencies.krata]
 path = "../shared"

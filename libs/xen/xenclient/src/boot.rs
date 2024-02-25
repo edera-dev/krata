@@ -92,16 +92,13 @@ impl BootSetup<'_> {
         max_vcpus: u32,
         mem_mb: u64,
     ) -> Result<BootState> {
-        debug!(
-            "BootSetup initialize max_vcpus={:?} mem_mb={:?}",
-            max_vcpus, mem_mb
-        );
+        debug!("initialize max_vcpus={:?} mem_mb={:?}", max_vcpus, mem_mb);
 
         let total_pages = mem_mb << (20 - arch.page_shift());
         self.initialize_memory(arch, total_pages)?;
 
         let image_info = image_loader.parse()?;
-        debug!("BootSetup initialize image_info={:?}", image_info);
+        debug!("initialize image_info={:?}", image_info);
         self.virt_alloc_end = image_info.virt_base;
         let kernel_segment = self.load_kernel_segment(arch, image_loader, &image_info)?;
         let mut p2m_segment: Option<DomainSegment> = None;
@@ -152,7 +149,7 @@ impl BootSetup<'_> {
             console_evtchn,
             shared_info_frame: 0,
         };
-        debug!("BootSetup initialize state={:?}", state);
+        debug!("initialize state={:?}", state);
         Ok(state)
     }
 
@@ -259,7 +256,7 @@ impl BootSetup<'_> {
         slice.fill(0);
         segment.vend = self.virt_alloc_end;
         debug!(
-            "BootSetup alloc_segment {:#x} -> {:#x} (pfn {:#x} + {:#x} pages)",
+            "alloc_segment {:#x} -> {:#x} (pfn {:#x} + {:#x} pages)",
             start, segment.vend, segment.pfn, pages
         );
         Ok(segment)
@@ -270,7 +267,7 @@ impl BootSetup<'_> {
         let pfn = self.pfn_alloc_end;
 
         self.chk_alloc_pages(arch, 1)?;
-        debug!("BootSetup alloc_page {:#x} (pfn {:#x})", start, pfn);
+        debug!("alloc_page {:#x} (pfn {:#x})", start, pfn);
         Ok(DomainSegment {
             vstart: start,
             vend: (start + arch.page_size()) - 1,

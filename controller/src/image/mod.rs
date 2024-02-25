@@ -94,8 +94,8 @@ impl ImageCompiler<'_> {
         Ok(ImageCompiler { cache })
     }
 
-    pub fn compile(&self, image: &ImageName) -> Result<ImageInfo> {
-        debug!("ImageCompiler compile image={image}");
+    pub async fn compile(&self, image: &ImageName) -> Result<ImageInfo> {
+        debug!("compile image={image}");
         let mut tmp_dir = std::env::temp_dir().clone();
         tmp_dir.push(format!("krata-compile-{}", Uuid::new_v4()));
 
@@ -109,12 +109,14 @@ impl ImageCompiler<'_> {
 
         let mut squash_file = tmp_dir.clone();
         squash_file.push("image.squashfs");
-        let info = self.download_and_compile(image, &layer_dir, &image_dir, &squash_file)?;
+        let info = self
+            .download_and_compile(image, &layer_dir, &image_dir, &squash_file)
+            .await?;
         fs::remove_dir_all(&tmp_dir)?;
         Ok(info)
     }
 
-    fn download_and_compile(
+    async fn download_and_compile(
         &self,
         image: &ImageName,
         layer_dir: &Path,
@@ -122,11 +124,13 @@ impl ImageCompiler<'_> {
         squash_file: &PathBuf,
     ) -> Result<ImageInfo> {
         debug!(
-            "ImageCompiler download manifest image={image}, image_dir={}",
+            "download manifest image={image}, image_dir={}",
             image_dir.to_str().unwrap()
         );
         let mut client = RegistryClient::new(image.registry_url()?)?;
-        let (manifest, digest) = client.get_manifest_with_digest(&image.name, &image.reference)?;
+        let (manifest, digest) = client
+            .get_manifest_with_digest(&image.name, &image.reference)
+            .await?;
         let cache_key = format!(
             "manifest={}:squashfs-version={}\n",
             digest, IMAGE_SQUASHFS_VERSION
@@ -138,21 +142,24 @@ impl ImageCompiler<'_> {
         }
 
         debug!(
-            "ImageCompiler download config digest={} size={}",
+            "download config digest={} size={}",
             manifest.config().digest(),
             manifest.config().size(),
         );
-        let config_bytes = client.get_blob(&image.name, manifest.config())?;
+        let config_bytes = client.get_blob(&image.name, manifest.config()).await?;
         let config: ImageConfiguration = serde_json::from_slice(&config_bytes)?;
 
         let mut layers: Vec<LayerFile> = Vec::new();
         for layer in manifest.layers() {
-            layers.push(self.download_layer(image, layer, layer_dir, &mut client)?);
+            layers.push(
+                self.download_layer(image, layer, layer_dir, &mut client)
+                    .await?,
+            );
         }
 
         for layer in layers {
             debug!(
-                "ImageCompiler process layer digest={} compression={:?}",
+                "process layer digest={} compression={:?}",
                 &layer.digest, layer.compression
             );
             let mut archive = Archive::new(layer.open_reader()?);
@@ -199,7 +206,7 @@ impl ImageCompiler<'_> {
         }
 
         trace!(
-            "ImageCompiler whiteout entry layer={} path={:?}",
+            "whiteout entry layer={} path={:?}",
             &layer.digest,
             entry.path()?
         );
@@ -219,7 +226,7 @@ impl ImageCompiler<'_> {
                 }
             } else {
                 warn!(
-                    "ImageCompiler whiteout entry missing locally layer={} path={:?} local={:?}",
+                    "whiteout entry missing locally layer={} path={:?} local={:?}",
                     &layer.digest,
                     entry.path()?,
                     dst,
@@ -231,7 +238,7 @@ impl ImageCompiler<'_> {
             fs::remove_dir(&dst)?;
         } else {
             warn!(
-                "ImageCompiler whiteout entry missing locally layer={} path={:?} local={:?}",
+                "whiteout entry missing locally layer={} path={:?} local={:?}",
                 &layer.digest,
                 entry.path()?,
                 dst,
@@ -247,7 +254,7 @@ impl ImageCompiler<'_> {
         image_dir: &PathBuf,
     ) -> Result<()> {
         trace!(
-            "ImageCompiler unpack entry layer={} path={:?} type={:?}",
+            "unpack entry layer={} path={:?} type={:?}",
             &layer.digest,
             entry.path()?,
             entry.header().entry_type()
@@ -285,7 +292,7 @@ impl ImageCompiler<'_> {
         Ok(())
     }
 
-    fn download_layer(
+    async fn download_layer(
         &self,
         image: &ImageName,
         layer: &Descriptor,
@@ -293,7 +300,7 @@ impl ImageCompiler<'_> {
         client: &mut RegistryClient,
     ) -> Result<LayerFile> {
         debug!(
-            "ImageCompiler download layer digest={} size={}",
+            "download layer digest={} size={}",
             layer.digest(),
             layer.size()
         );
@@ -303,8 +310,8 @@ impl ImageCompiler<'_> {
         tmp_path.push(format!("{}.tmp", layer.digest()));
 
         {
-            let mut file = File::create(&layer_path)?;
-            let size = client.write_blob(&image.name, layer, &mut file)?;
+            let file = tokio::fs::File::create(&layer_path).await?;
+            let size = client.write_blob_to_file(&image.name, layer, file).await?;
             if layer.size() as u64 != size {
                 return Err(anyhow!(
                     "downloaded layer size differs from size in manifest",
@@ -344,7 +351,7 @@ impl ImageCompiler<'_> {
                 .to_str()
                 .ok_or_else(|| anyhow!("failed to strip prefix of tmpdir"))?;
             let rel = format!("/{}", rel);
-            trace!("ImageCompiler squash write {}", rel);
+            trace!("squash write {}", rel);
             let typ = entry.file_type();
             let metadata = fs::symlink_metadata(entry.path())?;
             let uid = metadata.uid();
@@ -400,7 +407,7 @@ impl ImageCompiler<'_> {
             .ok_or_else(|| anyhow!("failed to convert squashfs string"))?;
 
         let mut file = File::create(squash_file)?;
-        trace!("ImageCompiler squash generate: {}", squash_file_path);
+        trace!("squash generate: {}", squash_file_path);
         writer.write(&mut file)?;
         Ok(())
     }

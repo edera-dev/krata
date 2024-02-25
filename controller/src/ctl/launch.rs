@@ -37,7 +37,7 @@ impl ControllerLaunch<'_> {
     pub async fn perform(&mut self, request: ControllerLaunchRequest<'_>) -> Result<(Uuid, u32)> {
         let uuid = Uuid::new_v4();
         let name = format!("krata-{uuid}");
-        let image_info = self.compile(request.image)?;
+        let image_info = self.compile(request.image).await?;
 
         let mut gateway_mac = MacAddr6::random();
         gateway_mac.set_local(true);
@@ -220,9 +220,9 @@ impl ControllerLaunch<'_> {
         Ok(found.unwrap())
     }
 
-    fn compile(&self, image: &str) -> Result<ImageInfo> {
+    async fn compile(&self, image: &str) -> Result<ImageInfo> {
         let image = ImageName::parse(image)?;
         let compiler = ImageCompiler::new(&self.context.image_cache)?;
-        compiler.compile(&image)
+        compiler.compile(&image).await
     }
 }
