@@ -96,9 +96,14 @@ impl XsdSocket {
         composed.extend_from_slice(buf);
         self.handle.xsd_write_all(&composed).await?;
         let mut result_buf = vec![0u8; size_of::<XsdMessageHeader>()];
-        self.handle
-            .xsd_read_exact(result_buf.as_mut_slice())
-            .await?;
+        match self.handle.xsd_read_exact(result_buf.as_mut_slice()).await {
+            Ok(_) => {}
+            Err(error) => {
+                if result_buf.first().unwrap() == &0 {
+                    return Err(error);
+                }
+            }
+        }
         let result_header = bytemuck::from_bytes::<XsdMessageHeader>(&result_buf);
         let mut payload = vec![0u8; result_header.len as usize];
         self.handle.xsd_read_exact(payload.as_mut_slice()).await?;

@@ -24,7 +24,7 @@ impl ControllerConsole<'_> {
             .context
             .resolve(id)
             .await?
-            .ok_or_else(|| anyhow!("unable to resolve container: {}", id))?;
+            .ok_or_else(|| anyhow!("unable to resolve guest: {}", id))?;
         let domid = info.domid;
         let tty = self.context.xen.get_console_path(domid).await?;
         let console = XenConsole::new(&tty).await?;

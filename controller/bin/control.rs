@@ -1,11 +1,12 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use env_logger::Env;
-use kratactrl::ctl::{
-    console::ControllerConsole,
-    destroy::ControllerDestroy,
-    launch::{ControllerLaunch, ControllerLaunchRequest},
-    ControllerContext,
+use kratactrl::{
+    ctl::{
+        console::ControllerConsole, destroy::ControllerDestroy, launch::ControllerLaunch,
+        ControllerContext,
+    },
+    launch::GuestLaunchRequest,
 };
 use std::path::PathBuf;
 
@@ -86,7 +87,7 @@ async fn main() -> Result<()> {
             let kernel = map_kernel_path(&store_path, kernel);
             let initrd = map_initrd_path(&store_path, initrd);
             let mut launch = ControllerLaunch::new(&mut context);
-            let request = ControllerLaunchRequest {
+            let request = GuestLaunchRequest {
                 kernel_path: &kernel,
                 initrd_path: &initrd,
                 image: &image,
@@ -96,11 +97,11 @@ async fn main() -> Result<()> {
                 run: if run.is_empty() { None } else { Some(run) },
                 debug,
             };
-            let (uuid, _domid) = launch.perform(request).await?;
-            println!("launched container: {}", uuid);
+            let info = launch.perform(request).await?;
+            println!("launched guest: {}", info.uuid);
             if attach {
                 let mut console = ControllerConsole::new(&mut context);
-                console.perform(&uuid.to_string()).await?;
+                console.perform(&info.uuid.to_string()).await?;
             }
         }
 
@@ -130,7 +131,7 @@ async fn main() -> Result<()> {
             }
 
             if table.num_records() == 1 {
-                println!("no containers have been launched");
+                println!("no guests have been launched");
             } else {
                 println!("{}", table.to_string());
             }

@@ -20,7 +20,7 @@ impl ControllerDestroy<'_> {
             .context
             .resolve(id)
             .await?
-            .ok_or_else(|| anyhow!("unable to resolve container: {}", id))?;
+            .ok_or_else(|| anyhow!("unable to resolve guest: {}", id))?;
         let domid = info.domid;
         let mut store = XsdClient::open().await?;
         let dom_path = store.get_domain_path(domid).await?;

@@ -29,7 +29,7 @@ impl ConfigBlock<'_> {
     }
 
     pub fn build(&self, launch_config: &LaunchInfo) -> Result<()> {
-        trace!("ConfigBlock build launch_config={:?}", launch_config);
+        trace!("build launch_config={:?}", launch_config);
         let manifest = self.image_info.config.to_string()?;
         let launch = serde_json::to_string(launch_config)?;
         let mut writer = FilesystemWriter::default();
@@ -63,9 +63,9 @@ impl ConfigBlock<'_> {
             },
         )?;
         let mut file = File::create(&self.file)?;
-        trace!("ConfigBlock build write sqaushfs");
+        trace!("build write sqaushfs");
         writer.write(&mut file)?;
-        trace!("ConfigBlock build complete");
+        trace!("build complete");
         Ok(())
     }
 }

@@ -27,7 +27,7 @@ pub struct ContainerLoopInfo {
     pub delete: Option<String>,
 }
 
-pub struct ContainerInfo {
+pub struct GuestInfo {
     pub uuid: Uuid,
     pub domid: u32,
     pub image: String,
@@ -53,8 +53,8 @@ impl ControllerContext {
         })
     }
 
-    pub async fn list(&mut self) -> Result<Vec<ContainerInfo>> {
-        let mut containers: Vec<ContainerInfo> = Vec::new();
+    pub async fn list(&mut self) -> Result<Vec<GuestInfo>> {
+        let mut containers: Vec<GuestInfo> = Vec::new();
         for domid_candidate in self.xen.store.list("/local/domain").await? {
             let dom_path = format!("/local/domain/{}", domid_candidate);
             let uuid_string = match self
@@ -93,7 +93,7 @@ impl ControllerContext {
                 .await?
                 .unwrap_or("unknown".to_string());
             let loops = ControllerContext::parse_loop_set(&loops);
-            containers.push(ContainerInfo {
+            containers.push(GuestInfo {
                 uuid,
                 domid,
                 image,
@@ -105,7 +105,7 @@ impl ControllerContext {
         Ok(containers)
     }
 
-    pub async fn resolve(&mut self, id: &str) -> Result<Option<ContainerInfo>> {
+    pub async fn resolve(&mut self, id: &str) -> Result<Option<GuestInfo>> {
         for container in self.list().await? {
             let uuid_string = container.uuid.to_string();
             let domid_string = container.domid.to_string();
