@@ -53,9 +53,9 @@ impl GuestLauncher {
 
         let guest_ipv4 = self.allocate_ipv4(context).await?;
         let guest_ipv6 = container_mac.to_link_local_ipv6();
-        let gateway_ipv4 = "192.168.42.1";
+        let gateway_ipv4 = "10.75.70.1";
         let gateway_ipv6 = "fe80::1";
-        let ipv4_network_mask: u32 = 24;
+        let ipv4_network_mask: u32 = 16;
         let ipv6_network_mask: u32 = 10;
 
         let launch_config = LaunchInfo {
@@ -205,12 +205,8 @@ impl GuestLauncher {
     }
 
     async fn allocate_ipv4(&mut self, context: &mut ControllerContext) -> Result<Ipv4Addr> {
-        let network = Ipv4Network::new(Ipv4Addr::new(192, 168, 42, 0), 24)?;
-        let mut used: Vec<Ipv4Addr> = vec![
-            Ipv4Addr::new(192, 168, 42, 0),
-            Ipv4Addr::new(192, 168, 42, 1),
-            Ipv4Addr::new(192, 168, 42, 255),
-        ];
+        let network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
+        let mut used: Vec<Ipv4Addr> = vec![];
         for domid_candidate in context.xen.store.list("/local/domain").await? {
             let dom_path = format!("/local/domain/{}", domid_candidate);
             let ip_path = format!("{}/krata/network/guest/ipv4", dom_path);
@@ -223,6 +219,10 @@ impl GuestLauncher {
 
         let mut found: Option<Ipv4Addr> = None;
         for ip in network.iter() {
+            let last = ip.octets()[3];
+            if last == 0 || last == 255 {
+                continue;
+            }
             if !used.contains(&ip) {
                 found = Some(ip);
                 break;
