@@ -10,6 +10,6 @@ struct NetworkArgs {}
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
     let _ = NetworkArgs::parse();
-    let mut service = NetworkService::new()?;
+    let mut service = NetworkService::new().await?;
     service.watch().await
 }

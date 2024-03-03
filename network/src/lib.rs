@@ -3,6 +3,7 @@ use std::{collections::HashMap, thread, time::Duration};
 use anyhow::Result;
 use autonet::{AutoNetworkChangeset, AutoNetworkCollector, NetworkMetadata};
 use futures::{future::join_all, TryFutureExt};
+use hbridge::HostBridge;
 use log::warn;
 use tokio::{task::JoinHandle, time::sleep};
 use uuid::Uuid;
@@ -13,6 +14,7 @@ use crate::backend::NetworkBackend;
 pub mod autonet;
 pub mod backend;
 pub mod chandev;
+pub mod hbridge;
 pub mod icmp;
 pub mod nat;
 pub mod pkt;
@@ -23,13 +25,17 @@ pub mod vbridge;
 pub struct NetworkService {
     pub backends: HashMap<Uuid, JoinHandle<()>>,
     pub bridge: VirtualBridge,
+    pub hbridge: HostBridge,
 }
 
 impl NetworkService {
-    pub fn new() -> Result<NetworkService> {
+    pub async fn new() -> Result<NetworkService> {
+        let bridge = VirtualBridge::new()?;
+        let hbridge = HostBridge::new("krata0".to_string(), &bridge).await?;
         Ok(NetworkService {
             backends: HashMap::new(),
-            bridge: VirtualBridge::new()?,
+            bridge,
+            hbridge,
         })
     }
 }
