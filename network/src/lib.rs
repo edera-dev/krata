@@ -13,6 +13,7 @@ use crate::backend::NetworkBackend;
 pub mod autonet;
 pub mod backend;
 pub mod chandev;
+pub mod forward;
 pub mod icmp;
 pub mod nat;
 pub mod pkt;

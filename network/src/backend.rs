@@ -1,5 +1,11 @@
+use std::time::Duration;
+
 use crate::autonet::NetworkMetadata;
 use crate::chandev::ChannelDevice;
+use crate::forward::{
+    PortForwardInternalEvent, PortForwardInternalMessage, PortForwardOwner, PortForwardProtocol,
+    PortForwardSpec,
+};
 use crate::nat::Nat;
 use crate::proxynat::ProxyNatHandlerFactory;
 use crate::raw_socket::{AsyncRawSocketChannel, RawSocketHandle, RawSocketProtocol};
@@ -10,13 +16,15 @@ use futures::TryStreamExt;
 use log::{info, trace, warn};
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::Medium;
+use smoltcp::socket::tcp::SocketBuffer;
 use smoltcp::time::Instant;
-use smoltcp::wire::{HardwareAddress, IpCidr};
+use smoltcp::wire::{HardwareAddress, IpCidr, IpEndpoint};
 use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::task::JoinHandle;
 
 const TX_CHANNEL_BUFFER_LEN: usize = 1000;
+const PORT_FORWARD_TCP_BUFFER_SIZE: usize = 65535;
 
 #[derive(Clone)]
 pub struct NetworkBackend {
@@ -28,9 +36,12 @@ pub struct NetworkBackend {
 enum NetworkStackSelect {
     Receive(Option<BytesMut>),
     Send(Option<BytesMut>),
+    PortForwardEvent(Option<PortForwardInternalEvent>),
+    TimePassed,
 }
 
 struct NetworkStack<'a> {
+    metadata: &'a NetworkMetadata,
     tx: Receiver<BytesMut>,
     kdev: AsyncRawSocketChannel,
     udev: ChannelDevice,
@@ -38,15 +49,20 @@ struct NetworkStack<'a> {
     sockets: SocketSet<'a>,
     nat: Nat,
     bridge: BridgeJoinHandle,
+    ports: Vec<PortForwardOwner>,
+    port_forward_receiver: Receiver<PortForwardInternalEvent>,
 }
 
 impl NetworkStack<'_> {
     async fn poll(&mut self) -> Result<bool> {
+        let sleep = tokio::time::sleep(Duration::from_millis(100));
         let what = select! {
             x = self.kdev.receiver.recv() => NetworkStackSelect::Receive(x),
             x = self.bridge.from_bridge_receiver.recv() => NetworkStackSelect::Send(x),
             x = self.bridge.from_broadcast_receiver.recv() => NetworkStackSelect::Send(x.ok()),
             x = self.tx.recv() => NetworkStackSelect::Send(x),
+            x = self.port_forward_receiver.recv() => NetworkStackSelect::PortForwardEvent(x),
+            _ = sleep => NetworkStackSelect::TimePassed,
         };
 
         match what {
@@ -62,6 +78,9 @@ impl NetworkStack<'_> {
                 self.udev.rx = Some(packet);
                 self.interface
                     .poll(Instant::now(), &mut self.udev, &mut self.sockets);
+                for forward in &mut self.ports {
+                    forward.process_sockets(&mut self.sockets).await?;
+                }
             }
 
             NetworkStackSelect::Send(Some(packet)) => {
@@ -73,6 +92,59 @@ impl NetworkStack<'_> {
             NetworkStackSelect::Receive(None) | NetworkStackSelect::Send(None) => {
                 return Ok(false);
             }
+
+            NetworkStackSelect::PortForwardEvent(Some(event)) => {
+                let Some(forward) = self.ports.get_mut(event.index) else {
+                    return Ok(true);
+                };
+
+                match event.message {
+                    PortForwardInternalMessage::IncomingConnection { index } => {
+                        let tcp_rx_buffer =
+                            SocketBuffer::new(vec![0; PORT_FORWARD_TCP_BUFFER_SIZE]);
+                        let tcp_tx_buffer =
+                            SocketBuffer::new(vec![0; PORT_FORWARD_TCP_BUFFER_SIZE]);
+                        let socket =
+                            smoltcp::socket::tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
+                        let handle = self.sockets.add(socket);
+                        forward.map_handle(&handle, index);
+                        let socket = self.sockets.get_mut::<smoltcp::socket::tcp::Socket>(handle);
+                        let remote_endpoint = IpEndpoint::new(
+                            self.metadata.guest.ipv4.address().into(),
+                            forward.spec.host.port,
+                        );
+                        let local_endpoint =
+                            IpEndpoint::new(self.metadata.gateway.ipv4.address().into(), 49500);
+                        socket.connect(
+                            self.interface.context(),
+                            remote_endpoint,
+                            local_endpoint,
+                        )?;
+                    }
+
+                    PortForwardInternalMessage::DataReceived { index, bytes } => {
+                        forward.push_outgoing(&index, bytes);
+                    }
+
+                    PortForwardInternalMessage::SocketClosed { index } => {
+                        let Some(handle) = forward.lookup_handle(&index) else {
+                            return Ok(true);
+                        };
+                        let socket = self.sockets.get_mut::<smoltcp::socket::tcp::Socket>(handle);
+                        socket.abort();
+                    }
+                }
+            }
+
+            NetworkStackSelect::TimePassed => {
+                self.interface
+                    .poll(Instant::now(), &mut self.udev, &mut self.sockets);
+                for forward in &mut self.ports {
+                    forward.process_sockets(&mut self.sockets).await?;
+                }
+            }
+
+            NetworkStackSelect::PortForwardEvent(None) => {}
         }
 
         Ok(true)
@@ -137,7 +209,21 @@ impl NetworkBackend {
         let sockets = SocketSet::new(vec![]);
         let handle = self.bridge.join(self.metadata.guest.mac).await?;
         let kdev = AsyncRawSocketChannel::new(mtu, kdev)?;
-        Ok(NetworkStack {
+        let port_specs = vec![PortForwardSpec::listen(
+            PortForwardProtocol::Tcp,
+            8080,
+            8080,
+        )];
+        let mut ports: Vec<PortForwardOwner> = Vec::new();
+        let (port_forward_sender, port_forward_receiver) = channel::<PortForwardInternalEvent>(100);
+        for (index, spec) in port_specs.iter().enumerate() {
+            ports.push(
+                PortForwardOwner::new(index, spec.clone(), port_forward_sender.clone()).await?,
+            );
+        }
+
+        let stack = NetworkStack {
+            metadata: &self.metadata,
             tx: tx_receiver,
             kdev,
             udev,
@@ -145,7 +231,10 @@ impl NetworkBackend {
             sockets,
             nat,
             bridge: handle,
-        })
+            ports,
+            port_forward_receiver,
+        };
+        Ok(stack)
     }
 
     pub async fn launch(self) -> Result<JoinHandle<()>> {
