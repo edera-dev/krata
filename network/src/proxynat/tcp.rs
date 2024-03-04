@@ -194,7 +194,7 @@ impl ProxyTcpHandler {
                 }
 
                 ProxyTcpAcceptSelect::DoNothing => {
-                    sleeper = Some(tokio::time::sleep(Duration::from_millis(50)));
+                    sleeper = Some(tokio::time::sleep(Duration::from_micros(100)));
                 }
 
                 ProxyTcpAcceptSelect::Internal(data) => {
@@ -398,7 +398,7 @@ impl ProxyTcpHandler {
                 }
 
                 ProxyTcpDataSelect::DoNothing => {
-                    sleeper = Some(tokio::time::sleep(Duration::from_millis(50)));
+                    sleeper = Some(tokio::time::sleep(Duration::from_micros(100)));
                 }
 
                 ProxyTcpDataSelect::Close => {

@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use etherparse::{EtherType, Ethernet2Header, IpNumber, Ipv4Header, TcpHeader};
+use etherparse::{EtherType, Ethernet2Header, IpNumber, Ipv4Header, Ipv6Header, TcpHeader};
 use log::{debug, trace, warn};
 use smoltcp::wire::EthernetAddress;
 use std::{
@@ -148,17 +148,27 @@ impl VirtualBridge {
                         }
                     };
 
+                    // recalculate TCP checksums when routing packets.
+                    // the xen network backend / frontend drivers for linux
+                    // use checksum offloading but since we bypass some layers
+                    // of the kernel we have to do it ourselves.
                     if header.ether_type == EtherType::IPV4 {
                         let (ipv4, payload) = Ipv4Header::from_slice(payload)?;
-
-                        // recalculate TCP checksums when routing packets.
-                        // the xen network backend / frontend drivers for linux
-                        // are very stupid and do not calculate these properly
-                        // despite all best attempts at making it do so.
                         if ipv4.protocol == IpNumber::TCP {
                             let (mut tcp, payload) = TcpHeader::from_slice(payload)?;
                             tcp.checksum = tcp.calc_checksum_ipv4(&ipv4, payload)?;
                             let tcp_header_offset = Ethernet2Header::LEN + ipv4.header_len();
+                            let tcp_header_bytes = tcp.to_bytes();
+                            for (i, b) in tcp_header_bytes.iter().enumerate() {
+                                packet[tcp_header_offset + i] = *b;
+                            }
+                        }
+                    } else if header.ether_type == EtherType::IPV6 {
+                        let (ipv6, payload) = Ipv6Header::from_slice(payload)?;
+                        if ipv6.next_header == IpNumber::TCP {
+                            let (mut tcp, payload) = TcpHeader::from_slice(payload)?;
+                            tcp.checksum = tcp.calc_checksum_ipv6(&ipv6, payload)?;
+                            let tcp_header_offset = Ethernet2Header::LEN + ipv6.header_len();
                             let tcp_header_bytes = tcp.to_bytes();
                             for (i, b) in tcp_header_bytes.iter().enumerate() {
                                 packet[tcp_header_offset + i] = *b;

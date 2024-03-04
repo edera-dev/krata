@@ -22,7 +22,7 @@ pub mod proxynat;
 pub mod raw_socket;
 pub mod vbridge;
 
-pub const FORCE_MTU: usize = 20000;
+pub const FORCE_MTU: usize = 65521;
 
 pub struct NetworkService {
     pub backends: HashMap<Uuid, JoinHandle<()>>,
