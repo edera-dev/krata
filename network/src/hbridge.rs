@@ -16,16 +16,19 @@ use tokio_tun::Tun;
 
 use crate::vbridge::{BridgeJoinHandle, VirtualBridge};
 
+const RX_BUFFER_QUEUE_LEN: usize = 100;
+const HOST_IPV4_ADDR: Ipv4Addr = Ipv4Addr::new(10, 75, 0, 1);
+
 pub struct HostBridge {
     task: JoinHandle<()>,
 }
 
 impl HostBridge {
-    pub async fn new(interface: String, bridge: &VirtualBridge) -> Result<HostBridge> {
+    pub async fn new(mtu: usize, interface: String, bridge: &VirtualBridge) -> Result<HostBridge> {
         let tun = Tun::builder()
             .name(&interface)
             .tap(true)
-            .mtu(1500)
+            .mtu(mtu as i32)
             .packet_info(false)
             .try_build()?;
 
@@ -48,11 +51,7 @@ impl HostBridge {
 
         handle
             .address()
-            .add(
-                link.header.index,
-                IpAddr::V4(Ipv4Addr::new(10, 75, 0, 1)),
-                16,
-            )
+            .add(link.header.index, IpAddr::V4(HOST_IPV4_ADDR), 16)
             .execute()
             .await?;
 
@@ -74,7 +73,7 @@ impl HostBridge {
         let bridge_handle = bridge.join(mac).await?;
 
         let task = tokio::task::spawn(async move {
-            if let Err(error) = HostBridge::process(tun, bridge_handle).await {
+            if let Err(error) = HostBridge::process(mtu, tun, bridge_handle).await {
                 error!("failed to process host bridge: {}", error);
             }
         });
@@ -82,11 +81,11 @@ impl HostBridge {
         Ok(HostBridge { task })
     }
 
-    async fn process(tun: Tun, mut bridge_handle: BridgeJoinHandle) -> Result<()> {
-        let (rx_sender, mut rx_receiver) = channel::<BytesMut>(100);
+    async fn process(mtu: usize, tun: Tun, mut bridge_handle: BridgeJoinHandle) -> Result<()> {
+        let (rx_sender, mut rx_receiver) = channel::<BytesMut>(RX_BUFFER_QUEUE_LEN);
         let (mut read, mut write) = tokio::io::split(tun);
         tokio::task::spawn(async move {
-            let mut buffer = vec![0u8; 1500];
+            let mut buffer = vec![0u8; mtu];
             loop {
                 let size = match read.read(&mut buffer).await {
                     Ok(size) => size,

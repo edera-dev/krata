@@ -19,10 +19,10 @@ use tokio::{
     task::JoinHandle,
 };
 
-const TO_BRIDGE_QUEUE_LEN: usize = 1000;
-const FROM_BRIDGE_QUEUE_LEN: usize = 1000;
-const BROADCAST_QUEUE_LEN: usize = 1000;
-const MEMBER_LEAVE_QUEUE_LEN: usize = 10;
+const TO_BRIDGE_QUEUE_LEN: usize = 3000;
+const FROM_BRIDGE_QUEUE_LEN: usize = 3000;
+const BROADCAST_QUEUE_LEN: usize = 3000;
+const MEMBER_LEAVE_QUEUE_LEN: usize = 30;
 
 #[derive(Debug)]
 struct BridgeMember {

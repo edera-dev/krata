@@ -29,10 +29,9 @@ use crate::{
 };
 
 const TCP_BUFFER_SIZE: usize = 65535;
+const TCP_IP_BUFFER_QUEUE_LEN: usize = 3000;
 const TCP_ACCEPT_TIMEOUT_SECS: u64 = 120;
 const TCP_DANGLE_TIMEOUT_SECS: u64 = 10;
-
-const TCP_IP_BUFFER_LEN: usize = 1000;
 
 pub struct ProxyTcpHandler {
     rx_sender: Sender<BytesMut>,
@@ -110,7 +109,7 @@ impl ProxyTcpHandler {
         mut external_socket: TcpStream,
         mut rx_receiver: Receiver<BytesMut>,
     ) -> Result<()> {
-        let (ip_sender, mut ip_receiver) = channel::<BytesMut>(TCP_IP_BUFFER_LEN);
+        let (ip_sender, mut ip_receiver) = channel::<BytesMut>(TCP_IP_BUFFER_QUEUE_LEN);
         let mut external_buffer = vec![0u8; TCP_BUFFER_SIZE];
 
         let mut device = ChannelDevice::new(

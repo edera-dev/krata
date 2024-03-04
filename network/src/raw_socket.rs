@@ -11,8 +11,8 @@ use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
 
-const RAW_SOCKET_TRANSMIT_QUEUE_LEN: usize = 1000;
-const RAW_SOCKET_RECEIVE_QUEUE_LEN: usize = 1000;
+const RAW_SOCKET_TRANSMIT_QUEUE_LEN: usize = 3000;
+const RAW_SOCKET_RECEIVE_QUEUE_LEN: usize = 3000;
 
 #[derive(Debug)]
 pub enum RawSocketProtocol {

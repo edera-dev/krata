@@ -1,4 +1,4 @@
-use std::{collections::HashMap, thread, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
 use autonet::{AutoNetworkChangeset, AutoNetworkCollector, NetworkMetadata};
@@ -22,6 +22,8 @@ pub mod proxynat;
 pub mod raw_socket;
 pub mod vbridge;
 
+pub const FORCE_MTU: usize = 20000;
+
 pub struct NetworkService {
     pub backends: HashMap<Uuid, JoinHandle<()>>,
     pub bridge: VirtualBridge,
@@ -31,7 +33,7 @@ pub struct NetworkService {
 impl NetworkService {
     pub async fn new() -> Result<NetworkService> {
         let bridge = VirtualBridge::new()?;
-        let hbridge = HostBridge::new("krata0".to_string(), &bridge).await?;
+        let hbridge = HostBridge::new(FORCE_MTU, "krata0".to_string(), &bridge).await?;
         Ok(NetworkService {
             backends: HashMap::new(),
             bridge,
@@ -45,12 +47,13 @@ impl NetworkService {
         let mut collector = AutoNetworkCollector::new().await?;
         loop {
             let changeset = collector.read_changes().await?;
-            self.process_network_changeset(&mut collector, changeset)?;
+            self.process_network_changeset(&mut collector, changeset)
+                .await?;
             sleep(Duration::from_secs(2)).await;
         }
     }
 
-    fn process_network_changeset(
+    async fn process_network_changeset(
         &mut self,
         collector: &mut AutoNetworkCollector,
         changeset: AutoNetworkChangeset,
@@ -70,28 +73,25 @@ impl NetworkService {
             })
             .collect::<Vec<_>>();
 
-        thread::sleep(Duration::from_secs(1));
-        let (launched, failed) = futures::executor::block_on(async move {
-            let mut failed: Vec<Uuid> = Vec::new();
-            let mut launched: Vec<(Uuid, JoinHandle<()>)> = Vec::new();
-            let results = join_all(futures).await;
-            for result in results {
-                match result {
-                    Ok(launch) => {
-                        launched.push(launch);
-                    }
+        sleep(Duration::from_secs(1)).await;
+        let mut failed: Vec<Uuid> = Vec::new();
+        let mut launched: Vec<(Uuid, JoinHandle<()>)> = Vec::new();
+        let results = join_all(futures).await;
+        for result in results {
+            match result {
+                Ok(launch) => {
+                    launched.push(launch);
+                }
 
-                    Err((metadata, error)) => {
-                        warn!(
-                            "failed to launch network backend for krata guest {}: {}",
-                            metadata.uuid, error
-                        );
-                        failed.push(metadata.uuid);
-                    }
-                };
-            }
-            (launched, failed)
-        });
+                Err((metadata, error)) => {
+                    warn!(
+                        "failed to launch network backend for krata guest {}: {}",
+                        metadata.uuid, error
+                    );
+                    failed.push(metadata.uuid);
+                }
+            };
+        }
 
         for (uuid, handle) in launched {
             self.backends.insert(uuid, handle);
