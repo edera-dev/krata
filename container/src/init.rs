@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use futures::stream::TryStreamExt;
 use ipnetwork::IpNetwork;
+use krata::ethtool::EthtoolHandle;
 use krata::{LaunchInfo, LaunchNetwork};
 use log::{trace, warn};
 use nix::libc::{dup2, ioctl};
@@ -299,7 +300,12 @@ impl ContainerInit {
         let mut conf = lines.join("\n");
         conf.push('\n');
         fs::write(resolv, conf)?;
+        self.network_configure_ethtool(network).await?;
+        self.network_configure_link(network).await?;
+        Ok(())
+    }
 
+    async fn network_configure_link(&mut self, network: &LaunchNetwork) -> Result<()> {
         let (connection, handle, _) = rtnetlink::new_connection()?;
         tokio::spawn(connection);
 
@@ -365,7 +371,13 @@ impl ContainerInit {
                 warn!("failed to add ipv6 gateway route: {}", error);
             }
         }
+        Ok(())
+    }
 
+    async fn network_configure_ethtool(&mut self, network: &LaunchNetwork) -> Result<()> {
+        let mut handle = EthtoolHandle::new()?;
+        handle.set_gso(&network.link, false)?;
+        handle.set_tso(&network.link, false)?;
         Ok(())
     }
 

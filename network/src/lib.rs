@@ -22,7 +22,8 @@ pub mod proxynat;
 pub mod raw_socket;
 pub mod vbridge;
 
-pub const FORCE_MTU: usize = 65521;
+const HOST_BRIDGE_MTU: usize = 1500;
+pub const EXTRA_MTU: usize = 20;
 
 pub struct NetworkService {
     pub backends: HashMap<Uuid, JoinHandle<()>>,
@@ -33,7 +34,8 @@ pub struct NetworkService {
 impl NetworkService {
     pub async fn new() -> Result<NetworkService> {
         let bridge = VirtualBridge::new()?;
-        let hbridge = HostBridge::new(FORCE_MTU, "krata0".to_string(), &bridge).await?;
+        let hbridge =
+            HostBridge::new(HOST_BRIDGE_MTU + EXTRA_MTU, "krata0".to_string(), &bridge).await?;
         Ok(NetworkService {
             backends: HashMap::new(),
             bridge,

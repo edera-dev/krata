@@ -255,7 +255,10 @@ impl AsyncRawSocketChannel {
                             }
                             let buffer = (&buffer[0..len]).into();
                             if let Err(error) = receive_sender.try_send(buffer) {
-                                debug!("raw socket failed to process received packet: {}", error);
+                                debug!(
+                                    "failed to process received packet from raw socket: {}",
+                                    error
+                                );
                             }
                         }
 
@@ -276,7 +279,11 @@ impl AsyncRawSocketChannel {
                                 debug!("failed to transmit: would block");
                                 continue;
                             }
-                            return Err(anyhow!("failed to write to raw socket: {}", error));
+                            return Err(anyhow!(
+                                "failed to write {} bytes to raw socket: {}",
+                                packet.len(),
+                                error
+                            ));
                         }
                     };
                 }

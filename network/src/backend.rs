@@ -4,7 +4,7 @@ use crate::nat::Nat;
 use crate::proxynat::ProxyNatHandlerFactory;
 use crate::raw_socket::{AsyncRawSocketChannel, RawSocketHandle, RawSocketProtocol};
 use crate::vbridge::{BridgeJoinHandle, VirtualBridge};
-use crate::FORCE_MTU;
+use crate::EXTRA_MTU;
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
 use futures::TryStreamExt;
@@ -120,8 +120,9 @@ impl NetworkBackend {
             self.metadata.gateway.ipv4.into(),
             self.metadata.gateway.ipv6.into(),
         ];
-        let kdev = RawSocketHandle::bound_to_interface(&interface, RawSocketProtocol::Ethernet)?;
-        let mtu = FORCE_MTU;
+        let mut kdev =
+            RawSocketHandle::bound_to_interface(&interface, RawSocketProtocol::Ethernet)?;
+        let mtu = kdev.mtu_of_interface(&interface)? + EXTRA_MTU;
         let (tx_sender, tx_receiver) = channel::<BytesMut>(TX_CHANNEL_BUFFER_LEN);
         let mut udev = ChannelDevice::new(mtu, Medium::Ethernet, tx_sender.clone());
         let mac = self.metadata.gateway.mac;

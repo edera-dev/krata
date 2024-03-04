@@ -1,3 +1,5 @@
+pub mod ethtool;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]

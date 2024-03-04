@@ -5,7 +5,17 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
+anyhow = { workspace = true }
 serde = { workspace = true }
+libc = { workspace = true }
+
+[dependencies.nix]
+workspace = true
+features = ["ioctl", "socket"]
 
 [lib]
 path = "src/lib.rs"
+
+[[example]]
+name = "ethtool"
+path = "examples/ethtool.rs"
