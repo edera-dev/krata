@@ -31,6 +31,7 @@ futures = { workspace = true }
 bytes = { workspace = true }
 tokio-stream = { workspace = true }
 async-trait = { workspace = true }
+signal-hook = { workspace = true }
 
 [dependencies.tokio-listener]
 workspace = true

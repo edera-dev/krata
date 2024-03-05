@@ -1,3 +1,5 @@
+use std::sync::{atomic::AtomicBool, Arc};
+
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use env_logger::Env;
@@ -15,6 +17,7 @@ struct Args {
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
+    mask_sighup()?;
 
     let args = Args::parse();
     let Some(listener) = args.listener.bind().await else {
@@ -23,5 +26,11 @@ async fn main() -> Result<()> {
     let runtime = Runtime::new(args.store.clone()).await?;
     let mut daemon = Daemon::new(runtime).await?;
     daemon.listen(listener?).await?;
+    Ok(())
+}
+
+fn mask_sighup() -> Result<()> {
+    let flag = Arc::new(AtomicBool::new(false));
+    signal_hook::flag::register(signal_hook::consts::SIGHUP, flag)?;
     Ok(())
 }
