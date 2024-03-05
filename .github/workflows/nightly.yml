@@ -1,0 +1,18 @@
+name: nightly
+on:
+  schedule:
+  - cron: "0 4 * * *"
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - run: ./scripts/ci/install-deps.sh
+    - run: ./scripts/ci/nightly.sh
+    - uses: actions/upload-artifact@v4
+      with:
+        name: krata-nightly
+        path: krata.tgz
+        compression-level: 0

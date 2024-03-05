@@ -8,48 +8,16 @@ resolver = "2"
 anyhow = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
-zstd = { workspace = true }
-flate2 = { workspace = true }
-tar = { workspace = true }
-directories = { workspace = true }
-walkdir = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha256 = { workspace = true }
-url = { workspace = true }
-ureq = { workspace = true }
-reqwest = { workspace = true }
-path-clean = { workspace = true }
 termion = { workspace = true }
 cli-tables = { workspace = true }
 clap = { workspace = true }
-oci-spec = { workspace = true }
-backhand = { workspace = true }
-uuid = { workspace = true }
-ipnetwork = { workspace = true }
 tokio = { workspace = true }
-futures = { workspace = true }
-bytes = { workspace = true }
 tokio-stream = { workspace = true }
 
 [dependencies.krata]
 path = "../shared"
-
-[dependencies.nix]
-workspace = true
-features = ["process"]
-
-[dependencies.advmac]
-path = "../libs/advmac"
-
-[dependencies.loopdev]
-path = "../libs/loopdev"
-
-[dependencies.xenclient]
-path = "../libs/xen/xenclient"
-
-[dependencies.xenstore]
-path = "../libs/xen/xenstore"
 
 [lib]
 path = "src/lib.rs"
