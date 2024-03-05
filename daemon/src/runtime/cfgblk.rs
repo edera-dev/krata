@@ -1,7 +1,7 @@
-use crate::image::ImageInfo;
+use crate::runtime::image::ImageInfo;
 use anyhow::Result;
 use backhand::{FilesystemWriter, NodeHeader};
-use krata::LaunchInfo;
+use krata::launchcfg::LaunchInfo;
 use log::trace;
 use std::fs;
 use std::fs::File;

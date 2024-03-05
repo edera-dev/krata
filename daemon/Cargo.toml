@@ -1,5 +1,5 @@
 [package]
-name = "kratactl"
+name = "kratad"
 version.workspace = true
 edition = "2021"
 resolver = "2"
@@ -31,6 +31,11 @@ tokio = { workspace = true }
 futures = { workspace = true }
 bytes = { workspace = true }
 tokio-stream = { workspace = true }
+async-trait = { workspace = true }
+
+[dependencies.tokio-listener]
+workspace = true
+features = ["clap"]
 
 [dependencies.krata]
 path = "../shared"
@@ -55,5 +60,9 @@ path = "../libs/xen/xenstore"
 path = "src/lib.rs"
 
 [[bin]]
-name = "kratactl"
-path = "bin/control.rs"
+name = "kratad"
+path = "bin/daemon.rs"
+
+[[example]]
+name = "kratad-dial"
+path = "examples/dial.rs"

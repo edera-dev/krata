@@ -1,25 +1,23 @@
+use std::net::IpAddr;
 use std::{fs, net::Ipv4Addr, str::FromStr};
 
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
-use ipnetwork::Ipv4Network;
-use krata::{
+use ipnetwork::{IpNetwork, Ipv4Network};
+use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
 };
 use uuid::Uuid;
 use xenclient::{DomainConfig, DomainDisk, DomainNetworkInterface};
 use xenstore::client::XsdInterface;
 
-use crate::{
-    ctl::GuestInfo,
-    image::{cache::ImageCache, name::ImageName, ImageCompiler, ImageInfo},
-};
+use crate::runtime::cfgblk::ConfigBlock;
+use crate::runtime::image::{cache::ImageCache, name::ImageName, ImageCompiler, ImageInfo};
+use crate::runtime::RuntimeContext;
 
-use crate::ctl::{cfgblk::ConfigBlock, ControllerContext};
+use super::GuestInfo;
 
 pub struct GuestLaunchRequest<'a> {
-    pub kernel_path: &'a str,
-    pub initrd_path: &'a str,
     pub image: &'a str,
     pub vcpus: u32,
     pub mem: u64,
@@ -35,9 +33,9 @@ impl GuestLauncher {
         Ok(Self {})
     }
 
-    pub async fn launch<'c, 'r>(
+    pub async fn launch<'r>(
         &mut self,
-        context: &'c mut ControllerContext,
+        context: &mut RuntimeContext,
         request: GuestLaunchRequest<'r>,
     ) -> Result<GuestInfo> {
         let uuid = Uuid::new_v4();
@@ -115,8 +113,8 @@ impl GuestLauncher {
             name: &name,
             max_vcpus: request.vcpus,
             mem_mb: request.mem,
-            kernel_path: request.kernel_path,
-            initrd_path: request.initrd_path,
+            kernel_path: &context.kernel,
+            initrd_path: &context.initrd,
             cmdline: &cmdline,
             disks: vec![
                 DomainDisk {
@@ -186,8 +184,14 @@ impl GuestLauncher {
                 domid,
                 image: request.image.to_string(),
                 loops: vec![],
-                ipv4: format!("{}/{}", guest_ipv4, ipv4_network_mask),
-                ipv6: format!("{}/{}", guest_ipv6, ipv6_network_mask),
+                ipv4: Some(IpNetwork::new(
+                    IpAddr::V4(guest_ipv4),
+                    ipv4_network_mask as u8,
+                )?),
+                ipv6: Some(IpNetwork::new(
+                    IpAddr::V6(guest_ipv6),
+                    ipv6_network_mask as u8,
+                )?),
             }),
             Err(error) => {
                 let _ = context.autoloop.unloop(&image_squashfs_loop.path);
@@ -204,7 +208,7 @@ impl GuestLauncher {
         compiler.compile(&image).await
     }
 
-    async fn allocate_ipv4(&mut self, context: &mut ControllerContext) -> Result<Ipv4Addr> {
+    async fn allocate_ipv4(&mut self, context: &mut RuntimeContext) -> Result<Ipv4Addr> {
         let network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
         let mut used: Vec<Ipv4Addr> = vec![];
         for domid_candidate in context.xen.store.list("/local/domain").await? {

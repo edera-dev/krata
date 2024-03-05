@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use futures::stream::TryStreamExt;
 use ipnetwork::IpNetwork;
 use krata::ethtool::EthtoolHandle;
-use krata::{LaunchInfo, LaunchNetwork};
+use krata::launchcfg::{LaunchInfo, LaunchNetwork};
 use log::{trace, warn};
 use nix::libc::{dup2, ioctl};
 use nix::unistd::{execve, fork, ForkResult, Pid};
@@ -47,17 +47,17 @@ const NEW_ROOT_DEV_PATH: &str = "/newroot/dev";
 const IMAGE_CONFIG_JSON_PATH: &str = "/config/image/config.json";
 const LAUNCH_CONFIG_JSON_PATH: &str = "/config/launch.json";
 
-pub struct ContainerInit {}
+pub struct GuestInit {}
 
-impl Default for ContainerInit {
+impl Default for GuestInit {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ContainerInit {
-    pub fn new() -> ContainerInit {
-        ContainerInit {}
+impl GuestInit {
+    pub fn new() -> GuestInit {
+        GuestInit {}
     }
 
     pub async fn init(&mut self) -> Result<()> {
@@ -407,8 +407,8 @@ impl ContainerInit {
             env.extend_from_slice(extra_env.as_slice());
         }
 
-        let env = ContainerInit::env_map(env);
-        let path = ContainerInit::resolve_executable(&env, path.into())?;
+        let env = GuestInit::env_map(env);
+        let path = GuestInit::resolve_executable(&env, path.into())?;
         let Some(file_name) = path.file_name() else {
             return Err(anyhow!("cannot get file name of command path"));
         };
@@ -416,13 +416,13 @@ impl ContainerInit {
             return Err(anyhow!("cannot get file name of command path as str"));
         };
         cmd.insert(0, file_name.to_string());
-        let env = ContainerInit::env_list(env);
+        let env = GuestInit::env_list(env);
 
         trace!("running container command: {}", cmd.join(" "));
 
         let path = CString::new(path.as_os_str().as_bytes())?;
-        let cmd = ContainerInit::strings_as_cstrings(cmd)?;
-        let env = ContainerInit::strings_as_cstrings(env)?;
+        let cmd = GuestInit::strings_as_cstrings(cmd)?;
+        let env = GuestInit::strings_as_cstrings(env)?;
         let mut working_dir = config
             .working_dir()
             .as_ref()
@@ -501,7 +501,7 @@ impl ContainerInit {
         cmd: Vec<CString>,
         env: Vec<CString>,
     ) -> Result<()> {
-        ContainerInit::set_controlling_terminal()?;
+        GuestInit::set_controlling_terminal()?;
         execve(&path, &cmd, &env)?;
         Ok(())
     }

@@ -44,9 +44,10 @@ krata is composed of three major executables:
 
 | Executable | Runs On | User Interaction | Dev Runner                  | Code Path   |
 | ---------- | ------- | ---------------- | --------------------------- | ----------- |
+| kratad     | host    | backend daemon   | ./scripts/kratad-debug.sh   | daemon      |
 | kratanet   | host    | backend daemon   | ./scripts/kratanet-debug.sh | network     |
 | kratactl   | host    | CLI tool         | ./scripts/kratactl-debug.sh | controller  |
-| kratactr   | guest   | none, guest init | N/A                         | container   |
+| krataguest | guest   | none, guest init | N/A                         | guest       |
 
 You will find the code to each executable available in the bin/ and src/ directories inside
 it's corresponding code path from the above table.
@@ -96,20 +97,21 @@ $ ./kernel/build.sh -j4
 
 7. Copy the guest kernel image at `kernel/target/kernel` to `/var/lib/krata/default/kernel` to have it automatically detected by kratactl.
 8. Launch `./scripts/kratanet-debug.sh` and keep it running in the foreground.
-9. Run kratactl to launch a container:
+9. Launch `./scripts/kratad-debug.sh` and keep it running in the foreground.
+10. Run kratactl to launch a guest:
 
 ```sh
-$ ./scripts/kratactl-debug.sh launch --attach mirror.gcr.io/library/alpine:latest /bin/busybox sh
+$ ./scripts/kratactl-debug.sh launch --attach alpine:latest
 ```
 
-To detach from the container console, use `Ctrl + ]` on your keyboard.
+To detach from the guest console, use `Ctrl + ]` on your keyboard.
 
-To list the running containers, run:
+To list the running guests, run:
 ```sh
 $ ./scripts/kratactl-debug.sh list
 ```
 
-To destroy a running container, copy it's UUID from either the launch command or the container list and run:
+To destroy a running guest, copy it's UUID from either the launch command or the guest list and run:
 ```sh
-$ ./scripts/kratactl-debug.sh destroy CONTAINER_UUID
+$ ./scripts/kratactl-debug.sh destroy GUEST_UUID
 ```

@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use env_logger::Env;
-use kratactr::init::ContainerInit;
+use krataguest::init::GuestInit;
 use std::env;
 
 #[tokio::main]
@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
             ));
         }
     }
-    let mut container = ContainerInit::new();
-    container.init().await?;
+    let mut guest = GuestInit::new();
+    guest.init().await?;
     Ok(())
 }

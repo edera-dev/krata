@@ -1,4 +1,5 @@
-use crate::image::{ImageInfo, Result};
+use super::ImageInfo;
+use anyhow::Result;
 use log::debug;
 use oci_spec::image::{ImageConfiguration, ImageManifest};
 use std::fs;

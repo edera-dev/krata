@@ -1,0 +1,12 @@
+[Unit]
+Description=Krata Controller Daemon
+
+[Service]
+Restart=on-failure
+Type=simple
+WorkingDirectory=/var/lib/krata
+ExecStart=/usr/bin/kratad
+User=root
+
+[Install]
+WantedBy=multi-user.target

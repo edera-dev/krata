@@ -7,7 +7,8 @@ members = [
     "libs/advmac",
     "libs/loopdev",
     "shared",
-    "container",
+    "daemon",
+    "guest",
     "network",
     "controller",
 ]
@@ -56,6 +57,8 @@ async-trait = "0.1.77"
 bytes = "1.5.0"
 path-absolutize = "3.1.1"
 tokio-tun = "0.11.2"
+tokio-listener = "0.3.1"
+trait-variant = "0.1.1"
 
 [workspace.dependencies.uuid]
 version = "1.6.1"
@@ -71,7 +74,11 @@ features = ["derive"]
 
 [workspace.dependencies.tokio]
 version = "1.35.1"
-features = ["macros", "rt", "rt-multi-thread"]
+features = ["macros", "rt", "rt-multi-thread", "io-util"]
+
+[workspace.dependencies.tokio-stream]
+version = "0.1"
+features = ["io-util"]
 
 [workspace.dependencies.reqwest]
 version = "0.11.24"

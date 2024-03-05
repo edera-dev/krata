@@ -2,9 +2,9 @@ pub mod cache;
 pub mod fetch;
 pub mod name;
 
-use crate::image::cache::ImageCache;
-use crate::image::fetch::RegistryClient;
-use crate::image::name::ImageName;
+use crate::runtime::image::cache::ImageCache;
+use crate::runtime::image::fetch::RegistryClient;
+use crate::runtime::image::name::ImageName;
 use anyhow::{anyhow, Result};
 use backhand::compression::Compressor;
 use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader};
