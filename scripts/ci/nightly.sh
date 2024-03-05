@@ -10,13 +10,14 @@ for X in kratad kratanet kratactl
 do
   cargo build --release --target x86_64-unknown-linux-gnu --bin "${X}"
   cp "${KRATA_DIR}/target/x86_64-unknown-linux-gnu/release/${X}" "${NIGHTLY_DIR}/${X}"
-
 done
 ./initrd/build.sh
 ./kernel/build.sh
 cd "${NIGHTLY_DIR}"
 cp "${KRATA_DIR}/initrd/target/initrd" initrd
 cp "${KRATA_DIR}/kernel/target/kernel" kernel
+cp "${KRATA_DIR}/resources/systemd/kratad.service" kratad.service
+cp "${KRATA_DIR}/resources/systemd/kratanet.service" kratanet.service
 tar czf "${NIGHTLY_TAR}" .
 cd "${KRATA_DIR}"
 rm -rf "${NIGHTLY_DIR}"
