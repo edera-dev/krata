@@ -5,7 +5,8 @@ Description=Krata Networking Daemon
 Restart=on-failure
 Type=simple
 WorkingDirectory=/var/lib/krata
-ExecStart=/usr/bin/kratanet
+ExecStart=/usr/local/bin/kratanet
+Environment=RUST_LOG=info
 User=root
 
 [Install]

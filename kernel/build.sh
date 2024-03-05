@@ -10,7 +10,7 @@ if [ ! -f "${SRC_DIR_NAME}/Makefile" ]
 then
   rm -rf "${SRC_DIR_NAME}"
   curl -L -o "${SRC_DIR_NAME}.txz" "${KERNEL_SRC_URL}"
-  tar xvf "${SRC_DIR_NAME}.txz"
+  tar xf "${SRC_DIR_NAME}.txz"
   rm "${SRC_DIR_NAME}.txz"
 fi
 
