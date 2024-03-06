@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "dev.krata.proto.control";
+option java_outer_classname = "ControlProto";
+
+package krata.control;
+
+message GuestInfo {
+    string id = 1;
+    string image = 2;
+    string ipv4 = 3;
+    string ipv6 = 4;
+}
+
+message LaunchGuestRequest {
+    string image = 1;
+    uint32 vcpus = 2;
+    uint64 mem = 3;
+    repeated string env = 4;
+    repeated string run = 5;
+}
+
+message LaunchGuestReply {
+    GuestInfo guest = 1;
+}
+
+message ListGuestsRequest {}
+
+message ListGuestsReply {
+    repeated GuestInfo guests = 1;
+}
+
+message DestroyGuestRequest {
+    string guest_id = 1;
+}
+
+message DestroyGuestReply {}
+
+message ConsoleDataRequest {
+    string guest = 1;
+    bytes data = 2;
+}
+
+message ConsoleDataReply {
+    bytes data = 1;
+}
+
+service ControlService {
+    rpc LaunchGuest(LaunchGuestRequest) returns (LaunchGuestReply);
+    rpc DestroyGuest(DestroyGuestRequest) returns (DestroyGuestReply);
+
+    rpc ListGuests(ListGuestsRequest) returns (ListGuestsReply);
+
+    rpc ConsoleData(stream ConsoleDataRequest) returns (stream ConsoleDataReply);
+}

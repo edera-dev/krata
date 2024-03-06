@@ -1,14 +1,9 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use env_logger::Env;
-use krata::control::{
-    ConsoleStreamRequest, DestroyRequest, LaunchRequest, ListRequest, Request, Response,
-};
-use kratactl::{
-    client::{KrataClient, KrataClientTransport},
-    console::XenConsole,
-};
-use url::Url;
+use krata::control::{DestroyGuestRequest, LaunchGuestRequest, ListGuestsRequest};
+use kratactl::{client::ControlClientProvider, console::StdioConsoleStream};
+use tonic::Request;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -53,8 +48,7 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
 
     let args = ControllerArgs::parse();
-    let transport = KrataClientTransport::dial(Url::parse(&args.connection)?).await?;
-    let client = KrataClient::new(transport).await?;
+    let mut client = ControlClientProvider::dial(args.connection.parse()?).await?;
 
     match args.command {
         Commands::Launch {
@@ -65,67 +59,56 @@ async fn main() -> Result<()> {
             env,
             run,
         } => {
-            let request = LaunchRequest {
+            let request = LaunchGuestRequest {
                 image,
                 vcpus: cpus,
                 mem,
-                env,
-                run: if run.is_empty() { None } else { Some(run) },
+                env: env.unwrap_or_default(),
+                run,
             };
-            let Response::Launch(response) = client.send(Request::Launch(request)).await? else {
-                return Err(anyhow!("invalid response type"));
+            let response = client
+                .launch_guest(Request::new(request))
+                .await?
+                .into_inner();
+            let Some(guest) = response.guest else {
+                return Err(anyhow!(
+                    "control service did not return a guest in the response"
+                ));
             };
-            println!("launched guest: {}", response.guest.id);
+            println!("launched guest: {}", guest.id);
             if attach {
-                let request = ConsoleStreamRequest {
-                    guest: response.guest.id.clone(),
-                };
-                let Response::ConsoleStream(response) =
-                    client.send(Request::ConsoleStream(request)).await?
-                else {
-                    return Err(anyhow!("invalid response type"));
-                };
-                let stream = client.acquire(response.stream).await?;
-                let console = XenConsole::new(stream).await?;
-                console.attach().await?;
+                let input = StdioConsoleStream::stdin_stream(guest.id).await;
+                let output = client.console_data(input).await?.into_inner();
+                StdioConsoleStream::stdout(output).await?;
             }
         }
 
         Commands::Destroy { guest } => {
-            let request = DestroyRequest { guest };
-            let Response::Destroy(response) = client.send(Request::Destroy(request)).await? else {
-                return Err(anyhow!("invalid response type"));
-            };
-            println!("destroyed guest: {}", response.guest);
+            let _ = client
+                .destroy_guest(Request::new(DestroyGuestRequest {
+                    guest_id: guest.clone(),
+                }))
+                .await?
+                .into_inner();
+            println!("destroyed guest: {}", guest);
         }
 
         Commands::Console { guest } => {
-            let request = ConsoleStreamRequest { guest };
-            let Response::ConsoleStream(response) =
-                client.send(Request::ConsoleStream(request)).await?
-            else {
-                return Err(anyhow!("invalid response type"));
-            };
-            let stream = client.acquire(response.stream).await?;
-            let console = XenConsole::new(stream).await?;
-            console.attach().await?;
+            let input = StdioConsoleStream::stdin_stream(guest).await;
+            let output = client.console_data(input).await?.into_inner();
+            StdioConsoleStream::stdout(output).await?;
         }
 
         Commands::List { .. } => {
-            let request = ListRequest {};
-            let Response::List(response) = client.send(Request::List(request)).await? else {
-                return Err(anyhow!("invalid response type"));
-            };
+            let response = client
+                .list_guests(Request::new(ListGuestsRequest {}))
+                .await?
+                .into_inner();
             let mut table = cli_tables::Table::new();
             let header = vec!["uuid", "ipv4", "ipv6", "image"];
             table.push_row(&header)?;
             for guest in response.guests {
-                table.push_row_string(&vec![
-                    guest.id,
-                    guest.ipv4.unwrap_or("none".to_string()),
-                    guest.ipv6.unwrap_or("none".to_string()),
-                    guest.image,
-                ])?;
+                table.push_row_string(&vec![guest.id, guest.ipv4, guest.ipv6, guest.image])?;
             }
             if table.num_records() == 1 {
                 println!("no guests have been launched");

@@ -5,7 +5,7 @@ Description=Krata Controller Daemon
 Restart=on-failure
 Type=simple
 WorkingDirectory=/var/lib/krata
-ExecStart=/usr/local/bin/kratad -l /var/lib/krata/daemon.socket --unix-listen-unlink
+ExecStart=/usr/local/bin/kratad -l unix:///var/lib/krata/daemon.socket
 Environment=RUST_LOG=info
 User=root
 

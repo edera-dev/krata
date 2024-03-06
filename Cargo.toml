@@ -60,6 +60,10 @@ tokio-listener = "0.3.1"
 trait-variant = "0.1.1"
 tokio-native-tls = "0.3.1"
 signal-hook = "0.3.17"
+tonic-build = "0.11.0"
+prost = "0.12.3"
+async-stream = "0.3.5"
+tower = "0.4.13"
 
 [workspace.dependencies.uuid]
 version = "1.6.1"
@@ -79,7 +83,7 @@ features = ["macros", "rt", "rt-multi-thread", "io-util"]
 
 [workspace.dependencies.tokio-stream]
 version = "0.1"
-features = ["io-util"]
+features = ["io-util", "net"]
 
 [workspace.dependencies.reqwest]
 version = "0.11.24"
@@ -87,3 +91,7 @@ version = "0.11.24"
 [workspace.dependencies.serde]
 version = "1.0.196"
 features = ["derive"]
+
+[workspace.dependencies.tonic]
+version = "0.11.0"
+features = ["tls"]

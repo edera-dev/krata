@@ -17,6 +17,9 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-native-tls = { workspace = true }
 url = { workspace = true }
+tower = { workspace = true }
+tonic = { workspace = true}
+async-stream = { workspace = true }
 
 [dependencies.krata]
 path = "../shared"

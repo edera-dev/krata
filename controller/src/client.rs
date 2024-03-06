@@ -1,249 +1,44 @@
-use std::{collections::HashMap, sync::Arc};
+use anyhow::Result;
+use krata::{control::control_service_client::ControlServiceClient, dial::ControlDialAddress};
+use tokio::net::UnixStream;
+use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Uri};
+use tower::service_fn;
 
-use anyhow::{anyhow, Result};
-use krata::{
-    control::{Message, Request, RequestBox, Response},
-    stream::{ConnectionStreams, StreamContext},
-    KRATA_DEFAULT_TCP_PORT, KRATA_DEFAULT_TLS_PORT,
-};
-use log::{trace, warn};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{TcpStream, UnixStream},
-    select,
-    sync::{
-        mpsc::{channel, Receiver, Sender},
-        oneshot, Mutex,
-    },
-    task::JoinHandle,
-};
-use tokio_native_tls::{native_tls::TlsConnector, TlsStream};
-use tokio_stream::{wrappers::LinesStream, StreamExt};
-use url::{Host, Url};
+pub struct ControlClientProvider {}
 
-const QUEUE_MAX_LEN: usize = 100;
-
-pub struct KrataClientTransport {
-    sender: Sender<Message>,
-    receiver: Receiver<Message>,
-    task: JoinHandle<()>,
-}
-
-impl Drop for KrataClientTransport {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
-}
-
-macro_rules! transport_new {
-    ($name:ident, $stream:ty, $processor:ident) => {
-        pub async fn $name(stream: $stream) -> Result<Self> {
-            let (tx_sender, tx_receiver) = channel::<Message>(QUEUE_MAX_LEN);
-            let (rx_sender, rx_receiver) = channel::<Message>(QUEUE_MAX_LEN);
-
-            let task = tokio::task::spawn(async move {
-                if let Err(error) =
-                    KrataClientTransport::$processor(stream, rx_sender, tx_receiver).await
-                {
-                    warn!("failed to process krata transport messages: {}", error);
-                }
-            });
-
-            Ok(Self {
-                sender: tx_sender,
-                receiver: rx_receiver,
-                task,
-            })
-        }
-    };
-}
-
-macro_rules! transport_processor {
-    ($name:ident, $stream:ty) => {
-        async fn $name(
-            stream: $stream,
-            rx_sender: Sender<Message>,
-            mut tx_receiver: Receiver<Message>,
-        ) -> Result<()> {
-            let (read, mut write) = tokio::io::split(stream);
-            let mut read = LinesStream::new(BufReader::new(read).lines());
-            loop {
-                select! {
-                    x = tx_receiver.recv() => match x {
-                        Some(message) => {
-                            let mut line = serde_json::to_string(&message)?;
-                            trace!("sending line '{}'", line);
-                            line.push('\n');
-                            write.write_all(line.as_bytes()).await?;
-                        },
-
-                        None => {
-                            break;
-                        }
-                    },
-
-                    x = read.next() => match x {
-                        Some(Ok(line)) => {
-                            let message = serde_json::from_str::<Message>(&line)?;
-                            rx_sender.send(message).await?;
-                        },
-
-                        Some(Err(error)) => {
-                            return Err(error.into());
-                        },
-
-                        None => {
-                            break;
-                        }
-                    }
-                };
-            }
-            Ok(())
-        }
-    };
-}
-
-impl KrataClientTransport {
-    transport_new!(from_unix, UnixStream, process_unix_stream);
-    transport_new!(from_tcp, TcpStream, process_tcp_stream);
-    transport_new!(from_tls_tcp, TlsStream<TcpStream>, process_tls_tcp_stream);
-
-    pub async fn dial(url: Url) -> Result<KrataClientTransport> {
-        match url.scheme() {
-            "unix" => {
-                let stream = UnixStream::connect(url.path()).await?;
-                Ok(KrataClientTransport::from_unix(stream).await?)
+impl ControlClientProvider {
+    pub async fn dial(addr: ControlDialAddress) -> Result<ControlServiceClient<Channel>> {
+        let channel = match addr {
+            ControlDialAddress::UnixSocket { path } => {
+                // This URL is not actually used but is required to be specified.
+                Endpoint::try_from(format!("unix://localhost/{}", path))?
+                    .connect_with_connector(service_fn(|uri: Uri| {
+                        let path = uri.path().to_string();
+                        UnixStream::connect(path)
+                    }))
+                    .await?
             }
 
-            "tcp" => {
-                let address = format!(
-                    "{}:{}",
-                    url.host().unwrap_or(Host::Domain("localhost")),
-                    url.port().unwrap_or(KRATA_DEFAULT_TCP_PORT)
-                );
-                let stream = TcpStream::connect(address).await?;
-                Ok(KrataClientTransport::from_tcp(stream).await?)
+            ControlDialAddress::Tcp { host, port } => {
+                Endpoint::try_from(format!("http://{}:{}", host, port))?
+                    .connect()
+                    .await?
             }
 
-            "tls" | "tls-insecure" => {
-                let insecure = url.scheme() == "tls-insecure";
-                let host = format!("{}", url.host().unwrap_or(Host::Domain("localhost")));
-                let address = format!("{}:{}", host, url.port().unwrap_or(KRATA_DEFAULT_TLS_PORT));
-                let stream = TcpStream::connect(address).await?;
-                let mut connector = TlsConnector::builder();
-                if insecure {
-                    connector.danger_accept_invalid_certs(true);
-                }
-                let connector = connector.build()?;
-                let connector = tokio_native_tls::TlsConnector::from(connector);
-                let stream = connector.connect(&host, stream).await?;
-                Ok(KrataClientTransport::from_tls_tcp(stream).await?)
+            ControlDialAddress::Tls {
+                host,
+                port,
+                insecure: _,
+            } => {
+                let tls_config = ClientTlsConfig::new().domain_name(&host);
+                let address = format!("https://{}:{}", host, port);
+                Channel::from_shared(address)?
+                    .tls_config(tls_config)?
+                    .connect()
+                    .await?
             }
-
-            _ => Err(anyhow!("unsupported url scheme: {}", url.scheme())),
-        }
-    }
-
-    transport_processor!(process_unix_stream, UnixStream);
-    transport_processor!(process_tcp_stream, TcpStream);
-    transport_processor!(process_tls_tcp_stream, TlsStream<TcpStream>);
-}
-
-type RequestsMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Response>>>>;
-
-#[derive(Clone)]
-pub struct KrataClient {
-    tx_sender: Sender<Message>,
-    next: Arc<Mutex<u64>>,
-    streams: ConnectionStreams,
-    requests: RequestsMap,
-    task: Arc<JoinHandle<()>>,
-}
-
-impl KrataClient {
-    pub async fn new(transport: KrataClientTransport) -> Result<Self> {
-        let tx_sender = transport.sender.clone();
-        let streams = ConnectionStreams::new(tx_sender.clone());
-        let requests = Arc::new(Mutex::new(HashMap::new()));
-        let task = {
-            let requests = requests.clone();
-            let streams = streams.clone();
-            tokio::task::spawn(async move {
-                if let Err(error) = KrataClient::process(transport, streams, requests).await {
-                    warn!("failed to process krata client messages: {}", error);
-                }
-            })
         };
 
-        Ok(Self {
-            tx_sender,
-            next: Arc::new(Mutex::new(0)),
-            requests,
-            streams,
-            task: Arc::new(task),
-        })
-    }
-
-    pub async fn send(&self, request: Request) -> Result<Response> {
-        let id = {
-            let mut next = self.next.lock().await;
-            let id = *next;
-            *next = id + 1;
-            id
-        };
-        let (sender, receiver) = oneshot::channel();
-        self.requests.lock().await.insert(id, sender);
-        self.tx_sender
-            .send(Message::Request(RequestBox { id, request }))
-            .await?;
-        let response = receiver.await?;
-        if let Response::Error(error) = response {
-            Err(anyhow!("krata error: {}", error.message))
-        } else {
-            Ok(response)
-        }
-    }
-
-    pub async fn acquire(&self, stream: u64) -> Result<StreamContext> {
-        self.streams.acquire(stream).await
-    }
-
-    async fn process(
-        mut transport: KrataClientTransport,
-        streams: ConnectionStreams,
-        requests: RequestsMap,
-    ) -> Result<()> {
-        loop {
-            let Some(message) = transport.receiver.recv().await else {
-                break;
-            };
-
-            match message {
-                Message::Request(_) => {
-                    return Err(anyhow!("received request from service"));
-                }
-
-                Message::Response(resp) => {
-                    let Some(sender) = requests.lock().await.remove(&resp.id) else {
-                        continue;
-                    };
-
-                    let _ = sender.send(resp.response);
-                }
-
-                Message::StreamUpdated(updated) => {
-                    streams.incoming(updated).await?;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-impl Drop for KrataClient {
-    fn drop(&mut self) {
-        if Arc::strong_count(&self.task) <= 1 {
-            self.task.abort();
-        }
+        Ok(ControlServiceClient::new(channel))
     }
 }

@@ -32,10 +32,8 @@ bytes = { workspace = true }
 tokio-stream = { workspace = true }
 async-trait = { workspace = true }
 signal-hook = { workspace = true }
-
-[dependencies.tokio-listener]
-workspace = true
-features = ["clap"]
+async-stream = { workspace = true }
+tonic = { workspace = true, features = ["tls"]}
 
 [dependencies.krata]
 path = "../shared"
@@ -62,7 +60,3 @@ path = "src/lib.rs"
 [[bin]]
 name = "kratad"
 path = "bin/daemon.rs"
-
-[[example]]
-name = "kratad-dial"
-path = "examples/dial.rs"

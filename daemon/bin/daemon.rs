@@ -1,15 +1,17 @@
-use std::sync::{atomic::AtomicBool, Arc};
-
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::Parser;
 use env_logger::Env;
+use krata::dial::ControlDialAddress;
 use kratad::{runtime::Runtime, Daemon};
-use tokio_listener::ListenerAddressLFlag;
+use std::{
+    str::FromStr,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 #[derive(Parser)]
 struct Args {
-    #[clap(flatten)]
-    listener: ListenerAddressLFlag,
+    #[arg(short, long, default_value = "unix:///var/lib/krata/daemon.socket")]
+    listen: String,
     #[arg(short, long, default_value = "/var/lib/krata")]
     store: String,
 }
@@ -20,12 +22,10 @@ async fn main() -> Result<()> {
     mask_sighup()?;
 
     let args = Args::parse();
-    let Some(listener) = args.listener.bind().await else {
-        return Err(anyhow!("no listener specified"));
-    };
+    let addr = ControlDialAddress::from_str(&args.listen)?;
     let runtime = Runtime::new(args.store.clone()).await?;
-    let mut daemon = Daemon::new(runtime).await?;
-    daemon.listen(listener?).await?;
+    let mut daemon = Daemon::new(args.store.clone(), runtime).await?;
+    daemon.listen(addr).await?;
     Ok(())
 }
 
