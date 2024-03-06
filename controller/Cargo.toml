@@ -15,6 +15,7 @@ cli-tables = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
+tokio-native-tls = { workspace = true }
 
 [dependencies.krata]
 path = "../shared"

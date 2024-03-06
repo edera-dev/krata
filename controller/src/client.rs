@@ -8,7 +8,7 @@ use krata::{
 use log::{trace, warn};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{unix, UnixStream},
+    net::{TcpStream, UnixStream},
     select,
     sync::{
         mpsc::{channel, Receiver, Sender},
@@ -16,6 +16,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
+use tokio_native_tls::TlsStream;
 use tokio_stream::{wrappers::LinesStream, StreamExt};
 
 const QUEUE_MAX_LEN: usize = 100;
@@ -32,67 +33,82 @@ impl Drop for KrataClientTransport {
     }
 }
 
-impl KrataClientTransport {
-    pub async fn new(stream: UnixStream) -> Result<Self> {
-        let (read, write) = stream.into_split();
-        let (tx_sender, tx_receiver) = channel::<Message>(QUEUE_MAX_LEN);
-        let (rx_sender, rx_receiver) = channel::<Message>(QUEUE_MAX_LEN);
+macro_rules! transport_new {
+    ($name:ident, $stream:ty, $processor:ident) => {
+        pub async fn $name(stream: $stream) -> Result<Self> {
+            let (tx_sender, tx_receiver) = channel::<Message>(QUEUE_MAX_LEN);
+            let (rx_sender, rx_receiver) = channel::<Message>(QUEUE_MAX_LEN);
 
-        let task = tokio::task::spawn(async move {
-            if let Err(error) =
-                KrataClientTransport::process_unix_stream(read, write, rx_sender, tx_receiver).await
-            {
-                warn!("failed to process krata transport messages: {}", error);
-            }
-        });
-
-        Ok(Self {
-            sender: tx_sender,
-            receiver: rx_receiver,
-            task,
-        })
-    }
-
-    async fn process_unix_stream(
-        read: unix::OwnedReadHalf,
-        mut write: unix::OwnedWriteHalf,
-        rx_sender: Sender<Message>,
-        mut tx_receiver: Receiver<Message>,
-    ) -> Result<()> {
-        let mut read = LinesStream::new(BufReader::new(read).lines());
-        loop {
-            select! {
-                x = tx_receiver.recv() => match x {
-                    Some(message) => {
-                        let mut line = serde_json::to_string(&message)?;
-                        trace!("sending line '{}'", line);
-                        line.push('\n');
-                        write.write_all(line.as_bytes()).await?;
-                    },
-
-                    None => {
-                        break;
-                    }
-                },
-
-                x = read.next() => match x {
-                    Some(Ok(line)) => {
-                        let message = serde_json::from_str::<Message>(&line)?;
-                        rx_sender.send(message).await?;
-                    },
-
-                    Some(Err(error)) => {
-                        return Err(error.into());
-                    },
-
-                    None => {
-                        break;
-                    }
+            let task = tokio::task::spawn(async move {
+                if let Err(error) =
+                    KrataClientTransport::$processor(stream, rx_sender, tx_receiver).await
+                {
+                    warn!("failed to process krata transport messages: {}", error);
                 }
-            };
+            });
+
+            Ok(Self {
+                sender: tx_sender,
+                receiver: rx_receiver,
+                task,
+            })
         }
-        Ok(())
-    }
+    };
+}
+
+macro_rules! transport_processor {
+    ($name:ident, $stream:ty) => {
+        async fn $name(
+            stream: $stream,
+            rx_sender: Sender<Message>,
+            mut tx_receiver: Receiver<Message>,
+        ) -> Result<()> {
+            let (read, mut write) = tokio::io::split(stream);
+            let mut read = LinesStream::new(BufReader::new(read).lines());
+            loop {
+                select! {
+                    x = tx_receiver.recv() => match x {
+                        Some(message) => {
+                            let mut line = serde_json::to_string(&message)?;
+                            trace!("sending line '{}'", line);
+                            line.push('\n');
+                            write.write_all(line.as_bytes()).await?;
+                        },
+
+                        None => {
+                            break;
+                        }
+                    },
+
+                    x = read.next() => match x {
+                        Some(Ok(line)) => {
+                            let message = serde_json::from_str::<Message>(&line)?;
+                            rx_sender.send(message).await?;
+                        },
+
+                        Some(Err(error)) => {
+                            return Err(error.into());
+                        },
+
+                        None => {
+                            break;
+                        }
+                    }
+                };
+            }
+            Ok(())
+        }
+    };
+}
+
+impl KrataClientTransport {
+    transport_new!(from_unix, UnixStream, process_unix_stream);
+    transport_new!(from_tcp, TcpStream, process_tcp_stream);
+    transport_new!(from_tls_tcp, TlsStream<TcpStream>, process_tls_tcp_stream);
+
+    transport_processor!(process_unix_stream, UnixStream);
+    transport_processor!(process_tcp_stream, TcpStream);
+    transport_processor!(process_tls_tcp_stream, TlsStream<TcpStream>);
 }
 
 type RequestsMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Response>>>>;

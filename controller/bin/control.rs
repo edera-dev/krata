@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
 
     let args = ControllerArgs::parse();
     let stream = UnixStream::connect(&args.connection).await?;
-    let transport = KrataClientTransport::new(stream).await?;
+    let transport = KrataClientTransport::from_unix(stream).await?;
     let client = KrataClient::new(transport).await?;
 
     match args.command {
