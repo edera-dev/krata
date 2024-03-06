@@ -24,6 +24,7 @@ build_and_run() {
     ./initrd/build.sh -q
     sudo cp "target/initrd/initrd" "/var/lib/krata/default/initrd"
   fi
-  cargo build ${CARGO_BUILD_FLAGS} --target x86_64-unknown-linux-gnu --bin "${EXE_TARGET}"
-  exec sudo RUST_LOG="${RUST_LOG}" "target/x86_64-unknown-linux-gnu/debug/${EXE_TARGET}" "${@}"
+  RUST_TARGET="$(./scripts/detect-rust-target.sh)"
+  ./scripts/cargo.sh build ${CARGO_BUILD_FLAGS} --bin "${EXE_TARGET}"
+  exec sudo RUST_LOG="${RUST_LOG}" "target/${RUST_TARGET}/debug/${EXE_TARGET}" "${@}"
 }

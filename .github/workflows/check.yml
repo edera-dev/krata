@@ -7,14 +7,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
-    - run: cargo build --target x86_64-unknown-linux-gnu
+    - run: ./scripts/cargo.sh build
   test:
     name: cargo test
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
-    - run: cargo test --target x86_64-unknown-linux-gnu
+    - run: ./scripts/cargo.sh test
   clippy:
     name: cargo clippy
     runs-on: ubuntu-latest
@@ -23,7 +23,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy
-    - run: cargo clippy --target x86_64-unknown-linux-gnu
+    - run: ./scripts/cargo.sh clippy
   fmt:
     name: cargo fmt
     runs-on: ubuntu-latest
@@ -32,4 +32,4 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt
-    - run: cargo fmt
+    - run: ./scripts/cargo.sh fmt --all -- --check

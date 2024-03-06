@@ -14,8 +14,9 @@ BUNDLE_DIR="${BUNDLE_DIR}/krata"
 mkdir -p "${BUNDLE_DIR}"
 for X in kratad kratanet kratactl
 do
-  cargo build --release --target x86_64-unknown-linux-gnu --bin "${X}"
-  cp "${KRATA_DIR}/target/x86_64-unknown-linux-gnu/release/${X}" "${BUNDLE_DIR}/${X}"
+  ./scripts/cargo.sh build --release --bin "${X}"
+  RUST_TARGET="$(./scripts/detect-rust-target.sh)"
+  cp "${KRATA_DIR}/target/${RUST_TARGET}/release/${X}" "${BUNDLE_DIR}/${X}"
 done
 ./initrd/build.sh
 if [ "${KRATA_BUNDLE_SKIP_KERNEL_BUILD}" != "1" ]

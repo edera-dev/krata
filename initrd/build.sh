@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -e
 
-TARGET="x86_64-unknown-linux-gnu"
+export RUST_LIBC="musl"
+RUST_TARGET="$(./scripts/detect-rust-target.sh)"
 
 export RUSTFLAGS="-Ctarget-feature=+crt-static"
 cd "$(dirname "${0}")/.."
 KRATA_DIR="${PWD}"
-cargo build -q --bin krataguest --release --target "${TARGET}"
+./scripts/cargo.sh build -q --release --bin krataguest
 INITRD_DIR="$(mktemp -d /tmp/krata-initrd.XXXXXXXXXXXXX)"
-cp "target/${TARGET}/release/krataguest" "${INITRD_DIR}/init"
+cp "target/${RUST_TARGET}/release/krataguest" "${INITRD_DIR}/init"
 chmod +x "${INITRD_DIR}/init"
 cd "${INITRD_DIR}"
 mkdir -p "${KRATA_DIR}/initrd/target"

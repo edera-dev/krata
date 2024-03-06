@@ -234,6 +234,7 @@ macro_rules! mac_impl {
             }
         }
 
+        #[cfg(not(target_arch = "aarch64"))]
         impl TryFrom<&[core::ffi::c_char]> for $nm {
             type Error = ParseError;
 

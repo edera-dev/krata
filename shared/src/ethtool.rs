@@ -14,7 +14,11 @@ struct EthtoolValue {
 
 const ETHTOOL_SGSO: u32 = 0x00000024;
 const ETHTOOL_STSO: u32 = 0x0000001f;
+
+#[cfg(not(target_env = "musl"))]
 const SIOCETHTOOL: libc::c_ulong = libc::SIOCETHTOOL;
+#[cfg(target_env = "musl")]
+const SIOCETHTOOL: libc::c_int = libc::SIOCETHTOOL as i32;
 
 #[repr(C)]
 #[derive(Debug)]
