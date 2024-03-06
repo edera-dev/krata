@@ -7,6 +7,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
+    - run: ./scripts/ci/install-deps.sh
     - run: ./scripts/cargo.sh build
   test:
     name: cargo test
@@ -14,6 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
+    - run: ./scripts/ci/install-deps.sh
     - run: ./scripts/cargo.sh test
   clippy:
     name: cargo clippy
@@ -23,6 +25,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy
+    - run: ./scripts/ci/install-deps.sh
     - run: ./scripts/cargo.sh clippy
   fmt:
     name: cargo fmt
@@ -32,4 +35,5 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt
+    - run: ./scripts/ci/install-deps.sh
     - run: ./scripts/cargo.sh fmt --all -- --check
