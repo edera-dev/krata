@@ -22,7 +22,7 @@ build_and_run() {
   if [ "${KRATA_BUILD_INITRD}" = "1" ]
   then
     ./initrd/build.sh -q
-    sudo cp "target/initrd/initrd" "/var/lib/krata/default/initrd"
+    sudo cp "initrd/target/initrd" "/var/lib/krata/default/initrd"
   fi
   RUST_TARGET="$(./scripts/detect-rust-target.sh)"
   ./scripts/cargo.sh build ${CARGO_BUILD_FLAGS} --bin "${EXE_TARGET}"

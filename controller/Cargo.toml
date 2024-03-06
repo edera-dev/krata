@@ -16,6 +16,7 @@ clap = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-native-tls = { workspace = true }
+url = { workspace = true }
 
 [dependencies.krata]
 path = "../shared"

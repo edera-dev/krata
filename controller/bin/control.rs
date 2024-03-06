@@ -8,12 +8,12 @@ use kratactl::{
     client::{KrataClient, KrataClientTransport},
     console::XenConsole,
 };
-use tokio::net::UnixStream;
+use url::Url;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
 struct ControllerArgs {
-    #[arg(long, default_value = "/var/lib/krata/daemon.socket")]
+    #[arg(short, long, default_value = "unix:///var/lib/krata/daemon.socket")]
     connection: String,
 
     #[command(subcommand)]
@@ -53,8 +53,7 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
 
     let args = ControllerArgs::parse();
-    let stream = UnixStream::connect(&args.connection).await?;
-    let transport = KrataClientTransport::from_unix(stream).await?;
+    let transport = KrataClientTransport::dial(Url::parse(&args.connection)?).await?;
     let client = KrataClient::new(transport).await?;
 
     match args.command {
