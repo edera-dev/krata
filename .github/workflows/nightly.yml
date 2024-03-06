@@ -14,6 +14,6 @@ jobs:
     - run: ./scripts/bundle.sh
     - uses: actions/upload-artifact@v4
       with:
-        name: krata-nightly
+        name: krata-nightly-x86_64
         path: target/bundle/krata.tgz
         compression-level: 0

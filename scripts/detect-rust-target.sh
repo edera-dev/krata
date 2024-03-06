@@ -18,7 +18,6 @@ then
   then
     RUST_TARGET="aarch64-unknown-linux-${RUST_LIBC}"
   fi
-
 fi
 
 if [ -z "${RUST_TARGET}" ]
