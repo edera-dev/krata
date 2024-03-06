@@ -1,0 +1,32 @@
+[package]
+name = "krataoci"
+version.workspace = true
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+libc = { workspace = true }
+tonic = { workspace = true }
+
+[dependencies.liboci-cli]
+git = "https://github.com/containers/youki.git"
+
+[dependencies.kratactl]
+path = "../controller"
+
+[dependencies.krata]
+path = "../shared"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "krataoci"
+path = "bin/oci.rs"
+
+[[bin]]
+name = "krataoci-stub"
+path = "bin/stub.rs"

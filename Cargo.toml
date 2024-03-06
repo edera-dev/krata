@@ -11,6 +11,7 @@ members = [
     "guest",
     "network",
     "controller",
+    "oci",
 ]
 resolver = "2"
 
@@ -79,7 +80,7 @@ features = ["derive"]
 
 [workspace.dependencies.tokio]
 version = "1.35.1"
-features = ["macros", "rt", "rt-multi-thread", "io-util"]
+features = ["macros", "rt", "rt-multi-thread", "io-util", "process"]
 
 [workspace.dependencies.tokio-stream]
 version = "0.1"
