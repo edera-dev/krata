@@ -1,7 +1,10 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use env_logger::Env;
-use krata::control::{DestroyGuestRequest, LaunchGuestRequest, ListGuestsRequest};
+use krata::control::{
+    watch_events_reply::Event, DestroyGuestRequest, LaunchGuestRequest, ListGuestsRequest,
+    WatchEventsRequest,
+};
 use kratactl::{client::ControlClientProvider, console::StdioConsoleStream};
 use tonic::Request;
 
@@ -18,7 +21,6 @@ struct ControllerArgs {
 #[derive(Subcommand, Debug)]
 enum Commands {
     List {},
-
     Launch {
         #[arg(short, long, default_value_t = 1)]
         cpus: u32,
@@ -41,6 +43,7 @@ enum Commands {
         #[arg()]
         guest: String,
     },
+    Watch {},
 }
 
 #[tokio::main]
@@ -114,6 +117,35 @@ async fn main() -> Result<()> {
                 println!("no guests have been launched");
             } else {
                 println!("{}", table.to_string());
+            }
+        }
+
+        Commands::Watch {} => {
+            let response = client
+                .watch_events(Request::new(WatchEventsRequest {}))
+                .await?;
+            let mut stream = response.into_inner();
+            while let Some(reply) = stream.message().await? {
+                let Some(event) = reply.event else {
+                    continue;
+                };
+
+                match event {
+                    Event::GuestLaunched(launched) => {
+                        println!("event=guest.launched guest={}", launched.guest_id);
+                    }
+
+                    Event::GuestDestroyed(destroyed) => {
+                        println!("event=guest.destroyed guest={}", destroyed.guest_id);
+                    }
+
+                    Event::GuestExited(exited) => {
+                        println!(
+                            "event=guest.exited guest={} code={}",
+                            exited.guest_id, exited.code
+                        );
+                    }
+                }
             }
         }
     }

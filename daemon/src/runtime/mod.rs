@@ -27,6 +27,10 @@ pub struct ContainerLoopInfo {
     pub delete: Option<String>,
 }
 
+pub struct GuestState {
+    pub exit_code: Option<i32>,
+}
+
 pub struct GuestInfo {
     pub uuid: Uuid,
     pub domid: u32,
@@ -34,6 +38,7 @@ pub struct GuestInfo {
     pub loops: Vec<ContainerLoopInfo>,
     pub ipv4: Option<IpNetwork>,
     pub ipv6: Option<IpNetwork>,
+    pub state: GuestState,
 }
 
 pub struct RuntimeContext {
@@ -115,6 +120,19 @@ impl RuntimeContext {
                 None
             };
 
+            let exit_code = self
+                .xen
+                .store
+                .read_string(&format!("{}/krata/guest/exit-code", &dom_path))
+                .await?;
+
+            let exit_code: Option<i32> = match exit_code {
+                Some(code) => code.parse().ok(),
+                None => None,
+            };
+
+            let state = GuestState { exit_code };
+
             let loops = RuntimeContext::parse_loop_set(&loops);
             guests.push(GuestInfo {
                 uuid,
@@ -123,6 +141,7 @@ impl RuntimeContext {
                 loops,
                 ipv4,
                 ipv6,
+                state,
             });
         }
         Ok(guests)
@@ -165,13 +184,15 @@ impl RuntimeContext {
 
 #[derive(Clone)]
 pub struct Runtime {
+    store: Arc<String>,
     context: Arc<Mutex<RuntimeContext>>,
 }
 
 impl Runtime {
     pub async fn new(store: String) -> Result<Self> {
-        let context = RuntimeContext::new(store).await?;
+        let context = RuntimeContext::new(store.clone()).await?;
         Ok(Self {
+            store: Arc::new(store),
             context: Arc::new(Mutex::new(context)),
         })
     }
@@ -243,5 +264,9 @@ impl Runtime {
     pub async fn list(&self) -> Result<Vec<GuestInfo>> {
         let mut context = self.context.lock().await;
         context.list().await
+    }
+
+    pub async fn dupe(&self) -> Result<Runtime> {
+        Runtime::new((*self.store).clone()).await
     }
 }

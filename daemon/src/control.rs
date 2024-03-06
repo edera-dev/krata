@@ -5,7 +5,7 @@ use futures::Stream;
 use krata::control::{
     control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
     DestroyGuestReply, DestroyGuestRequest, GuestInfo, LaunchGuestReply, LaunchGuestRequest,
-    ListGuestsReply, ListGuestsRequest,
+    ListGuestsReply, ListGuestsRequest, WatchEventsReply, WatchEventsRequest,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -14,7 +14,10 @@ use tokio::{
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
 
-use crate::runtime::{launch::GuestLaunchRequest, Runtime};
+use crate::{
+    event::DaemonEventContext,
+    runtime::{launch::GuestLaunchRequest, Runtime},
+};
 
 pub struct ApiError {
     message: String,
@@ -36,12 +39,13 @@ impl From<ApiError> for Status {
 
 #[derive(Clone)]
 pub struct RuntimeControlService {
+    events: DaemonEventContext,
     runtime: Runtime,
 }
 
 impl RuntimeControlService {
-    pub fn new(runtime: Runtime) -> Self {
-        Self { runtime }
+    pub fn new(events: DaemonEventContext, runtime: Runtime) -> Self {
+        Self { events, runtime }
     }
 }
 
@@ -54,6 +58,9 @@ enum ConsoleDataSelect {
 impl ControlService for RuntimeControlService {
     type ConsoleDataStream =
         Pin<Box<dyn Stream<Item = Result<ConsoleDataReply, Status>> + Send + 'static>>;
+
+    type WatchEventsStream =
+        Pin<Box<dyn Stream<Item = Result<WatchEventsReply, Status>> + Send + 'static>>;
 
     async fn launch_guest(
         &self,
@@ -115,7 +122,7 @@ impl ControlService for RuntimeControlService {
         let request = request?;
         let mut console = self
             .runtime
-            .console(&request.guest)
+            .console(&request.guest_id)
             .await
             .map_err(ApiError::from)?;
 
@@ -149,6 +156,20 @@ impl ControlService for RuntimeControlService {
         };
 
         Ok(Response::new(Box::pin(output) as Self::ConsoleDataStream))
+    }
+
+    async fn watch_events(
+        &self,
+        request: Request<WatchEventsRequest>,
+    ) -> Result<Response<Self::WatchEventsStream>, Status> {
+        let _ = request.into_inner();
+        let mut events = self.events.subscribe();
+        let output = try_stream! {
+            while let Ok(event) = events.recv().await {
+                yield WatchEventsReply { event: Some(event), };
+            }
+        };
+        Ok(Response::new(Box::pin(output) as Self::WatchEventsStream))
     }
 }
 

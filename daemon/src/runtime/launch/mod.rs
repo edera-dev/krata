@@ -15,7 +15,7 @@ use crate::runtime::cfgblk::ConfigBlock;
 use crate::runtime::image::{cache::ImageCache, name::ImageName, ImageCompiler, ImageInfo};
 use crate::runtime::RuntimeContext;
 
-use super::GuestInfo;
+use super::{GuestInfo, GuestState};
 
 pub struct GuestLaunchRequest<'a> {
     pub image: &'a str,
@@ -192,6 +192,7 @@ impl GuestLauncher {
                     IpAddr::V6(guest_ipv6),
                     ipv6_network_mask as u8,
                 )?),
+                state: GuestState { exit_code: None },
             }),
             Err(error) => {
                 let _ = context.autoloop.unloop(&image_squashfs_loop.path);

@@ -38,7 +38,7 @@ message DestroyGuestRequest {
 message DestroyGuestReply {}
 
 message ConsoleDataRequest {
-    string guest = 1;
+    string guest_id = 1;
     bytes data = 2;
 }
 
@@ -46,11 +46,34 @@ message ConsoleDataReply {
     bytes data = 1;
 }
 
+message WatchEventsRequest {}
+
+message GuestLaunchedEvent {
+    string guest_id = 1;
+}
+
+message GuestDestroyedEvent {
+    string guest_id = 1;
+}
+
+message GuestExitedEvent {
+    string guest_id = 1;
+    int32 code = 2;
+}
+
+message WatchEventsReply {
+    oneof event {
+        GuestLaunchedEvent guest_launched = 1;
+        GuestDestroyedEvent guest_destroyed = 2;
+        GuestExitedEvent guest_exited = 3;
+    }
+}
+
 service ControlService {
     rpc LaunchGuest(LaunchGuestRequest) returns (LaunchGuestReply);
     rpc DestroyGuest(DestroyGuestRequest) returns (DestroyGuestReply);
-
     rpc ListGuests(ListGuestsRequest) returns (ListGuestsReply);
-
     rpc ConsoleData(stream ConsoleDataRequest) returns (stream ConsoleDataReply);
+
+    rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
 }

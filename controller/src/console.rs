@@ -21,7 +21,7 @@ impl StdioConsoleStream {
     pub async fn stdin_stream(guest: String) -> impl Stream<Item = ConsoleDataRequest> {
         let mut stdin = stdin();
         stream! {
-            yield ConsoleDataRequest { guest, data: vec![] };
+            yield ConsoleDataRequest { guest_id: guest, data: vec![] };
 
             let mut buffer = vec![0u8; 60];
             loop {
@@ -36,7 +36,7 @@ impl StdioConsoleStream {
                 if size == 1 && buffer[0] == 0x1d {
                     break;
                 }
-                yield ConsoleDataRequest { guest: String::default(), data };
+                yield ConsoleDataRequest { guest_id: String::default(), data };
             }
         }
     }

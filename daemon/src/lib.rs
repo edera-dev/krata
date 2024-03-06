@@ -2,28 +2,39 @@ use std::{net::SocketAddr, path::PathBuf, str::FromStr};
 
 use anyhow::Result;
 use control::RuntimeControlService;
+use event::{DaemonEventContext, DaemonEventGenerator};
 use krata::{control::control_service_server::ControlServiceServer, dial::ControlDialAddress};
 use log::info;
 use runtime::Runtime;
-use tokio::net::UnixListener;
+use tokio::{net::UnixListener, task::JoinHandle};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 
 pub mod control;
+pub mod event;
 pub mod runtime;
 
 pub struct Daemon {
     store: String,
     runtime: Runtime,
+    events: DaemonEventContext,
+    task: JoinHandle<()>,
 }
 
 impl Daemon {
     pub async fn new(store: String, runtime: Runtime) -> Result<Self> {
-        Ok(Self { store, runtime })
+        let runtime_for_events = runtime.dupe().await?;
+        let (events, generator) = DaemonEventGenerator::new(runtime_for_events).await?;
+        Ok(Self {
+            store,
+            runtime,
+            events,
+            task: generator.launch().await?,
+        })
     }
 
     pub async fn listen(&mut self, addr: ControlDialAddress) -> Result<()> {
-        let control_service = RuntimeControlService::new(self.runtime.clone());
+        let control_service = RuntimeControlService::new(self.events.clone(), self.runtime.clone());
 
         let mut server = Server::builder();
 
@@ -70,5 +81,11 @@ impl Daemon {
             }
         }
         Ok(())
+    }
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        self.task.abort();
     }
 }
