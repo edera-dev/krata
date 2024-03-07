@@ -137,7 +137,7 @@ impl ImageCompiler<'_> {
         );
         let cache_digest = sha256::digest(cache_key);
 
-        if let Some(cached) = self.cache.recall(&cache_digest)? {
+        if let Some(cached) = self.cache.recall(&cache_digest).await? {
             return Ok(cached);
         }
 
@@ -184,7 +184,7 @@ impl ImageCompiler<'_> {
 
         self.squash(image_dir, squash_file)?;
         let info = ImageInfo::new(squash_file.clone(), manifest.clone(), config)?;
-        self.cache.store(&cache_digest, &info)
+        self.cache.store(&cache_digest, &info).await
     }
 
     fn process_whiteout_entry<T: io::Read>(
