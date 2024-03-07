@@ -4,15 +4,14 @@ use anyhow::Result;
 use control::RuntimeControlService;
 use event::{DaemonEventContext, DaemonEventGenerator};
 use krata::{control::control_service_server::ControlServiceServer, dial::ControlDialAddress};
+use kratart::Runtime;
 use log::info;
-use runtime::Runtime;
 use tokio::{net::UnixListener, task::JoinHandle};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 
 pub mod control;
 pub mod event;
-pub mod runtime;
 
 pub struct Daemon {
     store: String,

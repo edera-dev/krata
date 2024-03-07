@@ -6,23 +6,20 @@ resolver = "2"
 
 [dependencies]
 anyhow = { workspace = true }
-serde = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
-tokio = { workspace = true }
-url = { workspace = true }
-tonic = { workspace = true }
+nix = { workspace = true, features = ["ioctl", "socket"] }
 prost = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+url = { workspace = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }
 
-[dependencies.nix]
-workspace = true
-features = ["ioctl", "socket"]
-
 [lib]
-path = "src/lib.rs"
+name = "krata"
 
 [[example]]
 name = "ethtool"

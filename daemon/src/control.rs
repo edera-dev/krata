@@ -14,10 +14,8 @@ use tokio::{
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
 
-use crate::{
-    event::DaemonEventContext,
-    runtime::{launch::GuestLaunchRequest, Runtime},
-};
+use crate::event::DaemonEventContext;
+use kratart::{launch::GuestLaunchRequest, Runtime};
 
 pub struct ApiError {
     message: String,
@@ -67,19 +65,19 @@ impl ControlService for RuntimeControlService {
         request: Request<LaunchGuestRequest>,
     ) -> Result<Response<LaunchGuestReply>, Status> {
         let request = request.into_inner();
-        let guest: GuestInfo = self
-            .runtime
-            .launch(GuestLaunchRequest {
-                image: &request.image,
-                vcpus: request.vcpus,
-                mem: request.mem,
-                env: empty_vec_optional(request.env),
-                run: empty_vec_optional(request.run),
-                debug: false,
-            })
-            .await
-            .map_err(ApiError::from)?
-            .into();
+        let guest: GuestInfo = convert_guest_info(
+            self.runtime
+                .launch(GuestLaunchRequest {
+                    image: &request.image,
+                    vcpus: request.vcpus,
+                    mem: request.mem,
+                    env: empty_vec_optional(request.env),
+                    run: empty_vec_optional(request.run),
+                    debug: false,
+                })
+                .await
+                .map_err(ApiError::from)?,
+        );
         Ok(Response::new(LaunchGuestReply { guest: Some(guest) }))
     }
 
@@ -103,7 +101,7 @@ impl ControlService for RuntimeControlService {
         let guests = self.runtime.list().await.map_err(ApiError::from)?;
         let guests = guests
             .into_iter()
-            .map(GuestInfo::from)
+            .map(convert_guest_info)
             .collect::<Vec<GuestInfo>>();
         Ok(Response::new(ListGuestsReply { guests }))
     }
@@ -173,21 +171,19 @@ impl ControlService for RuntimeControlService {
     }
 }
 
-impl From<crate::runtime::GuestInfo> for GuestInfo {
-    fn from(value: crate::runtime::GuestInfo) -> Self {
-        GuestInfo {
-            id: value.uuid.to_string(),
-            image: value.image,
-            ipv4: value.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
-            ipv6: value.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
-        }
-    }
-}
-
 fn empty_vec_optional<T>(value: Vec<T>) -> Option<Vec<T>> {
     if value.is_empty() {
         None
     } else {
         Some(value)
+    }
+}
+
+fn convert_guest_info(value: kratart::GuestInfo) -> GuestInfo {
+    GuestInfo {
+        id: value.uuid.to_string(),
+        image: value.image,
+        ipv4: value.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
+        ipv6: value.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
     }
 }

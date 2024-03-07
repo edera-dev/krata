@@ -5,28 +5,24 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-thiserror = { workspace = true }
-libc = { workspace = true }
 elf = { workspace = true }
 flate2 = { workspace = true }
-xz2 = { workspace = true }
+libc = { workspace = true }
+log = { workspace = true }
 memchr = { workspace = true }
 slice-copy = { workspace = true }
-log = { workspace = true }
-uuid = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
-
-[dependencies.xencall]
-path = "../xencall"
-
-[dependencies.xenstore]
-path = "../xenstore"
+uuid = { workspace = true }
+xz2 = { workspace = true }
+xencall = { path = "../xencall" }
+xenstore = { path = "../xenstore" }
 
 [dev-dependencies]
 env_logger = { workspace = true }
 
 [lib]
-path = "src/lib.rs"
+name = "xenclient"
 
 [[example]]
 name = "xenclient-boot"

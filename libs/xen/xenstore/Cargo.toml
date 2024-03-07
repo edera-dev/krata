@@ -4,16 +4,16 @@ version.workspace = true
 edition = "2021"
 resolver = "2"
 
-[lib]
-path = "src/lib.rs"
-
 [dependencies]
-thiserror = { workspace = true }
-libc = { workspace = true }
-log = { workspace = true }
-tokio = { workspace = true }
 async-trait = { workspace = true }
 byteorder = { workspace = true }
+libc = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+
+[lib]
+name = "xenstore"
 
 [dev-dependencies]
 env_logger = { workspace = true }

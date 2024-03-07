@@ -4,18 +4,15 @@ version.workspace = true
 edition = "2021"
 resolver = "2"
 
-[lib]
-path = "src/lib.rs"
-
 [dependencies]
-thiserror = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
+nix = { workspace = true, features = ["ioctl"] }
+thiserror = { workspace = true }
 uuid = { workspace = true }
 
-[dependencies.nix]
-workspace = true
-features = ["ioctl"]
+[lib]
+name = "xencall"
 
 [dev-dependencies]
 env_logger = { workspace = true }

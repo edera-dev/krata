@@ -5,16 +5,13 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-thiserror = { workspace = true }
-tokio = { workspace = true }
 log = { workspace = true }
-
-[dependencies.nix]
-workspace = true
-features = ["ioctl"]
+thiserror = { workspace = true }
+nix = { workspace = true, features = ["ioctl"] }
+tokio = { workspace = true }
 
 [lib]
-path = "src/lib.rs"
+name = "xenevtchn"
 
 [[example]]
 name = "xenevtchn-simple"

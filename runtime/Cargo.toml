@@ -1,0 +1,45 @@
+[package]
+name = "kratart"
+version.workspace = true
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+advmac = { path = "../libs/advmac" }
+anyhow = { workspace = true }
+async-stream = { workspace = true }
+async-trait = { workspace = true }
+backhand = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+cli-tables = { workspace = true }
+directories = { workspace = true }
+env_logger = { workspace = true }
+flate2 = { workspace = true }
+futures = { workspace = true }
+ipnetwork = { workspace = true }
+krata = { path = "../shared" }
+log = { workspace = true }
+loopdev = { path = "../libs/loopdev" }
+nix = { workspace = true, features = ["process"] }
+oci-spec = { workspace = true }
+path-clean = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha256 = { workspace = true }
+signal-hook = { workspace = true }
+tar = { workspace = true }
+termion = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true, features = ["tls"] }
+url = { workspace = true }
+uuid = { workspace = true }
+walkdir = { workspace = true }
+zstd = { workspace = true }
+xenclient = { path = "../libs/xen/xenclient" }
+xenstore = { path = "../libs/xen/xenstore" }
+
+[lib]
+name = "kratart"

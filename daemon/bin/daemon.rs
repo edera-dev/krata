@@ -2,7 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 use env_logger::Env;
 use krata::dial::ControlDialAddress;
-use kratad::{runtime::Runtime, Daemon};
+use kratad::Daemon;
+use kratart::Runtime;
 use std::{
     str::FromStr,
     sync::{atomic::AtomicBool, Arc},

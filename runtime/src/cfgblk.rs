@@ -1,4 +1,4 @@
-use crate::runtime::image::ImageInfo;
+use crate::image::ImageInfo;
 use anyhow::Result;
 use backhand::{FilesystemWriter, NodeHeader};
 use krata::launchcfg::LaunchInfo;

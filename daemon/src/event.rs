@@ -6,7 +6,7 @@ use log::error;
 use tokio::{sync::broadcast, task::JoinHandle, time};
 use uuid::Uuid;
 
-use crate::runtime::{GuestInfo, Runtime};
+use kratart::{GuestInfo, Runtime};
 
 pub type DaemonEvent = krata::control::watch_events_reply::Event;
 

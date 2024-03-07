@@ -11,9 +11,9 @@ use uuid::Uuid;
 use xenclient::{DomainConfig, DomainDisk, DomainNetworkInterface};
 use xenstore::client::XsdInterface;
 
-use crate::runtime::cfgblk::ConfigBlock;
-use crate::runtime::image::{cache::ImageCache, name::ImageName, ImageCompiler, ImageInfo};
-use crate::runtime::RuntimeContext;
+use crate::cfgblk::ConfigBlock;
+use crate::image::{cache::ImageCache, name::ImageName, ImageCompiler, ImageInfo};
+use crate::RuntimeContext;
 
 use super::{GuestInfo, GuestState};
 

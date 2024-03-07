@@ -6,32 +6,25 @@ resolver = "2"
 
 [dependencies]
 anyhow = { workspace = true }
-log = { workspace = true }
 env_logger = { workspace = true }
-walkdir = { workspace = true }
+futures = { workspace = true }
+ipnetwork = { workspace = true }
+krata = { path = "../shared" }
+log = { workspace = true }
+nix = { workspace = true, features = ["process"] }
+oci-spec = { workspace = true }
+path-absolutize = { workspace = true }
+rtnetlink = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sys-mount = { workspace = true }
-oci-spec = { workspace = true }
-rtnetlink = { workspace = true }
 tokio = { workspace = true }
-futures = { workspace = true }
-ipnetwork = { workspace = true }
-path-absolutize = { workspace = true }
 tokio-stream = { workspace = true }
-
-[dependencies.nix]
-workspace = true
-features = ["process"]
-
-[dependencies.krata]
-path = "../shared"
-
-[dependencies.xenstore]
-path = "../libs/xen/xenstore"
+walkdir = { workspace = true }
+xenstore = { path = "../libs/xen/xenstore" }
 
 [lib]
-path = "src/lib.rs"
+name = "krataguest"
 
 [[bin]]
 name = "krataguest"

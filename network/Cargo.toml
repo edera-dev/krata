@@ -5,31 +5,27 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
+advmac = { path = "../libs/advmac" }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true }
-log = { workspace = true }
 env_logger = { workspace = true }
-rtnetlink = { workspace = true }
-netlink-packet-route = { workspace = true }
-tokio = { workspace = true }
+etherparse = { workspace = true }
 futures = { workspace = true }
 libc = { workspace = true }
-udp-stream = { workspace = true }
+log = { workspace = true }
+netlink-packet-route = { workspace = true }
+rtnetlink = { workspace = true }
 smoltcp = { workspace = true }
-etherparse = { workspace = true }
-async-trait = { workspace = true }
-uuid = { workspace = true }
-bytes = { workspace = true }
+tokio = { workspace = true }
 tokio-tun = { workspace = true }
-
-[dependencies.advmac]
-path = "../libs/advmac"
-
-[dependencies.xenstore]
-path = "../libs/xen/xenstore"
+udp-stream = { workspace = true }
+uuid = { workspace = true }
+xenstore = { path = "../libs/xen/xenstore" }
 
 [lib]
-path = "src/lib.rs"
+name = "kratanet"
 
 [[bin]]
 name = "kratanet"
