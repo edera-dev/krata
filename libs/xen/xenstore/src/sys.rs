@@ -1,15 +1,45 @@
 /// Handwritten protocol definitions for XenStore.
 /// Used xen/include/public/io/xs_wire.h as a reference.
-use bytemuck::{Pod, Zeroable};
 use libc;
 
-#[derive(Copy, Clone, Pod, Zeroable, Debug)]
-#[repr(C)]
+use crate::error::Result;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::io::Cursor;
+
+#[derive(Copy, Clone, Debug)]
 pub struct XsdMessageHeader {
     pub typ: u32,
     pub req: u32,
     pub tx: u32,
     pub len: u32,
+}
+
+impl XsdMessageHeader {
+    pub const SIZE: usize = 16;
+
+    pub fn decode(bytes: &[u8]) -> Result<XsdMessageHeader> {
+        let mut cursor = Cursor::new(bytes);
+        Ok(XsdMessageHeader {
+            typ: cursor.read_u32::<LittleEndian>()?,
+            req: cursor.read_u32::<LittleEndian>()?,
+            tx: cursor.read_u32::<LittleEndian>()?,
+            len: cursor.read_u32::<LittleEndian>()?,
+        })
+    }
+
+    pub fn encode_to(&self, buffer: &mut Vec<u8>) -> Result<()> {
+        buffer.write_u32::<LittleEndian>(self.typ)?;
+        buffer.write_u32::<LittleEndian>(self.req)?;
+        buffer.write_u32::<LittleEndian>(self.tx)?;
+        buffer.write_u32::<LittleEndian>(self.len)?;
+        Ok(())
+    }
+
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        let mut buffer = Vec::with_capacity(XsdMessageHeader::SIZE);
+        self.encode_to(&mut buffer)?;
+        Ok(buffer)
+    }
 }
 
 pub const XSD_CONTROL: u32 = 0;

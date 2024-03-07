@@ -46,7 +46,7 @@ impl AutoNetworkCollector {
 
     pub async fn read(&mut self) -> Result<Vec<NetworkMetadata>> {
         let mut networks = Vec::new();
-        let mut tx = self.client.transaction().await?;
+        let tx = self.client.transaction().await?;
         for domid_string in tx.list("/local/domain").await? {
             let Ok(domid) = domid_string.parse::<u32>() else {
                 continue;
@@ -63,13 +63,13 @@ impl AutoNetworkCollector {
             };
 
             let Ok(guest) =
-                AutoNetworkCollector::read_network_side(uuid, &mut tx, &dom_path, "guest").await
+                AutoNetworkCollector::read_network_side(uuid, &tx, &dom_path, "guest").await
             else {
                 continue;
             };
 
             let Ok(gateway) =
-                AutoNetworkCollector::read_network_side(uuid, &mut tx, &dom_path, "gateway").await
+                AutoNetworkCollector::read_network_side(uuid, &tx, &dom_path, "gateway").await
             else {
                 continue;
             };
@@ -87,7 +87,7 @@ impl AutoNetworkCollector {
 
     async fn read_network_side(
         uuid: Uuid,
-        tx: &mut XsdTransaction<'_>,
+        tx: &XsdTransaction,
         dom_path: &str,
         side: &str,
     ) -> Result<NetworkSide> {

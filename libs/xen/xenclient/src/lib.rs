@@ -145,7 +145,7 @@ impl XenClient {
         }];
 
         {
-            let mut tx = self.store.transaction().await?;
+            let tx = self.store.transaction().await?;
 
             tx.rm(dom_path.as_str()).await?;
             tx.mknod(dom_path.as_str(), ro_perm).await?;
@@ -250,7 +250,7 @@ impl XenClient {
         }
 
         {
-            let mut tx = self.store.transaction().await?;
+            let tx = self.store.transaction().await?;
             tx.write_string(format!("{}/image/os_type", vm_path).as_str(), "linux")
                 .await?;
             tx.write_string(
@@ -641,7 +641,7 @@ impl XenClient {
             },
         ];
 
-        let mut tx = self.store.transaction().await?;
+        let tx = self.store.transaction().await?;
         tx.mknod(&frontend_path, frontend_perms).await?;
         for (p, value) in &frontend_items {
             let path = format!("{}/{}", frontend_path, *p);
@@ -706,7 +706,7 @@ impl XenClient {
         for backend in &backend_paths {
             let state_path = format!("{}/state", backend);
             let online_path = format!("{}/online", backend);
-            let mut tx = self.store.transaction().await?;
+            let tx = self.store.transaction().await?;
             let state = tx.read_string(&state_path).await?.unwrap_or(String::new());
             if state.is_empty() {
                 break;
@@ -735,7 +735,7 @@ impl XenClient {
             }
         }
 
-        let mut tx = self.store.transaction().await?;
+        let tx = self.store.transaction().await?;
         let mut backend_removals: Vec<String> = Vec::new();
         backend_removals.extend_from_slice(backend_paths.as_slice());
         if let Some(backend) = console_backend_path {

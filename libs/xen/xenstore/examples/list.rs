@@ -1,32 +1,35 @@
-use futures::executor::block_on;
+use std::env::args;
+
 use xenstore::client::{XsdClient, XsdInterface};
 use xenstore::error::Result;
-use xenstore::sys::XSD_ERROR_EINVAL;
 
-fn list_recursive(client: &mut XsdClient, level: usize, path: &str) -> Result<()> {
-    let children = match block_on(client.list(path)) {
-        Ok(children) => children,
-        Err(error) => {
-            return if error.to_string() == XSD_ERROR_EINVAL.error {
-                Ok(())
-            } else {
-                Err(error)
-            }
+async fn list_recursive(client: &XsdClient, path: &str) -> Result<()> {
+    let mut pending = vec![path.to_string()];
+
+    while let Some(ref path) = pending.pop() {
+        let children = client.list(path).await?;
+        for child in children {
+            let full = format!("{}/{}", if path == "/" { "" } else { path }, child);
+            let value = client
+                .read_string(full.as_str())
+                .await?
+                .expect("expected value");
+            println!("{} = {:?}", full, value,);
+            pending.push(full);
         }
-    };
-
-    for child in children {
-        let full = format!("{}/{}", if path == "/" { "" } else { path }, child);
-        let value = block_on(client.read_string(full.as_str()))?.expect("expected value");
-        println!("{}{} = {:?}", " ".repeat(level), child, value,);
-        list_recursive(client, level + 1, full.as_str())?;
     }
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut client = XsdClient::open().await?;
-    list_recursive(&mut client, 0, "/")?;
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    let client = XsdClient::open().await?;
+    loop {
+        list_recursive(&client, "/").await?;
+        if args().nth(1).unwrap_or("none".to_string()) != "stress" {
+            break;
+        }
+    }
     Ok(())
 }
