@@ -12,11 +12,11 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: "x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl"
-    - run: ./scripts/ci/install-deps.sh
-    - run: ./scripts/dist/bundle.sh
+    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/dist/bundle.sh
       env:
         KRATA_KERNEL_BUILD_JOBS: "5"
-    - run: ./scripts/dist/deb.sh
+    - run: ./hack/dist/deb.sh
       env:
         KRATA_BUNDLE_SKIP_KERNEL_BUILD: "1"
     - uses: actions/upload-artifact@v4

@@ -22,10 +22,10 @@ build_and_run() {
   sudo mkdir -p /var/lib/krata/guest
   if [ "${KRATA_BUILD_INITRD}" = "1" ]
   then
-    ./scripts/initrd/build.sh -q
+    ./hack/initrd/build.sh -q
     sudo cp "target/initrd/initrd" "/var/lib/krata/guest/initrd"
   fi
-  RUST_TARGET="$(./scripts/build/target.sh)"
-  ./scripts/build/cargo.sh build ${CARGO_BUILD_FLAGS} --bin "${EXE_TARGET}"
+  RUST_TARGET="$(./hack/build/target.sh)"
+  ./hack/build/cargo.sh build ${CARGO_BUILD_FLAGS} --bin "${EXE_TARGET}"
   exec sudo RUST_LOG="${RUST_LOG}" "target/${RUST_TARGET}/debug/${EXE_TARGET}" "${@}"
 }

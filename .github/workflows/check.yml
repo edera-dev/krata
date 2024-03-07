@@ -7,16 +7,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
-    - run: ./scripts/ci/install-deps.sh
-    - run: ./scripts/build/cargo.sh build
+    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/build/cargo.sh build
   test:
     name: cargo test
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
-    - run: ./scripts/ci/install-deps.sh
-    - run: ./scripts/build/cargo.sh test
+    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/build/cargo.sh test
   clippy:
     name: cargo clippy
     runs-on: ubuntu-latest
@@ -25,8 +25,8 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy
-    - run: ./scripts/ci/install-deps.sh
-    - run: ./scripts/build/cargo.sh clippy
+    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/build/cargo.sh clippy
   fmt:
     name: cargo fmt
     runs-on: ubuntu-latest
@@ -35,8 +35,8 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt
-    - run: ./scripts/ci/install-deps.sh
-    - run: ./scripts/build/cargo.sh fmt --all -- --check
+    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/build/cargo.sh fmt --all -- --check
   initrd:
     name: initrd
     runs-on: ubuntu-latest
@@ -45,5 +45,5 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: "x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl"
-    - run: ./scripts/ci/install-deps.sh
-    - run: ./scripts/initrd/build.sh
+    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/initrd/build.sh

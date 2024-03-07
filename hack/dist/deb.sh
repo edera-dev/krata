@@ -1,13 +1,13 @@
 #!/bin/sh
 set -e
 
-# shellcheck source=common.sh
+# shellcheck source-path=SCRIPTDIR source=common.sh
 . "$(dirname "${0}")/common.sh"
 
-"${KRATA_DIR}/scripts/dist/systar.sh"
+"${KRATA_DIR}/hack/dist/systar.sh"
 
-KRATA_VERSION="$("${KRATA_DIR}/scripts/dist/version.sh")"
-TARGET_ARCH="$(KRATA_ARCH_ALT_NAME=1 "${KRATA_DIR}/scripts/build/arch.sh")"
+KRATA_VERSION="$("${KRATA_DIR}/hack/dist/version.sh")"
+TARGET_ARCH="$(KRATA_ARCH_ALT_NAME=1 "${KRATA_DIR}/hack/build/arch.sh")"
 
 cd "${OUTPUT_DIR}"
 

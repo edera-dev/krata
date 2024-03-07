@@ -1,10 +1,10 @@
 #!/bin/sh
 set -e
 
-# shellcheck source=common.sh
+# shellcheck source-path=SCRIPTDIR source=common.sh
 . "$(dirname "${0}")/common.sh"
 
-"${KRATA_DIR}/scripts/dist/bundle.sh"
+"${KRATA_DIR}/hack/dist/bundle.sh"
 
 SYSTAR="${OUTPUT_DIR}/system.tgz"
 rm -f "${SYSTAR}"

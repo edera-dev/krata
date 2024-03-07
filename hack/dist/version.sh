@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# shellcheck source=common.sh
+# shellcheck source-path=SCRIPTDIR source=common.sh
 . "$(dirname "${0}")/common.sh"
 cd "${KRATA_DIR}"
 

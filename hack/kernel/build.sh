@@ -8,7 +8,7 @@ KERNEL_DIR="${KRATA_DIR}/kernel"
 
 cd "${KRATA_DIR}"
 
-# shellcheck source=../../kernel/config.sh
+# shellcheck source-path=SCRIPTDIR source=../../kernel/config.sh
 . "${KERNEL_DIR}/config.sh"
 KERNEL_SRC="${KERNEL_DIR}/linux-${KERNEL_VERSION}"
 
@@ -23,7 +23,7 @@ fi
 OUTPUT_DIR="${KRATA_DIR}/target/kernel"
 mkdir -p "${OUTPUT_DIR}"
 
-TARGET_ARCH="$(KRATA_ARCH_KERNEL_NAME=1 ./scripts/build/arch.sh)"
+TARGET_ARCH="$(KRATA_ARCH_KERNEL_NAME=1 ./hack/build/arch.sh)"
 
 KERNEL_CONFIG_FILE="${KERNEL_DIR}/krata-${TARGET_ARCH}.config"
 

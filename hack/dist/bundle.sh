@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# shellcheck source=common.sh
+# shellcheck source-path=SCRIPTDIR source=common.sh
 . "$(dirname "${0}")/common.sh"
 
 if [ -z "${KRATA_KERNEL_BUILD_JOBS}" ]
@@ -16,14 +16,14 @@ BUNDLE_DIR="${BUNDLE_DIR}/krata"
 mkdir -p "${BUNDLE_DIR}"
 for X in kratad kratanet kratactl
 do
-  ./scripts/build/cargo.sh build --release --bin "${X}"
-  RUST_TARGET="$(./scripts/build/target.sh)"
+  ./hack/build/cargo.sh build --release --bin "${X}"
+  RUST_TARGET="$(./hack/build/target.sh)"
   cp "${KRATA_DIR}/target/${RUST_TARGET}/release/${X}" "${BUNDLE_DIR}/${X}"
 done
-./scripts/initrd/build.sh
+./hack/initrd/build.sh
 if [ "${KRATA_BUNDLE_SKIP_KERNEL_BUILD}" != "1" ]
 then
-  ./scripts/kernel/build.sh "-j${KRATA_KERNEL_BUILD_JOBS}"
+  ./hack/kernel/build.sh "-j${KRATA_KERNEL_BUILD_JOBS}"
 fi
 
 cd "${BUNDLE_DIR}"

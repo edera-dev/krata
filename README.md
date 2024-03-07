@@ -42,12 +42,12 @@ Edera is building a company to compete in the hypervisor space with open-source 
 
 krata is composed of three major executables:
 
-| Executable | Runs On | User Interaction | Dev Runner                  | Code Path   |
-| ---------- | ------- | ---------------- | --------------------------- | ----------- |
-| kratad     | host    | backend daemon   | ./scripts/debug/kratad.sh   | daemon      |
-| kratanet   | host    | backend daemon   | ./scripts/debug/kratanet.sh | network     |
-| kratactl   | host    | CLI tool         | ./scripts/debug/kratactl.sh | controller  |
-| krataguest | guest   | none, guest init | N/A                         | guest       |
+| Executable | Runs On | User Interaction | Dev Runner               | Code Path   |
+| ---------- | ------- | ---------------- | ------------------------ | ----------- |
+| kratad     | host    | backend daemon   | ./hack/debug/kratad.sh   | daemon      |
+| kratanet   | host    | backend daemon   | ./hack/debug/kratanet.sh | network     |
+| kratactl   | host    | CLI tool         | ./hack/debug/kratactl.sh | controller  |
+| krataguest | guest   | none, guest init | N/A                      | guest       |
 
 You will find the code to each executable available in the bin/ and src/ directories inside
 it's corresponding code path from the above table.
@@ -92,26 +92,26 @@ $ cd krata
 6. Build a guest kernel image:
 
 ```sh
-$ ./scripts/kernel/build.sh -j4
+$ ./hack/kernel/build.sh -j4
 ```
 
 7. Copy the guest kernel image at `target/kernel/kernel` to `/var/lib/krata/guest/kernel` to have it automatically detected by kratad.
-8. Launch `./scripts/debug/kratanet.sh` and keep it running in the foreground.
-9. Launch `./scripts/debug/kratad.sh` and keep it running in the foreground.
+8. Launch `./hack/debug/kratanet.sh` and keep it running in the foreground.
+9. Launch `./hack/debug/kratad.sh` and keep it running in the foreground.
 10. Run kratactl to launch a guest:
 
 ```sh
-$ ./scripts/debug/kratactl.sh launch --attach alpine:latest
+$ ./hack/debug/kratactl.sh launch --attach alpine:latest
 ```
 
 To detach from the guest console, use `Ctrl + ]` on your keyboard.
 
 To list the running guests, run:
 ```sh
-$ ./scripts/debug/kratactl.sh list
+$ ./hack/debug/kratactl.sh list
 ```
 
 To destroy a running guest, copy it's UUID from either the launch command or the guest list and run:
 ```sh
-$ ./scripts/debug/kratactl.sh destroy GUEST_UUID
+$ ./hack/debug/kratactl.sh destroy GUEST_UUID
 ```

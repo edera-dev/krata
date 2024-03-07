@@ -7,10 +7,10 @@ KRATA_DIR="${PWD}"
 cd "${KRATA_DIR}"
 
 export RUST_LIBC="musl"
-RUST_TARGET="$(./scripts/build/target.sh)"
+RUST_TARGET="$(./hack/build/target.sh)"
 export RUSTFLAGS="-Ctarget-feature=+crt-static"
 
-./scripts/build/cargo.sh build "${@}" --release --bin krataguest
+./hack/build/cargo.sh build "${@}" --release --bin krataguest
 INITRD_DIR="$(mktemp -d /tmp/krata-initrd.XXXXXXXXXXXXX)"
 cp "target/${RUST_TARGET}/release/krataguest" "${INITRD_DIR}/init"
 chmod +x "${INITRD_DIR}/init"

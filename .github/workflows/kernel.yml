@@ -12,5 +12,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - run: ./scripts/ci/install-deps.sh
-    - run: ./scripts/kernel/build.sh -j5
+    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/kernel/build.sh -j5

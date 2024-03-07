@@ -2,13 +2,13 @@
 parallel = true
 
 [pre-commit.commands.build]
-run = "./scripts/build/cargo.sh build"
+run = "./hack/build/cargo.sh build"
 
 [pre-commit.commands.test]
-run = "./scripts/build/cargo.sh test"
+run = "./hack/build/cargo.sh test"
 
 [pre-commit.commands.fmt]
-run = "./scripts/build/cargo.sh fmt --all -- --check"
+run = "./hack/build/cargo.sh fmt --all -- --check"
 
 [pre-commit.commands.clippy]
-run = "./scripts/build/cargo.sh clippy"
+run = "./hack/build/cargo.sh clippy"
