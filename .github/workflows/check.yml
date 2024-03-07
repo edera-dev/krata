@@ -47,3 +47,9 @@ jobs:
         targets: "x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl"
     - run: ./hack/ci/install-deps.sh
     - run: ./hack/initrd/build.sh
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: ./hack/code/shellcheck.sh
