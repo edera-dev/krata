@@ -5,7 +5,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-advmac = { path = "../libs/advmac" }
+advmac = { path = "../vendor/advmac" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
@@ -22,7 +22,7 @@ tokio = { workspace = true }
 tokio-tun = { workspace = true }
 udp-stream = { workspace = true }
 uuid = { workspace = true }
-xenstore = { path = "../libs/xen/xenstore" }
+xenstore = { path = "../xen/xenstore" }
 
 [lib]
 name = "kratanet"

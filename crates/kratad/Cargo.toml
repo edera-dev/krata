@@ -11,8 +11,8 @@ async-trait = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
-krata = { path = "../shared" }
-kratart = { path = "../runtime" }
+krata = { path = "../krata" }
+kratart = { path = "../kratart" }
 log = { workspace = true }
 signal-hook = { workspace = true }
 tokio = { workspace = true }

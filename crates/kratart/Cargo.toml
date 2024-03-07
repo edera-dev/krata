@@ -5,7 +5,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-advmac = { path = "../libs/advmac" }
+advmac = { path = "../vendor/advmac" }
 anyhow = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
@@ -18,9 +18,9 @@ env_logger = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
 ipnetwork = { workspace = true }
-krata = { path = "../shared" }
+krata = { path = "../krata" }
 log = { workspace = true }
-loopdev = { path = "../libs/loopdev" }
+loopdev = { path = "../vendor/loopdev" }
 nix = { workspace = true, features = ["process"] }
 oci-spec = { workspace = true }
 path-clean = { workspace = true }
@@ -38,8 +38,8 @@ url = { workspace = true }
 uuid = { workspace = true }
 walkdir = { workspace = true }
 zstd = { workspace = true }
-xenclient = { path = "../libs/xen/xenclient" }
-xenstore = { path = "../libs/xen/xenstore" }
+xenclient = { path = "../xen/xenclient" }
+xenstore = { path = "../xen/xenstore" }
 
 [lib]
 name = "kratart"

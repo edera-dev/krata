@@ -10,7 +10,7 @@ async-stream = { workspace = true }
 clap = { workspace = true }
 cli-tables = { workspace = true }
 env_logger = { workspace = true }
-krata = { path = "../shared" }
+krata = { path = "../krata" }
 log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

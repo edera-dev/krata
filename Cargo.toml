@@ -1,17 +1,17 @@
 [workspace]
 members = [
-    "libs/xen/xenstore",
-    "libs/xen/xenevtchn",
-    "libs/xen/xencall",
-    "libs/xen/xenclient",
-    "libs/advmac",
-    "libs/loopdev",
-    "shared",
-    "guest",
-    "runtime",
-    "daemon",
-    "network",
-    "controller",
+    "crates/krata",
+    "crates/krataguest",
+    "crates/kratart",
+    "crates/kratad",
+    "crates/kratanet",
+    "crates/kratactl",
+    "crates/vendor/advmac",
+    "crates/vendor/loopdev",
+    "crates/xen/xencall",
+    "crates/xen/xenclient",
+    "crates/xen/xenevtchn",
+    "crates/xen/xenstore",
 ]
 resolver = "2"
 
