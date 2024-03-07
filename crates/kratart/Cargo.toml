@@ -11,12 +11,7 @@ async-stream = { workspace = true }
 async-trait = { workspace = true }
 backhand = { workspace = true }
 bytes = { workspace = true }
-clap = { workspace = true }
-cli-tables = { workspace = true }
-directories = { workspace = true }
-env_logger = { workspace = true }
 flate2 = { workspace = true }
-futures = { workspace = true }
 ipnetwork = { workspace = true }
 krata = { path = "../krata" }
 log = { workspace = true }
@@ -28,9 +23,7 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha256 = { workspace = true }
-signal-hook = { workspace = true }
 tar = { workspace = true }
-termion = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true, features = ["tls"] }

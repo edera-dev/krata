@@ -5,7 +5,6 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-async-trait = { workspace = true }
 byteorder = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }

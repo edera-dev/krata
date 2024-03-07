@@ -9,9 +9,7 @@ license = "MIT"
 edition = "2021"
 
 [dependencies]
-errno = { workspace = true }
 libc = { workspace = true }
-nix = { workspace = true, features = ["ioctl"] }
 
 [lib]
 name = "loopdev"
