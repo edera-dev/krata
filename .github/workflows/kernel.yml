@@ -1,0 +1,16 @@
+name: kernel
+on:
+  push:
+    paths:
+    - "kernel/**"
+  pull_request:
+    paths:
+    - "kernel/**"
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: ./scripts/ci/install-deps.sh
+    - run: ./kernel/build.sh
