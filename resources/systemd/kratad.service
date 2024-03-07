@@ -1,11 +1,11 @@
 [Unit]
-Description=Krata Controller Daemon
+Description=Krata Control Daemon
 
 [Service]
 Restart=on-failure
 Type=simple
-WorkingDirectory=/var/lib/krata
-ExecStart=/usr/local/bin/kratad -l unix:///var/lib/krata/daemon.socket
+ExecStartPre=/bin/mkdir -p /var/lib/krata
+ExecStart=/usr/libexec/kratad -l unix:///var/lib/krata/daemon.socket
 Environment=RUST_LOG=info
 User=root
 

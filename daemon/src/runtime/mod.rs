@@ -1,4 +1,9 @@
-use std::{fs, path::PathBuf, str::FromStr, sync::Arc};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Result};
 use ipnetwork::IpNetwork;
@@ -59,8 +64,9 @@ impl RuntimeContext {
         image_cache_path.push("image");
         fs::create_dir_all(&image_cache_path)?;
         let image_cache = ImageCache::new(&image_cache_path)?;
-        let kernel = format!("{}/default/kernel", store);
-        let initrd = format!("{}/default/initrd", store);
+        let kernel = RuntimeContext::detect_guest_file(&store, "kernel")?;
+        let initrd = RuntimeContext::detect_guest_file(&store, "initrd")?;
+
         Ok(RuntimeContext {
             image_cache,
             autoloop: AutoLoop::new(LoopControl::open()?),
@@ -68,6 +74,15 @@ impl RuntimeContext {
             kernel,
             initrd,
         })
+    }
+
+    fn detect_guest_file(store: &str, name: &str) -> Result<String> {
+        let path = PathBuf::from(format!("{}/{}", store, name));
+        if path.is_file() {
+            return path_as_string(&path);
+        }
+
+        Ok(format!("/usr/share/krata/guest/{}", name))
     }
 
     pub async fn list(&mut self) -> Result<Vec<GuestInfo>> {
@@ -269,4 +284,10 @@ impl Runtime {
     pub async fn dupe(&self) -> Result<Runtime> {
         Runtime::new((*self.store).clone()).await
     }
+}
+
+fn path_as_string(path: &Path) -> Result<String> {
+    path.to_str()
+        .ok_or_else(|| anyhow!("unable to convert path to string"))
+        .map(|x| x.to_string())
 }

@@ -13,4 +13,4 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - run: ./scripts/ci/install-deps.sh
-    - run: ./kernel/build.sh
+    - run: ./scripts/kernel/build.sh -j5

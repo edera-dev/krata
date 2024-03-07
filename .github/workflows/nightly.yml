@@ -2,7 +2,7 @@ name: nightly
 on:
   workflow_dispatch:
   schedule:
-  - cron: "0 6 * * *"
+  - cron: "0 10 * * *"
 jobs:
   build:
     name: build
@@ -13,9 +13,20 @@ jobs:
       with:
         targets: "x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl"
     - run: ./scripts/ci/install-deps.sh
-    - run: ./scripts/bundle.sh
+    - run: ./scripts/dist/bundle.sh
+      env:
+        KRATA_KERNEL_BUILD_JOBS: "5"
+    - run: ./scripts/dist/deb.sh
+      env:
+        KRATA_BUNDLE_SKIP_KERNEL_BUILD: "1"
     - uses: actions/upload-artifact@v4
       with:
-        name: krata-nightly-x86_64
-        path: target/bundle/krata.tgz
+        name: krata-nightly-bundle-x86_64
+        path: "target/dist/bundle.tgz"
         compression-level: 0
+    - uses: actions/upload-artifact@v4
+      with:
+          name: krata-nightly-debian-x86_64
+          path: "target/dist/*_amd64.deb"
+          compression-level: 0
+  

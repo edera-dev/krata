@@ -1,0 +1,11 @@
+session_name: krata-dev
+start_directory: ../..
+sleep_after: 3
+windows:
+- window_name: live
+  layout: tiled
+  panes:
+  - shell_command: ./scripts/debug/kratad.sh
+  - shell_command: ./scripts/debug/kratanet.sh
+  - focus: true
+    shell_command: "alias kratactl=./scripts/debug/kratactl.sh"

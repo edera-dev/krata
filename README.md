@@ -1,16 +1,16 @@
 # krata
 
-An early version of the Edera hypervisor. Not for production use.
+An early version of the Edera hypervisor.
 
-[Join our community Discord](https://discord.gg/UGZCtX9NG9), or follow the founders [Alex](https://social.treehouse.systems/@alex) and [Ariadne](https://social.treehouse.systems/@ariadne) on Mastodon to follow the future of krata.
+[Join our community Discord](https://discord.gg/Sy7KrSd2qf), or follow the founders [Alex](https://social.treehouse.systems/@alex) and [Ariadne](https://social.treehouse.systems/@ariadne) on Mastodon to follow the future of krata.
 
 ## What is krata?
 
-The krata prototype makes it possible to launch OCI containers on a Xen hypervisor without utilizing the Xen userspace tooling. krata contains just enough of the userspace of Xen (reimplemented in Rust) to start an x86_64 Xen Linux PV guest, and implements a Linux init process that can boot an OCI container. It does so by converting an OCI image into a squashfs file and packaging basic startup data in a bundle which the init container can read.
+The krata hypervisor makes it possible to launch OCI containers on a Xen hypervisor without utilizing the Xen userspace tooling. krata contains just enough of the userspace of Xen (reimplemented in Rust) to start an x86_64 Xen Linux PV guest, and implements a Linux init process that can boot an OCI container. It does so by converting an OCI image into a squashfs file and packaging basic startup data in a bundle which the init container can read.
 
 In addition, due to the desire to reduce dependence on the dom0 network, krata contains a networking daemon called kratanet. kratanet listens for krata guests to startup and launches a userspace networking environment. krata guests can access the dom0 networking stack via the proxynat layer that makes it possible to communicate over UDP, TCP, and ICMP (echo only) to the outside world. In addition, each krata guest is provided a "gateway" IP (both in IPv4 and IPv6) which utilizes smoltcp to provide a virtual host. That virtual host in the future could dial connections into the container to access container networking resources.
 
-krata is in it's early days and this project is provided as essentially a demo of what an OCI layer on Xen could look like.
+krata is in its early days and this project is still a work in progress.
 
 ## FAQs
 
@@ -30,7 +30,7 @@ As such, no external contributions are accepted at this time.
 
 ### Are external contributions accepted?
 
-Currently no external contributions are accepted. krata is in it's early days and the project is provided under AGPL. Edera may decide to change licensing as we start to build future plans, and so all code here is provided to show what is possible, not to work towards any future product goals.
+Currently no external contributions are accepted. krata is in its early days and the project is provided under AGPL. Edera may decide to change licensing as we start to build future plans, and so all code here is provided to show what is possible, not to work towards any future product goals.
 
 ### What are the future plans?
 
@@ -44,9 +44,9 @@ krata is composed of three major executables:
 
 | Executable | Runs On | User Interaction | Dev Runner                  | Code Path   |
 | ---------- | ------- | ---------------- | --------------------------- | ----------- |
-| kratad     | host    | backend daemon   | ./scripts/kratad-debug.sh   | daemon      |
-| kratanet   | host    | backend daemon   | ./scripts/kratanet-debug.sh | network     |
-| kratactl   | host    | CLI tool         | ./scripts/kratactl-debug.sh | controller  |
+| kratad     | host    | backend daemon   | ./scripts/debug/kratad.sh   | daemon      |
+| kratanet   | host    | backend daemon   | ./scripts/debug/kratanet.sh | network     |
+| kratactl   | host    | CLI tool         | ./scripts/debug/kratactl.sh | controller  |
 | krataguest | guest   | none, guest init | N/A                         | guest       |
 
 You will find the code to each executable available in the bin/ and src/ directories inside
@@ -92,26 +92,26 @@ $ cd krata
 6. Build a guest kernel image:
 
 ```sh
-$ ./kernel/build.sh -j4
+$ ./scripts/kernel/build.sh -j4
 ```
 
-7. Copy the guest kernel image at `kernel/target/kernel` to `/var/lib/krata/default/kernel` to have it automatically detected by kratactl.
-8. Launch `./scripts/kratanet-debug.sh` and keep it running in the foreground.
-9. Launch `./scripts/kratad-debug.sh` and keep it running in the foreground.
+7. Copy the guest kernel image at `target/kernel/kernel` to `/var/lib/krata/guest/kernel` to have it automatically detected by kratad.
+8. Launch `./scripts/debug/kratanet.sh` and keep it running in the foreground.
+9. Launch `./scripts/debug/kratad.sh` and keep it running in the foreground.
 10. Run kratactl to launch a guest:
 
 ```sh
-$ ./scripts/kratactl-debug.sh launch --attach alpine:latest
+$ ./scripts/debug/kratactl.sh launch --attach alpine:latest
 ```
 
 To detach from the guest console, use `Ctrl + ]` on your keyboard.
 
 To list the running guests, run:
 ```sh
-$ ./scripts/kratactl-debug.sh list
+$ ./scripts/debug/kratactl.sh list
 ```
 
 To destroy a running guest, copy it's UUID from either the launch command or the guest list and run:
 ```sh
-$ ./scripts/kratactl-debug.sh destroy GUEST_UUID
+$ ./scripts/debug/kratactl.sh destroy GUEST_UUID
 ```
