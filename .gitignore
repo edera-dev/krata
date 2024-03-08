@@ -1,5 +1,2 @@
 /target
-/krata.tgz
-/initrd/target
-/kernel/target
 Cargo.lock

@@ -7,8 +7,14 @@ run = "./hack/build/cargo.sh build"
 [pre-commit.commands.test]
 run = "./hack/build/cargo.sh test"
 
+[pre-commit.commands.clippy]
+run = "./hack/build/cargo.sh clippy"
+
 [pre-commit.commands.fmt]
 run = "./hack/build/cargo.sh fmt --all -- --check"
 
-[pre-commit.commands.clippy]
-run = "./hack/build/cargo.sh clippy"
+[pre-commit.commands.initrd]
+run = "./hack/initrd/build.sh"
+
+[pre-commit.commands.shellcheck]
+run = "./hack/code/shellcheck.sh"
