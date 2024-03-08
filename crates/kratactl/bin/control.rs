@@ -2,8 +2,8 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use env_logger::Env;
 use krata::control::{
-    watch_events_reply::Event, DestroyGuestRequest, LaunchGuestRequest, ListGuestsRequest,
-    WatchEventsRequest,
+    guest_image_spec::Image, watch_events_reply::Event, DestroyGuestRequest, GuestImageSpec,
+    GuestOciImageSpec, LaunchGuestRequest, ListGuestsRequest, WatchEventsRequest,
 };
 use kratactl::{client::ControlClientProvider, console::StdioConsoleStream};
 use tonic::Request;
@@ -31,7 +31,7 @@ enum Commands {
         #[arg(short, long)]
         attach: bool,
         #[arg()]
-        image: String,
+        oci: String,
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
         run: Vec<String>,
     },
@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
 
     match args.command {
         Commands::Launch {
-            image,
+            oci,
             cpus,
             mem,
             attach,
@@ -63,7 +63,9 @@ async fn main() -> Result<()> {
             run,
         } => {
             let request = LaunchGuestRequest {
-                image,
+                image: Some(GuestImageSpec {
+                    image: Some(Image::Oci(GuestOciImageSpec { image: oci })),
+                }),
                 vcpus: cpus,
                 mem,
                 env: env.unwrap_or_default(),
@@ -111,7 +113,32 @@ async fn main() -> Result<()> {
             let header = vec!["uuid", "ipv4", "ipv6", "image"];
             table.push_row(&header)?;
             for guest in response.guests {
-                table.push_row_string(&vec![guest.id, guest.ipv4, guest.ipv6, guest.image])?;
+                let ipv4 = guest
+                    .network
+                    .as_ref()
+                    .map(|x| x.ipv4.as_str())
+                    .unwrap_or("unknown");
+                let ipv6 = guest
+                    .network
+                    .as_ref()
+                    .map(|x| x.ipv6.as_str())
+                    .unwrap_or("unknown");
+                let image = guest
+                    .image
+                    .map(|x| {
+                        x.image
+                            .map(|y| match y {
+                                Image::Oci(oci) => oci.image,
+                            })
+                            .unwrap_or("unknown".to_string())
+                    })
+                    .unwrap_or("unknown".to_string());
+                table.push_row_string(&vec![
+                    guest.id,
+                    ipv4.to_string(),
+                    ipv6.to_string(),
+                    image,
+                ])?;
             }
             if table.num_records() == 1 {
                 println!("no guests have been launched");

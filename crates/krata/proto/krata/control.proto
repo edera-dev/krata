@@ -6,15 +6,29 @@ option java_outer_classname = "ControlProto";
 
 package krata.control;
 
+message GuestOciImageSpec {
+    string image = 1;
+}
+
+message GuestImageSpec {
+    oneof image {
+        GuestOciImageSpec oci = 1;
+    }
+}
+
+message GuestNetworkInfo {
+    string ipv4 = 1;
+    string ipv6 = 2;
+}
+
 message GuestInfo {
     string id = 1;
-    string image = 2;
-    string ipv4 = 3;
-    string ipv6 = 4;
+    GuestImageSpec image = 2;
+    GuestNetworkInfo network = 3;
 }
 
 message LaunchGuestRequest {
-    string image = 1;
+    GuestImageSpec image = 1;
     uint32 vcpus = 2;
     uint64 mem = 3;
     repeated string env = 4;

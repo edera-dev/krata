@@ -3,9 +3,10 @@ use std::{io, pin::Pin};
 use async_stream::try_stream;
 use futures::Stream;
 use krata::control::{
-    control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
-    DestroyGuestReply, DestroyGuestRequest, GuestInfo, LaunchGuestReply, LaunchGuestRequest,
-    ListGuestsReply, ListGuestsRequest, WatchEventsReply, WatchEventsRequest,
+    control_service_server::ControlService, guest_image_spec::Image, ConsoleDataReply,
+    ConsoleDataRequest, DestroyGuestReply, DestroyGuestRequest, GuestImageSpec, GuestInfo,
+    GuestNetworkInfo, GuestOciImageSpec, LaunchGuestReply, LaunchGuestRequest, ListGuestsReply,
+    ListGuestsRequest, WatchEventsReply, WatchEventsRequest,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -65,10 +66,25 @@ impl ControlService for RuntimeControlService {
         request: Request<LaunchGuestRequest>,
     ) -> Result<Response<LaunchGuestReply>, Status> {
         let request = request.into_inner();
+        let Some(image) = request.image else {
+            return Err(ApiError {
+                message: "image spec not provider".to_string(),
+            }
+            .into());
+        };
+        let oci = match image.image {
+            Some(Image::Oci(oci)) => oci,
+            None => {
+                return Err(ApiError {
+                    message: "image spec not provided".to_string(),
+                }
+                .into())
+            }
+        };
         let guest: GuestInfo = convert_guest_info(
             self.runtime
                 .launch(GuestLaunchRequest {
-                    image: &request.image,
+                    image: &oci.image,
                     vcpus: request.vcpus,
                     mem: request.mem,
                     env: empty_vec_optional(request.env),
@@ -182,8 +198,12 @@ fn empty_vec_optional<T>(value: Vec<T>) -> Option<Vec<T>> {
 fn convert_guest_info(value: kratart::GuestInfo) -> GuestInfo {
     GuestInfo {
         id: value.uuid.to_string(),
-        image: value.image,
-        ipv4: value.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
-        ipv6: value.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
+        image: Some(GuestImageSpec {
+            image: Some(Image::Oci(GuestOciImageSpec { image: value.image })),
+        }),
+        network: Some(GuestNetworkInfo {
+            ipv4: value.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
+            ipv6: value.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
+        }),
     }
 }
