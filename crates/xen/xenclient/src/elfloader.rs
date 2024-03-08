@@ -62,11 +62,6 @@ impl ElfImageLoader {
         ElfImageLoader { data }
     }
 
-    pub fn load_file(path: &str) -> Result<ElfImageLoader> {
-        let data = std::fs::read(path)?;
-        Ok(ElfImageLoader::new(data))
-    }
-
     pub fn load_gz(data: &[u8]) -> Result<ElfImageLoader> {
         let buff = BufReader::new(data);
         let image = ElfImageLoader::read_one_stream(&mut GzDecoder::new(buff))?;

@@ -72,7 +72,6 @@ impl ImageName {
         })
     }
 
-    /// URL for OCI distribution API endpoint
     pub fn registry_url(&self) -> Result<Url> {
         let hostname = if let Some(port) = self.port {
             format!("{}:{}", self.hostname, port)

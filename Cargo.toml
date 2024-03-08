@@ -51,11 +51,11 @@ sha256 = "1.5.0"
 signal-hook = "0.3.17"
 slice-copy = "0.3.0"
 smoltcp = "0.11.0"
-tar = "0.4.40"
 termion = "3.0.0"
 thiserror = "1.0"
 tokio-listener = "0.3.1"
 tokio-native-tls = "0.3.1"
+tokio-tar = "0.3.1"
 tokio-tun = "0.11.2"
 tonic-build = "0.11.0"
 tower = "0.4.13"
@@ -65,6 +65,9 @@ url = "2.5.0"
 walkdir = "2"
 xz2 = "0.1"
 zstd = "0.13.0"
+
+[workspace.dependencies.async-compression]
+version = "0.4.6"
 
 [workspace.dependencies.clap]
 version = "4.4.18"

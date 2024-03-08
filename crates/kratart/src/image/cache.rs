@@ -1,4 +1,4 @@
-use super::ImageInfo;
+use super::compiler::ImageInfo;
 use anyhow::Result;
 use log::debug;
 use oci_spec::image::{ImageConfiguration, ImageManifest};
