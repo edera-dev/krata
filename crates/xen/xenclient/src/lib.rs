@@ -19,7 +19,7 @@ use std::time::Duration;
 use uuid::Uuid;
 use xencall::sys::CreateDomain;
 use xencall::XenCall;
-use xenstore::client::{
+use xenstore::{
     XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
 };
 

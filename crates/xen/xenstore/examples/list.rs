@@ -1,7 +1,7 @@
 use std::env::args;
 
-use xenstore::client::{XsdClient, XsdInterface};
 use xenstore::error::Result;
+use xenstore::{XsdClient, XsdInterface};
 
 async fn list_recursive(client: &XsdClient, path: &str) -> Result<()> {
     let mut pending = vec![path.to_string()];

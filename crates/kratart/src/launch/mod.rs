@@ -9,7 +9,7 @@ use krata::launchcfg::{
 };
 use uuid::Uuid;
 use xenclient::{DomainConfig, DomainDisk, DomainNetworkInterface};
-use xenstore::client::XsdInterface;
+use xenstore::XsdInterface;
 
 use crate::cfgblk::ConfigBlock;
 use crate::image::{cache::ImageCache, name::ImageName, ImageCompiler, ImageInfo};

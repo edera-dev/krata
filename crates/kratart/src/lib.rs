@@ -11,7 +11,7 @@ use loopdev::LoopControl;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use xenclient::XenClient;
-use xenstore::client::{XsdClient, XsdInterface};
+use xenstore::{XsdClient, XsdInterface};
 
 use self::{
     autoloop::AutoLoop,

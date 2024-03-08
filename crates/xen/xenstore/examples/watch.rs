@@ -1,6 +1,6 @@
 use std::env::args;
-use xenstore::client::XsdClient;
 use xenstore::error::Result;
+use xenstore::XsdClient;
 
 #[tokio::main]
 async fn main() -> Result<()> {

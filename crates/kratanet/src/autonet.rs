@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use smoltcp::wire::{EthernetAddress, Ipv4Cidr, Ipv6Cidr};
 use std::{collections::HashMap, str::FromStr};
 use uuid::Uuid;
-use xenstore::client::{XsdClient, XsdInterface, XsdTransaction};
+use xenstore::{XsdClient, XsdInterface, XsdTransaction};
 
 pub struct AutoNetworkCollector {
     client: XsdClient,

@@ -4,7 +4,7 @@ use crate::childwait::{ChildEvent, ChildWait};
 use anyhow::Result;
 use nix::{libc::c_int, unistd::Pid};
 use tokio::{select, time::sleep};
-use xenstore::client::{XsdClient, XsdInterface};
+use xenstore::{XsdClient, XsdInterface};
 
 pub struct ContainerBackground {
     child: Pid,
