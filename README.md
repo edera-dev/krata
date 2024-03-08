@@ -42,12 +42,12 @@ Edera is building a company to compete in the hypervisor space with open-source 
 
 krata is composed of three major executables:
 
-| Executable | Runs On | User Interaction | Dev Runner               | Code Path   |
-| ---------- | ------- | ---------------- | ------------------------ | ----------- |
-| kratad     | host    | backend daemon   | ./hack/debug/kratad.sh   | daemon      |
-| kratanet   | host    | backend daemon   | ./hack/debug/kratanet.sh | network     |
-| kratactl   | host    | CLI tool         | ./hack/debug/kratactl.sh | controller  |
-| krataguest | guest   | none, guest init | N/A                      | guest       |
+| Executable | Runs On | User Interaction | Dev Runner               | Code Path         |
+| ---------- | ------- | ---------------- | ------------------------ | ----------------- |
+| kratad     | host    | backend daemon   | ./hack/debug/kratad.sh   | crates/kratad     |
+| kratanet   | host    | backend daemon   | ./hack/debug/kratanet.sh | crates/kratanet   |
+| kratactl   | host    | CLI tool         | ./hack/debug/kratactl.sh | crates/kratactl   |
+| krataguest | guest   | none, guest init | N/A                      | crates/krataguest |
 
 You will find the code to each executable available in the bin/ and src/ directories inside
 it's corresponding code path from the above table.
