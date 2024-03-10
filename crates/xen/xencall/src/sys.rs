@@ -262,7 +262,10 @@ impl Default for CreateDomain {
         CreateDomain {
             ssidref: SECINITSID_DOMU,
             handle: Uuid::new_v4().into_bytes(),
+            #[cfg(target_arch = "x86_64")]
             flags: 0,
+            #[cfg(target_arch = "aarch64")]
+            flags: 1 << XEN_DOMCTL_CDF_HVM_GUEST,
             iommu_opts: 0,
             max_vcpus: 1,
             max_evtchn_port: 1023,
@@ -271,10 +274,7 @@ impl Default for CreateDomain {
             grant_opts: 2,
             vmtrace_size: 0,
             cpupool_id: 0,
-            arch_domain_config: ArchDomainConfig {
-                emulation_flags: 0,
-                misc_flags: 0,
-            },
+            arch_domain_config: ArchDomainConfig::default(),
         }
     }
 }
@@ -311,9 +311,21 @@ pub struct GetPageFrameInfo3 {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
+#[cfg(target_arch = "x86_64")]
 pub struct ArchDomainConfig {
     pub emulation_flags: u32,
     pub misc_flags: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default)]
+#[cfg(target_arch = "aarch64")]
+pub struct ArchDomainConfig {
+    pub gic_version: u8,
+    pub sve_v1: u8,
+    pub tee_type: u8,
+    pub nr_spis: u8,
+    pub clock_frequency: u32,
 }
 
 #[repr(C)]
@@ -390,6 +402,7 @@ impl Default for VcpuGuestContextFpuCtx {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
+#[cfg(target_arch = "x86_64")]
 pub struct CpuUserRegs {
     pub r15: u64,
     pub r14: u64,
@@ -429,6 +442,7 @@ pub struct CpuUserRegs {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
+#[cfg(target_arch = "x86_64")]
 pub struct TrapInfo {
     pub vector: u8,
     pub flags: u8,
@@ -438,6 +452,7 @@ pub struct TrapInfo {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
+#[cfg(target_arch = "x86_64")]
 pub struct VcpuGuestContext {
     pub fpu_ctx: VcpuGuestContextFpuCtx,
     pub flags: u64,
@@ -460,6 +475,7 @@ pub struct VcpuGuestContext {
     pub gs_base_user: u64,
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Default for VcpuGuestContext {
     fn default() -> Self {
         VcpuGuestContext {
@@ -484,6 +500,65 @@ impl Default for VcpuGuestContext {
             gs_base_user: 0,
         }
     }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default)]
+#[cfg(target_arch = "aarch64")]
+pub struct CpuUserRegs {
+    pub x0: u64,
+    pub x1: u64,
+    pub x2: u64,
+    pub x3: u64,
+    pub x4: u64,
+    pub x5: u64,
+    pub x6: u64,
+    pub x7: u64,
+    pub x8: u64,
+    pub x9: u64,
+    pub x10: u64,
+    pub x11: u64,
+    pub x12: u64,
+    pub x13: u64,
+    pub x14: u64,
+    pub x15: u64,
+    pub x16: u64,
+    pub x17: u64,
+    pub x18: u64,
+    pub x19: u64,
+    pub x20: u64,
+    pub x21: u64,
+    pub x22: u64,
+    pub x23: u64,
+    pub x24: u64,
+    pub x25: u64,
+    pub x26: u64,
+    pub x27: u64,
+    pub x28: u64,
+    pub x29: u64,
+    pub x30: u64,
+    pub pc: u64,
+    pub cpsr: u64,
+    pub spsr_el1: u64,
+    pub spsr_fiq: u32,
+    pub spsr_irq: u32,
+    pub spsr_und: u32,
+    pub spsr_abt: u32,
+    pub sp_el0: u64,
+    pub sp_el1: u64,
+    pub elr_el1: u64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default)]
+#[cfg(target_arch = "aarch64")]
+pub struct VcpuGuestContext {
+    pub flags: u32,
+    pub user_regs: CpuUserRegs,
+    pub sctlr: u64,
+    pub ttbcr: u64,
+    pub ttbr0: u64,
+    pub ttbr1: u64,
 }
 
 pub union VcpuGuestContextAny {

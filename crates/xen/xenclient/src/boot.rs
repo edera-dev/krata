@@ -6,6 +6,7 @@ use libc::munmap;
 use log::debug;
 use slice_copy::copy;
 
+use crate::mem::ARCH_PAGE_SHIFT;
 use std::ffi::c_void;
 use std::slice;
 use xencall::XenCall;
@@ -37,6 +38,7 @@ pub struct BootSetup<'a> {
     pub(crate) pfn_alloc_end: u64,
     pub(crate) virt_pgtab_end: u64,
     pub(crate) total_pages: u64,
+    pub(crate) dtb: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -46,6 +48,7 @@ pub struct DomainSegment {
     pub pfn: u64,
     pub(crate) addr: u64,
     pub(crate) size: u64,
+    #[cfg(target_arch = "x86_64")]
     pub(crate) pages: u64,
 }
 
@@ -56,8 +59,8 @@ pub struct BootState {
     pub xenstore_segment: DomainSegment,
     pub console_segment: DomainSegment,
     pub boot_stack_segment: DomainSegment,
-    pub p2m_segment: DomainSegment,
-    pub page_table_segment: DomainSegment,
+    pub p2m_segment: Option<DomainSegment>,
+    pub page_table_segment: Option<DomainSegment>,
     pub image_info: BootImageInfo,
     pub shared_info_frame: u64,
     pub initrd_segment: DomainSegment,
@@ -75,12 +78,30 @@ impl BootSetup<'_> {
             pfn_alloc_end: 0,
             virt_pgtab_end: 0,
             total_pages: 0,
+            dtb: None,
         }
     }
 
-    fn initialize_memory(&mut self, arch: &mut dyn ArchBootSetup, total_pages: u64) -> Result<()> {
+    fn initialize_memory(
+        &mut self,
+        arch: &mut dyn ArchBootSetup,
+        total_pages: u64,
+        kernel_segment: &DomainSegment,
+        initrd_segment: &Option<DomainSegment>,
+    ) -> Result<()> {
         self.call.set_address_size(self.domid, 64)?;
-        arch.meminit(self, total_pages)?;
+        arch.meminit(self, total_pages, kernel_segment, initrd_segment)?;
+        Ok(())
+    }
+
+    fn setup_hypercall_page(&mut self, image_info: &BootImageInfo) -> Result<()> {
+        if image_info.virt_hypercall == XEN_UNSET_ADDR {
+            return Ok(());
+        }
+
+        let pfn = (image_info.virt_hypercall - image_info.virt_base) >> ARCH_PAGE_SHIFT;
+        let mfn = self.phys.p2m[pfn as usize];
+        self.call.hypercall_init(self.domid, mfn)?;
         Ok(())
     }
 
@@ -94,18 +115,22 @@ impl BootSetup<'_> {
     ) -> Result<BootState> {
         debug!("initialize max_vcpus={:?} mem_mb={:?}", max_vcpus, mem_mb);
 
-        let total_pages = mem_mb << (20 - arch.page_shift());
-        self.initialize_memory(arch, total_pages)?;
-
         let image_info = image_loader.parse()?;
         debug!("initialize image_info={:?}", image_info);
-        self.virt_alloc_end = image_info.virt_base;
         let kernel_segment = self.load_kernel_segment(arch, image_loader, &image_info)?;
+        let mut initrd_segment: Option<DomainSegment> = None;
+        if !image_info.unmapped_initrd {
+            initrd_segment = Some(self.alloc_module(arch, initrd)?);
+        }
+        let total_pages = mem_mb << (20 - arch.page_shift());
+        self.initialize_memory(arch, total_pages, &kernel_segment, &initrd_segment)?;
+
+        self.virt_alloc_end = image_info.virt_base;
         let mut p2m_segment: Option<DomainSegment> = None;
         if image_info.virt_p2m_base >= image_info.virt_base
             || (image_info.virt_p2m_base & ((1 << arch.page_shift()) - 1)) != 0
         {
-            p2m_segment = Some(arch.alloc_p2m_segment(self, &image_info)?);
+            p2m_segment = arch.alloc_p2m_segment(self, &image_info)?;
         }
         let start_info_segment = self.alloc_page(arch)?;
         let xenstore_segment = self.alloc_page(arch)?;
@@ -117,16 +142,12 @@ impl BootSetup<'_> {
             self.alloc_padding_pages(arch, self.virt_pgtab_end)?;
         }
 
-        let mut initrd_segment: Option<DomainSegment> = None;
-        if !image_info.unmapped_initrd {
-            initrd_segment = Some(self.alloc_module(arch, initrd)?);
-        }
         if p2m_segment.is_none() {
-            let mut segment = arch.alloc_p2m_segment(self, &image_info)?;
-            segment.vstart = image_info.virt_p2m_base;
-            p2m_segment = Some(segment);
+            if let Some(mut segment) = arch.alloc_p2m_segment(self, &image_info)? {
+                segment.vstart = image_info.virt_p2m_base;
+                p2m_segment = Some(segment);
+            }
         }
-        let p2m_segment = p2m_segment.unwrap();
 
         if image_info.unmapped_initrd {
             initrd_segment = Some(self.alloc_module(arch, initrd)?);
@@ -164,7 +185,7 @@ impl BootSetup<'_> {
         state.shared_info_frame = shared_info_frame;
         arch.setup_page_tables(self, state)?;
         arch.setup_start_info(self, state, cmdline)?;
-        arch.setup_hypercall_page(self, &state.image_info)?;
+        self.setup_hypercall_page(&state.image_info)?;
         arch.bootlate(self, state)?;
         arch.setup_shared_info(self, state.shared_info_frame)?;
         arch.vcpu(self, state)?;
@@ -219,6 +240,7 @@ impl BootSetup<'_> {
         addr | mask
     }
 
+    #[cfg(target_arch = "x86_64")]
     pub(crate) fn bits_to_mask(bits: u64) -> u64 {
         (1 << bits) - 1
     }
@@ -243,6 +265,7 @@ impl BootSetup<'_> {
             pfn: self.pfn_alloc_end,
             addr: 0,
             size,
+            #[cfg(target_arch = "x86_64")]
             pages,
         };
 
@@ -274,6 +297,7 @@ impl BootSetup<'_> {
             pfn,
             addr: 0,
             size: 0,
+            #[cfg(target_arch = "x86_64")]
             pages: 1,
         })
     }
@@ -324,13 +348,13 @@ pub trait ArchBootSetup {
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
-    ) -> Result<DomainSegment>;
+    ) -> Result<Option<DomainSegment>>;
 
     fn alloc_page_tables(
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
-    ) -> Result<DomainSegment>;
+    ) -> Result<Option<DomainSegment>>;
 
     fn setup_page_tables(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()>;
 
@@ -343,13 +367,13 @@ pub trait ArchBootSetup {
 
     fn setup_shared_info(&mut self, setup: &mut BootSetup, shared_info_frame: u64) -> Result<()>;
 
-    fn setup_hypercall_page(
+    fn meminit(
         &mut self,
         setup: &mut BootSetup,
-        image_info: &BootImageInfo,
+        total_pages: u64,
+        kernel_segment: &DomainSegment,
+        initrd_segment: &Option<DomainSegment>,
     ) -> Result<()>;
-
-    fn meminit(&mut self, setup: &mut BootSetup, total_pages: u64) -> Result<()>;
     fn bootlate(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()>;
     fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()>;
 }

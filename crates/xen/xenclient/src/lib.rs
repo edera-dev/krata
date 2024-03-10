@@ -3,12 +3,18 @@ pub mod elfloader;
 pub mod error;
 pub mod mem;
 pub mod sys;
+
+#[cfg(target_arch = "x86_64")]
 pub mod x86;
 
+#[cfg(target_arch = "aarch64")]
+pub mod arm64;
+
+#[cfg(target_arch = "aarch64")]
+use crate::arm64::Arm64BootSetup;
 use crate::boot::BootSetup;
 use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
-use crate::x86::X86BootSetup;
 use log::{trace, warn};
 
 use std::fs::read;
@@ -17,7 +23,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
-use xencall::sys::CreateDomain;
+use xencall::sys::{CreateDomain, XEN_DOMCTL_CDF_HVM_GUEST};
 use xencall::XenCall;
 use xenstore::{
     XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
@@ -92,8 +98,11 @@ impl XenClient {
     pub async fn create(&mut self, config: &DomainConfig<'_>) -> Result<u32> {
         let domain = CreateDomain {
             max_vcpus: config.max_vcpus,
+            #[cfg(target_arch = "aarch64")]
+            flags: XEN_DOMCTL_CDF_HVM_GUEST,
             ..Default::default()
         };
+
         let domid = self.call.create_domain(domain)?;
         match self.init(domid, &domain, config).await {
             Ok(_) => Ok(domid),
@@ -233,7 +242,10 @@ impl XenClient {
 
         {
             let mut boot = BootSetup::new(&self.call, domid);
+            #[cfg(target_arch = "x86_64")]
             let mut arch = X86BootSetup::new();
+            #[cfg(target_arch = "aarch64")]
+            let mut arch = Arm64BootSetup::new();
             let initrd = read(config.initrd_path)?;
             let mut state = boot.initialize(
                 &mut arch,
