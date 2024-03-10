@@ -3,9 +3,11 @@ on:
   push:
     paths:
     - "kernel/**"
+    - "hack/ci/**"
   pull_request:
     paths:
     - "kernel/**"
+    - "hack/ci/**"
 jobs:
   build:
     name: build

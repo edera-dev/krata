@@ -4,10 +4,12 @@ on:
     paths:
     - "os/**"
     - "hack/os/**"
+    - "hack/ci/**"
   pull_request:
     paths:
     - "os/**"
     - "hack/os/**"
+    - "hack/ci/**"
 jobs:
   build:
     name: build
@@ -26,4 +28,3 @@ jobs:
         name: krata-os-x86_64
         path: "target/os/krata.qcow2"
         compression-level: 0
-  
