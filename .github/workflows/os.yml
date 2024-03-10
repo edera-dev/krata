@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: "x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl"
     - run: ./hack/ci/install-deps.sh
     - run: ./hack/os/build.sh
       env:
