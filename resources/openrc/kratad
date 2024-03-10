@@ -1,0 +1,13 @@
+#!/sbin/openrc-run
+description="Krata Control Daemon"
+command="/usr/libexec/kratad"
+supervisor="supervise-daemon"
+output_log="/var/log/kratad.log"
+error_log="/var/log/kratad.err"
+
+depend() {
+  use xenconsoled
+  use xenstored
+}
+
+export RUST_LOG=info

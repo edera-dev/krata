@@ -6,11 +6,17 @@ set -e
 
 "${KRATA_DIR}/hack/dist/bundle.sh"
 
-SYSTAR="${OUTPUT_DIR}/system.tgz"
+SYSTAR_VARIANT="systemd"
+if [ "${KRATA_SYSTAR_OPENRC}" = "1" ]
+then
+  SYSTAR_VARIANT="openrc"
+fi
+
+SYSTAR="${OUTPUT_DIR}/system-${SYSTAR_VARIANT}.tgz"
 rm -f "${SYSTAR}"
 SYSTAR_DIR="$(mktemp -d /tmp/krata-systar.XXXXXXXXXXXXX)"
 cd "${SYSTAR_DIR}"
-tar xf "${OUTPUT_DIR}/bundle.tgz"
+tar xf "${OUTPUT_DIR}/bundle-systemd.tgz"
 
 mkdir sys
 cd sys
@@ -19,8 +25,17 @@ mkdir -p usr/bin usr/libexec
 mv ../krata/kratactl usr/bin
 mv ../krata/kratanet ../krata/kratad usr/libexec/
 
-mkdir -p usr/lib/systemd/system
-mv ../krata/kratad.service ../krata/kratanet.service usr/lib/systemd/system/
+if [ "${SYSTAR_VARIANT}" = "openrc" ]
+then
+  mkdir -p etc/init.d
+  cp "${KRATA_DIR}/resources/openrc/kratad" etc/init.d/kratad
+  cp "${KRATA_DIR}/resources/openrc/kratanet" etc/init.d/kratanet
+  chmod +x etc/init.d/kratad
+  chmod +x etc/init.d/kratanet
+else
+  mkdir -p usr/lib/systemd/system
+  mv ../krata/kratad.service ../krata/kratanet.service usr/lib/systemd/system/
+fi
 
 mkdir -p usr/share/krata/guest
 mv ../krata/kernel ../krata/initrd usr/share/krata/guest

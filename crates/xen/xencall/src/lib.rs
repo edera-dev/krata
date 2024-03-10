@@ -3,22 +3,22 @@ pub mod sys;
 
 use crate::error::{Error, Result};
 use crate::sys::{
-    AddressSize, ArchDomainConfig, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
-    EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, Hypercall, HypercallInit, MaxMem,
-    MaxVcpus, MemoryMap, MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry,
-    VcpuGuestContext, VcpuGuestContextAny, XenCapabilitiesInfo, HYPERVISOR_DOMCTL,
-    HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL,
-    HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN,
+    AddressSize, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext, EvtChnAllocUnbound,
+    GetDomainInfo, GetPageFrameInfo3, Hypercall, HypercallInit, MaxMem, MaxVcpus, MemoryMap,
+    MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, VcpuGuestContext,
+    VcpuGuestContextAny, XenCapabilitiesInfo, HYPERVISOR_DOMCTL, HYPERVISOR_EVENT_CHANNEL_OP,
+    HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL, HYPERVISOR_XEN_VERSION,
+    XENVER_CAPABILITIES, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN,
     XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_GETVCPUCONTEXT,
-    XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_INTERFACE_VERSION, XEN_DOMCTL_MAX_MEM,
-    XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
-    XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP,
-    XEN_MEM_POPULATE_PHYSMAP,
+    XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN,
+    XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN,
+    XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP, XEN_MEM_POPULATE_PHYSMAP,
 };
 use libc::{c_int, mmap, usleep, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use log::trace;
 use nix::errno::Errno;
 use std::ffi::{c_long, c_uint, c_ulong, c_void};
+use sys::{XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION};
 
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
@@ -27,15 +27,45 @@ use std::slice;
 
 pub struct XenCall {
     pub handle: File,
+    domctl_interface_version: u32,
 }
 
 impl XenCall {
-    pub fn open() -> Result<XenCall> {
-        let file = OpenOptions::new()
+    pub fn open(current_domid: u32) -> Result<XenCall> {
+        let handle = OpenOptions::new()
             .read(true)
             .write(true)
             .open("/dev/xen/privcmd")?;
-        Ok(XenCall { handle: file })
+        let domctl_interface_version =
+            XenCall::detect_domctl_interface_version(&handle, current_domid)?;
+        Ok(XenCall {
+            handle,
+            domctl_interface_version,
+        })
+    }
+
+    fn detect_domctl_interface_version(handle: &File, current_domid: u32) -> Result<u32> {
+        for version in XEN_DOMCTL_MIN_INTERFACE_VERSION..XEN_DOMCTL_MAX_INTERFACE_VERSION + 1 {
+            let mut domctl = DomCtl {
+                cmd: XEN_DOMCTL_GETDOMAININFO,
+                interface_version: version,
+                domid: current_domid,
+                value: DomCtlValue {
+                    get_domain_info: GetDomainInfo::default(),
+                },
+            };
+            unsafe {
+                let mut call = Hypercall {
+                    op: HYPERVISOR_DOMCTL,
+                    arg: [addr_of_mut!(domctl) as u64, 0, 0, 0, 0],
+                };
+                let result = sys::hypercall(handle.as_raw_fd(), &mut call).unwrap_or(-1);
+                if result == 0 {
+                    return Ok(version);
+                }
+            }
+        }
+        Err(Error::XenVersionUnsupported)
     }
 
     pub fn mmap(&self, addr: u64, len: u64) -> Option<u64> {
@@ -275,32 +305,10 @@ impl XenCall {
         );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_GETDOMAININFO,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
-                get_domain_info: GetDomainInfo {
-                    domid: 0,
-                    pad1: 0,
-                    flags: 0,
-                    total_pages: 0,
-                    max_pages: 0,
-                    outstanding_pages: 0,
-                    shr_pages: 0,
-                    paged_pages: 0,
-                    shared_info_frame: 0,
-                    cpu_time: 0,
-                    number_online_vcpus: 0,
-                    max_vcpu_id: 0,
-                    ssidref: 0,
-                    handle: [0; 16],
-                    cpupool: 0,
-                    gpaddr_bits: 0,
-                    pad2: [0; 7],
-                    arch: ArchDomainConfig {
-                        emulation_flags: 0,
-                        misc_flags: 0,
-                    },
-                },
+                get_domain_info: GetDomainInfo::default(),
             },
         };
         self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)?;
@@ -315,7 +323,7 @@ impl XenCall {
         );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_CREATEDOMAIN,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid: 0,
             value: DomCtlValue { create_domain },
         };
@@ -331,7 +339,7 @@ impl XenCall {
         );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_PAUSEDOMAIN,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue { pad: [0; 128] },
         };
@@ -347,7 +355,7 @@ impl XenCall {
         );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_UNPAUSEDOMAIN,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue { pad: [0; 128] },
         };
@@ -364,7 +372,7 @@ impl XenCall {
         );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_MAX_MEM,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 max_mem: MaxMem { max_memkb: memkb },
@@ -383,7 +391,7 @@ impl XenCall {
         );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_MAX_VCPUS,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 max_cpus: MaxVcpus { max_vcpus },
@@ -402,7 +410,7 @@ impl XenCall {
         );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_SET_ADDRESS_SIZE,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 address_size: AddressSize { size },
@@ -423,7 +431,7 @@ impl XenCall {
         };
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_GETVCPUCONTEXT,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 vcpu_context: DomCtlVcpuContext {
@@ -452,7 +460,7 @@ impl XenCall {
         let mut value = VcpuGuestContextAny { value: *context };
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_SETVCPUCONTEXT,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 vcpu_context: DomCtlVcpuContext {
@@ -469,7 +477,7 @@ impl XenCall {
         let mut buffer: Vec<u64> = frames.to_vec();
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_GETPAGEFRAMEINFO3,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 get_page_frame_info: GetPageFrameInfo3 {
@@ -497,7 +505,7 @@ impl XenCall {
         );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_HYPERCALL_INIT,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 hypercall_init: HypercallInit { gmfn },
@@ -515,7 +523,7 @@ impl XenCall {
         );
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_DESTROYDOMAIN,
-            interface_version: XEN_DOMCTL_INTERFACE_VERSION,
+            interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue { pad: [0; 128] },
         };

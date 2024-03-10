@@ -27,4 +27,4 @@ fpm -s tar -t deb \
   --deb-systemd "${KRATA_DIR}/resources/systemd/kratanet.service" \
   --deb-systemd-enable \
   --deb-systemd-auto-start \
-  "${OUTPUT_DIR}/system.tgz"
+  "${OUTPUT_DIR}/system-systemd.tgz"

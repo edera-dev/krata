@@ -83,9 +83,9 @@ pub struct DomainConfig<'a> {
 }
 
 impl XenClient {
-    pub async fn open() -> Result<XenClient> {
+    pub async fn open(current_domid: u32) -> Result<XenClient> {
         let store = XsdClient::open().await?;
-        let call = XenCall::open()?;
+        let call = XenCall::open(current_domid)?;
         Ok(XenClient { store, call })
     }
 

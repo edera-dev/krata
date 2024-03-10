@@ -13,4 +13,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - run: ./hack/ci/install-deps.sh
-    - run: ./hack/kernel/build.sh -j5
+    - run: ./hack/kernel/build.sh
+      env:
+        KRATA_KERNEL_BUILD_JOBS: "5"

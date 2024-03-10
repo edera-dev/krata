@@ -2,9 +2,11 @@ use std::io;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("kernel error")]
+    #[error("version of xen is not supported")]
+    XenVersionUnsupported,
+    #[error("kernel error: {0}")]
     Kernel(#[from] nix::errno::Errno),
-    #[error("io issue encountered")]
+    #[error("io issue encountered: {0}")]
     Io(#[from] io::Error),
     #[error("populate physmap failed")]
     PopulatePhysmapFailed,

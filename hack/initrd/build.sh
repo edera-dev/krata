@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 set -e
 
 REAL_SCRIPT="$(realpath "${0}")"
@@ -16,5 +16,5 @@ cp "target/${RUST_TARGET}/release/krataguest" "${INITRD_DIR}/init"
 chmod +x "${INITRD_DIR}/init"
 cd "${INITRD_DIR}"
 mkdir -p "${KRATA_DIR}/target/initrd"
-find . | cpio -R 0:0 --reproducible -o -H newc --quiet > "${KRATA_DIR}/target/initrd/initrd"
+find . | cpio -R 0:0 --ignore-devno --renumber-inodes -o -H newc --quiet > "${KRATA_DIR}/target/initrd/initrd"
 rm -rf "${INITRD_DIR}"

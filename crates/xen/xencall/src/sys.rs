@@ -280,7 +280,7 @@ impl Default for CreateDomain {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct GetDomainInfo {
     pub domid: u16,
     pub pad1: u16,
@@ -310,7 +310,7 @@ pub struct GetPageFrameInfo3 {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct ArchDomainConfig {
     pub emulation_flags: u32,
     pub misc_flags: u32,
@@ -334,7 +334,9 @@ pub struct HypercallInit {
     pub gmfn: u64,
 }
 
-pub const XEN_DOMCTL_INTERFACE_VERSION: u32 = 0x00000015;
+pub const XEN_DOMCTL_MIN_INTERFACE_VERSION: u32 = 0x00000015;
+pub const XEN_DOMCTL_MAX_INTERFACE_VERSION: u32 = 0x00000016;
+
 pub const SECINITSID_DOMU: u32 = 12;
 
 #[repr(C)]

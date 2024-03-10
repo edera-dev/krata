@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
     }
     let kernel_image_path = args.get(1).expect("argument not specified");
     let initrd_path = args.get(2).expect("argument not specified");
-    let mut client = XenClient::open().await?;
+    let mut client = XenClient::open(0).await?;
     let config = DomainConfig {
         backend_domid: 0,
         name: "xenclient-test",

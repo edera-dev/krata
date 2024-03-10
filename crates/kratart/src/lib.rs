@@ -60,7 +60,7 @@ impl RuntimeContext {
         image_cache_path.push("cache");
         fs::create_dir_all(&image_cache_path)?;
 
-        let xen = XenClient::open().await?;
+        let xen = XenClient::open(0).await?;
         image_cache_path.push("image");
         fs::create_dir_all(&image_cache_path)?;
         let image_cache = ImageCache::new(&image_cache_path)?;

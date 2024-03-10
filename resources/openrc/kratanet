@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+description="Krata Networking Daemon"
+command="/usr/libexec/kratanet"
+supervisor="supervise-daemon"
+output_log="/var/log/kratanet.log"
+error_log="/var/log/kratanet.err"
+
+depend() {
+  use xenstored
+}
+
+export RUST_LOG=info
