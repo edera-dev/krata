@@ -16,14 +16,18 @@ docker run --rm --privileged -v "${PWD}:/mnt" -it alpine:latest "/mnt/os/interna
 sudo chown "${USER}:${GROUP}" "${TARGET_OS_DIR}/rootfs.tgz"
 sudo modprobe nbd
 
-NBD_DEVICE="$(find /dev -maxdepth 2 -name 'nbd[0-9]*' | while read -r DEVICE
-do
-  if [ "$(sudo blockdev --getsize64 "${DEVICE}")" = "0" ]
-  then
-    echo "${DEVICE}"
-    break
-  fi
-done)"
+next_nbd_device() {
+  find /dev -maxdepth 2 -name 'nbd[0-9]*' | while read -r DEVICE
+  do
+    if [ "$(sudo blockdev --getsize64 "${DEVICE}")" = "0" ]
+    then
+      echo "${DEVICE}"
+      break
+    fi
+  done
+}
+
+NBD_DEVICE="$(next_nbd_device)"
 
 if [ -z "${NBD_DEVICE}" ]
 then

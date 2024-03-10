@@ -3,9 +3,11 @@ on:
   push:
     paths:
     - "os/**"
+    - "hack/os/**"
   pull_request:
     paths:
     - "os/**"
+    - "hack/os/**"
 jobs:
   build:
     name: build
@@ -16,3 +18,9 @@ jobs:
     - run: ./hack/os/build.sh
       env:
         KRATA_KERNEL_BUILD_JOBS: "5"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: krata-os-x86_64
+        path: "target/os/krata.qcow2"
+        compression-level: 0
+  
