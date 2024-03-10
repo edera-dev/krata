@@ -20,7 +20,7 @@ then
 fi
 
 docker run --rm --privileged -v "${PWD}:/mnt" ${DOCKER_INTERACTIVE_FLAGS} alpine:latest "/mnt/os/internal/stage1.sh"
-sudo chown "${USER}:${GROUP}" "${TARGET_OS_DIR}/rootfs.tgz"
+sudo chown "${USER}:${GROUP}" "${TARGET_OS_DIR}/rootfs.tar"
 sudo modprobe nbd
 
 next_nbd_device() {
