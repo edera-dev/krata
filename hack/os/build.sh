@@ -12,7 +12,14 @@ TARGET_DIR="${PWD}/target"
 TARGET_OS_DIR="${TARGET_DIR}/os"
 mkdir -p "${TARGET_OS_DIR}"
 cp "${TARGET_DIR}/dist/krata_${KRATA_VERSION}_${TARGET_ARCH}.apk" "${TARGET_OS_DIR}/krata.apk"
-docker run --rm --privileged -v "${PWD}:/mnt" -it alpine:latest "/mnt/os/internal/stage1.sh"
+
+DOCKER_INTERACTIVE_FLAGS=""
+if [ -t 0 ]
+then
+ DOCKER_INTERACTIVE_FLAGS="-it"
+fi
+
+docker run --rm --privileged -v "${PWD}:/mnt" ${DOCKER_INTERACTIVE_FLAGS} alpine:latest "/mnt/os/internal/stage1.sh"
 sudo chown "${USER}:${GROUP}" "${TARGET_OS_DIR}/rootfs.tgz"
 sudo modprobe nbd
 
