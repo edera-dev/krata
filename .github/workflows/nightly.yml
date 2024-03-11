@@ -35,7 +35,7 @@ jobs:
     - uses: actions/upload-artifact@v4
       with:
         name: krata-alpine-x86_64
-        path: "target/dist/*_amd64.apk"
+        path: "target/dist/*_x86_64.apk"
         compression-level: 0
     - run: ./hack/os/build.sh
       env:
