@@ -5,12 +5,15 @@ use std::{
 
 use anyhow::Result;
 use async_stream::stream;
-use krata::control::{ConsoleDataReply, ConsoleDataRequest};
-use log::debug;
+use krata::control::{
+    watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest, WatchEventsReply,
+};
+use log::{debug, error, warn};
 use termion::raw::IntoRawMode;
 use tokio::{
     fs::File,
     io::{stdin, AsyncReadExt, AsyncWriteExt},
+    task::JoinHandle,
 };
 use tokio_stream::{Stream, StreamExt};
 use tonic::Streaming;
@@ -53,5 +56,46 @@ impl StdioConsoleStream {
             stdout.flush().await?;
         }
         Ok(())
+    }
+
+    pub async fn guest_exit_hook(
+        id: String,
+        mut events: Streaming<WatchEventsReply>,
+    ) -> Result<JoinHandle<()>> {
+        Ok(tokio::task::spawn(async move {
+            while let Some(result) = events.next().await {
+                match result {
+                    Err(error) => {
+                        error!("failed to handle events for exit hook: {}", error);
+                        break;
+                    }
+
+                    Ok(reply) => {
+                        let Some(event) = reply.event else {
+                            continue;
+                        };
+
+                        match event {
+                            Event::GuestExited(exit) => {
+                                if exit.guest_id == id {
+                                    std::process::exit(exit.code);
+                                }
+                            }
+
+                            Event::GuestDestroyed(destroy) => {
+                                if destroy.guest_id == id {
+                                    warn!("attached guest destroyed");
+                                    std::process::exit(1);
+                                }
+                            }
+
+                            _ => {
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        }))
     }
 }

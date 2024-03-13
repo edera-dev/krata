@@ -52,6 +52,10 @@ async fn main() -> Result<()> {
 
     let args = ControllerArgs::parse();
     let mut client = ControlClientProvider::dial(args.connection.parse()?).await?;
+    let events = client
+        .watch_events(WatchEventsRequest {})
+        .await?
+        .into_inner();
 
     match args.command {
         Commands::Launch {
@@ -82,9 +86,12 @@ async fn main() -> Result<()> {
             };
             println!("launched guest: {}", guest.id);
             if attach {
-                let input = StdioConsoleStream::stdin_stream(guest.id).await;
+                let input = StdioConsoleStream::stdin_stream(guest.id.clone()).await;
                 let output = client.console_data(input).await?.into_inner();
+                let exit_hook_task =
+                    StdioConsoleStream::guest_exit_hook(guest.id.clone(), events).await?;
                 StdioConsoleStream::stdout(output).await?;
+                exit_hook_task.abort();
             }
         }
 
@@ -99,9 +106,11 @@ async fn main() -> Result<()> {
         }
 
         Commands::Console { guest } => {
-            let input = StdioConsoleStream::stdin_stream(guest).await;
+            let input = StdioConsoleStream::stdin_stream(guest.clone()).await;
             let output = client.console_data(input).await?.into_inner();
+            let exit_hook_task = StdioConsoleStream::guest_exit_hook(guest.clone(), events).await?;
             StdioConsoleStream::stdout(output).await?;
+            exit_hook_task.abort();
         }
 
         Commands::List { .. } => {

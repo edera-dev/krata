@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
 use krata::control::{GuestDestroyedEvent, GuestExitedEvent, GuestLaunchedEvent};
-use log::error;
+use log::{error, info, warn};
 use tokio::{sync::broadcast, task::JoinHandle, time};
 use uuid::Uuid;
 
@@ -52,6 +52,7 @@ impl DaemonEventGenerator {
         };
 
         let mut events: Vec<DaemonEvent> = Vec::new();
+        let mut exits: Vec<GuestExitedEvent> = Vec::new();
 
         for uuid in guests.keys() {
             if !self.last.contains_key(uuid) {
@@ -82,10 +83,13 @@ impl DaemonEventGenerator {
                 continue;
             };
 
-            events.push(DaemonEvent::GuestExited(GuestExitedEvent {
+            let exit = GuestExitedEvent {
                 guest_id: uuid.to_string(),
                 code,
-            }));
+            };
+
+            exits.push(exit.clone());
+            events.push(DaemonEvent::GuestExited(exit));
         }
 
         self.last = guests;
@@ -93,6 +97,8 @@ impl DaemonEventGenerator {
         for event in events {
             let _ = self.sender.send(event);
         }
+
+        self.process_exit_auto_destroy(exits).await?;
 
         Ok(())
     }
@@ -108,5 +114,22 @@ impl DaemonEventGenerator {
                 }
             }
         }))
+    }
+
+    async fn process_exit_auto_destroy(&mut self, exits: Vec<GuestExitedEvent>) -> Result<()> {
+        for exit in exits {
+            if let Err(error) = self.runtime.destroy(&exit.guest_id).await {
+                warn!(
+                    "failed to auto-destroy exited guest {}: {}",
+                    exit.guest_id, error
+                );
+            } else {
+                info!(
+                    "auto-destroyed guest {}: exited with status {}",
+                    exit.guest_id, exit.code
+                );
+            }
+        }
+        Ok(())
     }
 }
