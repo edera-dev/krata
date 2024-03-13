@@ -55,11 +55,12 @@ impl ImageInfo {
 
 pub struct ImageCompiler<'a> {
     cache: &'a ImageCache,
+    seed: Option<PathBuf>,
 }
 
 impl ImageCompiler<'_> {
-    pub fn new(cache: &ImageCache) -> Result<ImageCompiler> {
-        Ok(ImageCompiler { cache })
+    pub fn new(cache: &ImageCache, seed: Option<PathBuf>) -> Result<ImageCompiler> {
+        Ok(ImageCompiler { cache, seed })
     }
 
     pub async fn compile(&self, image: &ImageName) -> Result<ImageInfo> {
@@ -91,8 +92,11 @@ impl ImageCompiler<'_> {
         image_dir: &Path,
         squash_file: &Path,
     ) -> Result<ImageInfo> {
-        let downloader =
-            OciImageDownloader::new(layer_dir.to_path_buf(), OciRegistryPlatform::current());
+        let downloader = OciImageDownloader::new(
+            self.seed.clone(),
+            layer_dir.to_path_buf(),
+            OciRegistryPlatform::current(),
+        );
         let resolved = downloader.resolve(image.clone()).await?;
         let cache_key = format!(
             "manifest={}:squashfs-version={}\n",

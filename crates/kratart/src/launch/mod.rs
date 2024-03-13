@@ -218,7 +218,7 @@ impl GuestLauncher {
 
     async fn compile(&self, image: &str, image_cache: &ImageCache) -> Result<ImageInfo> {
         let image = ImageName::parse(image)?;
-        let compiler = ImageCompiler::new(image_cache)?;
+        let compiler = ImageCompiler::new(image_cache, None)?;
         compiler.compile(&image).await
     }
 
