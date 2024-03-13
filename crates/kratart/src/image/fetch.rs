@@ -156,7 +156,12 @@ impl OciImageDownloader {
                     continue;
                 };
 
-                let Some(image_name) = annotations.get("io.containerd.image.name") else {
+                let mut image_name = annotations.get("io.containerd.image.name");
+                if image_name.is_none() {
+                    image_name = annotations.get("org.opencontainers.image.ref.name");
+                }
+
+                let Some(image_name) = image_name else {
                     continue;
                 };
 
