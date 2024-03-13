@@ -99,11 +99,11 @@ pub const HYPERVISOR_XC_RESERVED_OP: c_ulong = 39;
 pub const HYPERVISOR_XENPMU_OP: c_ulong = 40;
 pub const HYPERVISOR_DM_OP: c_ulong = 41;
 
-pub const XEN_DOMCTL_CDF_HVM_GUEST: u32 = 1 << 0;
-pub const XEN_DOMCTL_CDF_HAP: u32 = 1 << 1;
-pub const XEN_DOMCTL_CDF_S3_INTEGRITY: u32 = 1 << 2;
-pub const XEN_DOMCTL_CDF_OOS_OFF: u32 = 1 << 3;
-pub const XEN_DOMCTL_CDF_XS_DOMAIN: u32 = 1 << 4;
+pub const XEN_DOMCTL_CDF_HVM_GUEST: u32 = 1u32 << 0;
+pub const XEN_DOMCTL_CDF_HAP: u32 = 1u32 << 1;
+pub const XEN_DOMCTL_CDF_S3_INTEGRITY: u32 = 1u32 << 2;
+pub const XEN_DOMCTL_CDF_OOS_OFF: u32 = 1u32 << 3;
+pub const XEN_DOMCTL_CDF_XS_DOMAIN: u32 = 1u32 << 4;
 
 pub const XEN_X86_EMU_LAPIC: u32 = 1 << 0;
 pub const XEN_X86_EMU_HPET: u32 = 1 << 1;
@@ -323,8 +323,8 @@ pub struct ArchDomainConfig {
 pub struct ArchDomainConfig {
     pub gic_version: u8,
     pub sve_v1: u8,
-    pub tee_type: u8,
-    pub nr_spis: u8,
+    pub tee_type: u16,
+    pub nr_spis: u32,
     pub clock_frequency: u32,
 }
 
