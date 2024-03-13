@@ -22,6 +22,7 @@ use crate::RuntimeContext;
 use super::{GuestInfo, GuestState};
 
 pub struct GuestLaunchRequest<'a> {
+    pub name: Option<&'a str>,
     pub image: &'a str,
     pub vcpus: u32,
     pub mem: u64,
@@ -112,6 +113,51 @@ impl GuestLauncher {
 
         let container_mac_string = container_mac.to_string().replace('-', ":");
         let gateway_mac_string = gateway_mac.to_string().replace('-', ":");
+
+        let mut extra_keys = vec![
+            ("krata/uuid".to_string(), uuid.to_string()),
+            (
+                "krata/loops".to_string(),
+                format!(
+                    "{}:{}:none,{}:{}:{}",
+                    &image_squashfs_loop.path,
+                    image_squashfs_path,
+                    &cfgblk_squashfs_loop.path,
+                    cfgblk_squashfs_path,
+                    cfgblk_dir_path,
+                ),
+            ),
+            ("krata/image".to_string(), request.image.to_string()),
+            (
+                "krata/network/guest/ipv4".to_string(),
+                format!("{}/{}", guest_ipv4, ipv4_network_mask),
+            ),
+            (
+                "krata/network/guest/ipv6".to_string(),
+                format!("{}/{}", guest_ipv6, ipv6_network_mask),
+            ),
+            (
+                "krata/network/guest/mac".to_string(),
+                container_mac_string.clone(),
+            ),
+            (
+                "krata/network/gateway/ipv4".to_string(),
+                format!("{}/{}", gateway_ipv4, ipv4_network_mask),
+            ),
+            (
+                "krata/network/gateway/ipv6".to_string(),
+                format!("{}/{}", gateway_ipv6, ipv6_network_mask),
+            ),
+            (
+                "krata/network/gateway/mac".to_string(),
+                gateway_mac_string.clone(),
+            ),
+        ];
+
+        if let Some(name) = request.name {
+            extra_keys.push(("krata/name".to_string(), name.to_string()));
+        }
+
         let config = DomainConfig {
             backend_domid: 0,
             name: &name,
@@ -141,49 +187,12 @@ impl GuestLauncher {
             }],
             filesystems: vec![],
             event_channels: vec![],
-            extra_keys: vec![
-                ("krata/uuid".to_string(), uuid.to_string()),
-                (
-                    "krata/loops".to_string(),
-                    format!(
-                        "{}:{}:none,{}:{}:{}",
-                        &image_squashfs_loop.path,
-                        image_squashfs_path,
-                        &cfgblk_squashfs_loop.path,
-                        cfgblk_squashfs_path,
-                        cfgblk_dir_path,
-                    ),
-                ),
-                ("krata/image".to_string(), request.image.to_string()),
-                (
-                    "krata/network/guest/ipv4".to_string(),
-                    format!("{}/{}", guest_ipv4, ipv4_network_mask),
-                ),
-                (
-                    "krata/network/guest/ipv6".to_string(),
-                    format!("{}/{}", guest_ipv6, ipv6_network_mask),
-                ),
-                (
-                    "krata/network/guest/mac".to_string(),
-                    container_mac_string.clone(),
-                ),
-                (
-                    "krata/network/gateway/ipv4".to_string(),
-                    format!("{}/{}", gateway_ipv4, ipv4_network_mask),
-                ),
-                (
-                    "krata/network/gateway/ipv6".to_string(),
-                    format!("{}/{}", gateway_ipv6, ipv6_network_mask),
-                ),
-                (
-                    "krata/network/gateway/mac".to_string(),
-                    gateway_mac_string.clone(),
-                ),
-            ],
+            extra_keys,
             extra_rw_paths: vec!["krata/guest".to_string()],
         };
         match context.xen.create(&config).await {
             Ok(domid) => Ok(GuestInfo {
+                name: request.name.map(|x| x.to_string()),
                 uuid,
                 domid,
                 image: request.image.to_string(),

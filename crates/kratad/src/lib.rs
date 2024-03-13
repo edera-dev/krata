@@ -4,14 +4,16 @@ use anyhow::Result;
 use control::RuntimeControlService;
 use event::{DaemonEventContext, DaemonEventGenerator};
 use krata::{control::control_service_server::ControlServiceServer, dial::ControlDialAddress};
-use kratart::Runtime;
-use log::info;
-use tokio::{net::UnixListener, task::JoinHandle};
+use kratart::{launch::GuestLaunchRequest, Runtime};
+use log::{info, warn};
+use tab::Tab;
+use tokio::{fs, net::UnixListener, task::JoinHandle};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 
 pub mod control;
 pub mod event;
+pub mod tab;
 
 pub struct Daemon {
     store: String,
@@ -30,6 +32,66 @@ impl Daemon {
             events,
             task: generator.launch().await?,
         })
+    }
+
+    pub async fn load_guest_tab(&mut self) -> Result<()> {
+        let tab_path = PathBuf::from(format!("{}/guests.yml", self.store));
+
+        if !tab_path.exists() {
+            return Ok(());
+        }
+
+        info!("loading guest tab");
+
+        let tab_content = fs::read_to_string(tab_path).await?;
+        let tab: Tab = serde_yaml::from_str(&tab_content)?;
+        let running = self.runtime.list().await?;
+        for (name, guest) in tab.guests {
+            let existing = running
+                .iter()
+                .filter(|x| x.name.is_some())
+                .find(|run| *run.name.as_ref().unwrap() == name);
+
+            if let Some(existing) = existing {
+                info!("guest {} is already running: {}", name, existing.uuid);
+                continue;
+            }
+
+            let request = GuestLaunchRequest {
+                name: Some(&name),
+                image: &guest.image,
+                vcpus: guest.cpus,
+                mem: guest.mem,
+                env: if guest.env.is_empty() {
+                    None
+                } else {
+                    Some(
+                        guest
+                            .env
+                            .iter()
+                            .map(|(key, value)| format!("{}={}", key, value))
+                            .collect::<Vec<String>>(),
+                    )
+                },
+                run: if guest.run.is_empty() {
+                    None
+                } else {
+                    Some(guest.run)
+                },
+                debug: false,
+            };
+            match self.runtime.launch(request).await {
+                Err(error) => {
+                    warn!("failed to launch guest {}: {}", name, error);
+                }
+
+                Ok(info) => {
+                    info!("launched guest {}: {}", name, info.uuid);
+                }
+            }
+        }
+        info!("loaded guest tab");
+        Ok(())
     }
 
     pub async fn listen(&mut self, addr: ControlDialAddress) -> Result<()> {

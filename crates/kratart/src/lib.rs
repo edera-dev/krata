@@ -37,6 +37,7 @@ pub struct GuestState {
 }
 
 pub struct GuestInfo {
+    pub name: Option<String>,
     pub uuid: Uuid,
     pub domid: u32,
     pub image: String,
@@ -92,6 +93,9 @@ impl RuntimeContext {
     pub async fn list(&mut self) -> Result<Vec<GuestInfo>> {
         let mut guests: Vec<GuestInfo> = Vec::new();
         for domid_candidate in self.xen.store.list("/local/domain").await? {
+            if domid_candidate == "0" {
+                continue;
+            }
             let dom_path = format!("/local/domain/{}", domid_candidate);
             let uuid_string = match self
                 .xen
@@ -105,6 +109,13 @@ impl RuntimeContext {
             let domid =
                 u32::from_str(&domid_candidate).map_err(|_| anyhow!("failed to parse domid"))?;
             let uuid = Uuid::from_str(&uuid_string)?;
+
+            let name = self
+                .xen
+                .store
+                .read_string(&format!("{}/krata/name", &dom_path))
+                .await?;
+
             let image = self
                 .xen
                 .store
@@ -154,6 +165,7 @@ impl RuntimeContext {
 
             let loops = RuntimeContext::parse_loop_set(&loops);
             guests.push(GuestInfo {
+                name,
                 uuid,
                 domid,
                 image,
@@ -170,6 +182,13 @@ impl RuntimeContext {
         for guest in self.list().await? {
             let uuid_string = guest.uuid.to_string();
             let domid_string = guest.domid.to_string();
+
+            if let Some(ref name) = guest.name {
+                if name == id {
+                    return Ok(Some(guest));
+                }
+            }
+
             if uuid_string == id || domid_string == id || id == format!("krata-{}", uuid_string) {
                 return Ok(Some(guest));
             }

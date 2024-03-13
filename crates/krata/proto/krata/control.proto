@@ -23,16 +23,18 @@ message GuestNetworkInfo {
 
 message GuestInfo {
     string id = 1;
-    GuestImageSpec image = 2;
-    GuestNetworkInfo network = 3;
+    string name = 2;
+    GuestImageSpec image = 3;
+    GuestNetworkInfo network = 4;
 }
 
 message LaunchGuestRequest {
-    GuestImageSpec image = 1;
-    uint32 vcpus = 2;
-    uint64 mem = 3;
-    repeated string env = 4;
-    repeated string run = 5;
+    string name = 1;
+    GuestImageSpec image = 2;
+    uint32 vcpus = 3;
+    uint64 mem = 4;
+    repeated string env = 5;
+    repeated string run = 6;
 }
 
 message LaunchGuestReply {

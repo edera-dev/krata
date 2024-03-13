@@ -84,6 +84,11 @@ impl ControlService for RuntimeControlService {
         let guest: GuestInfo = convert_guest_info(
             self.runtime
                 .launch(GuestLaunchRequest {
+                    name: if request.name.is_empty() {
+                        None
+                    } else {
+                        Some(&request.name)
+                    },
                     image: &oci.image,
                     vcpus: request.vcpus,
                     mem: request.mem,
@@ -197,6 +202,7 @@ fn empty_vec_optional<T>(value: Vec<T>) -> Option<Vec<T>> {
 
 fn convert_guest_info(value: kratart::GuestInfo) -> GuestInfo {
     GuestInfo {
+        name: value.name.unwrap_or_default(),
         id: value.uuid.to_string(),
         image: Some(GuestImageSpec {
             image: Some(Image::Oci(GuestOciImageSpec { image: value.image })),

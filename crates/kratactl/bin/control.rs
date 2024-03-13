@@ -22,6 +22,8 @@ struct ControllerArgs {
 enum Commands {
     List {},
     Launch {
+        #[arg(short, long)]
+        name: Option<String>,
         #[arg(short, long, default_value_t = 1)]
         cpus: u32,
         #[arg(short, long, default_value_t = 512)]
@@ -59,6 +61,7 @@ async fn main() -> Result<()> {
 
     match args.command {
         Commands::Launch {
+            name,
             oci,
             cpus,
             mem,
@@ -67,6 +70,7 @@ async fn main() -> Result<()> {
             run,
         } => {
             let request = LaunchGuestRequest {
+                name: name.unwrap_or_default(),
                 image: Some(GuestImageSpec {
                     image: Some(Image::Oci(GuestOciImageSpec { image: oci })),
                 }),
@@ -119,7 +123,7 @@ async fn main() -> Result<()> {
                 .await?
                 .into_inner();
             let mut table = cli_tables::Table::new();
-            let header = vec!["uuid", "ipv4", "ipv6", "image"];
+            let header = vec!["name", "uuid", "ipv4", "ipv6", "image"];
             table.push_row(&header)?;
             for guest in response.guests {
                 let ipv4 = guest
@@ -143,6 +147,7 @@ async fn main() -> Result<()> {
                     })
                     .unwrap_or("unknown".to_string());
                 table.push_row_string(&vec![
+                    guest.name,
                     guest.id,
                     ipv4.to_string(),
                     ipv6.to_string(),

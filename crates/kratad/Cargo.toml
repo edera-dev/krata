@@ -14,6 +14,8 @@ futures = { workspace = true }
 krata = { path = "../krata" }
 kratart = { path = "../kratart" }
 log = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
