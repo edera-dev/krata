@@ -178,18 +178,9 @@ impl RuntimeContext {
         Ok(guests)
     }
 
-    pub async fn resolve(&mut self, id: &str) -> Result<Option<GuestInfo>> {
+    pub async fn resolve(&mut self, uuid: Uuid) -> Result<Option<GuestInfo>> {
         for guest in self.list().await? {
-            let uuid_string = guest.uuid.to_string();
-            let domid_string = guest.domid.to_string();
-
-            if let Some(ref name) = guest.name {
-                if name == id {
-                    return Ok(Some(guest));
-                }
-            }
-
-            if uuid_string == id || domid_string == id || id == format!("krata-{}", uuid_string) {
+            if guest.uuid == uuid {
                 return Ok(Some(guest));
             }
         }
@@ -241,12 +232,12 @@ impl Runtime {
         launcher.launch(&mut context, request).await
     }
 
-    pub async fn destroy(&self, id: &str) -> Result<Uuid> {
+    pub async fn destroy(&self, uuid: Uuid) -> Result<Uuid> {
         let mut context = self.context.lock().await;
         let info = context
-            .resolve(id)
+            .resolve(uuid)
             .await?
-            .ok_or_else(|| anyhow!("unable to resolve guest: {}", id))?;
+            .ok_or_else(|| anyhow!("unable to resolve guest: {}", uuid))?;
         let domid = info.domid;
         let mut store = XsdClient::open().await?;
         let dom_path = store.get_domain_path(domid).await?;
@@ -288,12 +279,12 @@ impl Runtime {
         Ok(uuid)
     }
 
-    pub async fn console(&self, id: &str) -> Result<XenConsole> {
+    pub async fn console(&self, uuid: Uuid) -> Result<XenConsole> {
         let mut context = self.context.lock().await;
         let info = context
-            .resolve(id)
+            .resolve(uuid)
             .await?
-            .ok_or_else(|| anyhow!("unable to resolve guest: {}", id))?;
+            .ok_or_else(|| anyhow!("unable to resolve guest: {}", uuid))?;
         let domid = info.domid;
         let tty = context.xen.get_console_path(domid).await?;
         XenConsole::new(&tty).await

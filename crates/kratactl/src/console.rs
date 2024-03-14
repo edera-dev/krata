@@ -7,9 +7,9 @@ use anyhow::Result;
 use async_stream::stream;
 use krata::{
     common::GuestStatus,
-    control::{watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest, WatchEventsReply},
+    control::{watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest},
 };
-use log::{debug, error, warn};
+use log::{debug, warn};
 use termion::raw::IntoRawMode;
 use tokio::{
     fs::File,
@@ -18,6 +18,8 @@ use tokio::{
 };
 use tokio_stream::{Stream, StreamExt};
 use tonic::Streaming;
+
+use crate::events::EventStream;
 
 pub struct StdioConsoleStream;
 
@@ -59,46 +61,31 @@ impl StdioConsoleStream {
         Ok(())
     }
 
-    pub async fn guest_exit_hook(
-        id: String,
-        mut events: Streaming<WatchEventsReply>,
-    ) -> Result<JoinHandle<()>> {
+    pub async fn guest_exit_hook(id: String, events: EventStream) -> Result<JoinHandle<()>> {
         Ok(tokio::task::spawn(async move {
-            while let Some(result) = events.next().await {
-                match result {
-                    Err(error) => {
-                        error!("failed to handle events for exit hook: {}", error);
-                        break;
-                    }
-
-                    Ok(reply) => {
-                        let Some(event) = reply.event else {
+            let mut stream = events.subscribe();
+            while let Ok(event) = stream.recv().await {
+                match event {
+                    Event::GuestChanged(changed) => {
+                        let Some(guest) = changed.guest else {
                             continue;
                         };
 
-                        match event {
-                            Event::GuestChanged(changed) => {
-                                let Some(guest) = changed.guest else {
-                                    continue;
-                                };
+                        let Some(state) = guest.state else {
+                            continue;
+                        };
 
-                                let Some(state) = guest.state else {
-                                    continue;
-                                };
+                        if guest.id != id {
+                            continue;
+                        }
 
-                                if guest.id != id {
-                                    continue;
-                                }
+                        if let Some(exit_info) = state.exit_info {
+                            std::process::exit(exit_info.code);
+                        }
 
-                                if let Some(exit_info) = state.exit_info {
-                                    std::process::exit(exit_info.code);
-                                }
-
-                                if state.status() == GuestStatus::Destroyed {
-                                    warn!("attached guest was destroyed");
-                                    std::process::exit(1);
-                                }
-                            }
+                        if state.status() == GuestStatus::Destroy {
+                            warn!("attached guest was destroyed");
+                            std::process::exit(1);
                         }
                     }
                 }

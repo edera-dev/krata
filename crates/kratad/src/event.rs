@@ -1,10 +1,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
-use krata::{
-    common::{GuestExitInfo, GuestState, GuestStatus},
-    control::watch_events_reply::Event,
-};
+use krata::common::{GuestExitInfo, GuestState, GuestStatus};
 use log::error;
 use tokio::{
     sync::{broadcast, mpsc::Sender},
@@ -42,7 +39,7 @@ pub struct DaemonEventGenerator {
     guests: GuestStore,
     guest_reconciler_notify: Sender<Uuid>,
     last: HashMap<Uuid, GuestInfo>,
-    _sender: broadcast::Sender<Event>,
+    _sender: broadcast::Sender<DaemonEvent>,
 }
 
 impl DaemonEventGenerator {

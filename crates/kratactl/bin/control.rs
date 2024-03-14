@@ -11,9 +11,8 @@ use krata::{
         WatchEventsRequest,
     },
 };
-use kratactl::{client::ControlClientProvider, console::StdioConsoleStream};
+use kratactl::{client::ControlClientProvider, console::StdioConsoleStream, events::EventStream};
 use log::error;
-use tokio_stream::StreamExt;
 use tonic::Request;
 
 #[derive(Parser, Debug)]
@@ -62,10 +61,13 @@ async fn main() -> Result<()> {
 
     let args = ControllerArgs::parse();
     let mut client = ControlClientProvider::dial(args.connection.parse()?).await?;
-    let mut events = client
-        .watch_events(WatchEventsRequest {})
-        .await?
-        .into_inner();
+    let events = EventStream::open(
+        client
+            .watch_events(WatchEventsRequest {})
+            .await?
+            .into_inner(),
+    )
+    .await?;
 
     match args.command {
         Commands::Launch {
@@ -95,41 +97,7 @@ async fn main() -> Result<()> {
                 .into_inner();
             let id = response.guest_id;
             if attach {
-                while let Some(event) = events.next().await {
-                    let reply = event?;
-                    match reply.event {
-                        Some(Event::GuestChanged(changed)) => {
-                            let Some(guest) = changed.guest else {
-                                continue;
-                            };
-
-                            if guest.id != id {
-                                continue;
-                            }
-
-                            let Some(state) = guest.state else {
-                                continue;
-                            };
-
-                            if let Some(ref error) = state.error_info {
-                                error!("guest error: {}", error.message);
-                            }
-
-                            if state.status() == GuestStatus::Destroyed {
-                                error!("guest destroyed");
-                                std::process::exit(1);
-                            }
-
-                            if state.status() == GuestStatus::Started {
-                                break;
-                            }
-                        }
-
-                        None => {
-                            continue;
-                        }
-                    }
-                }
+                wait_guest_started(&id, events.clone()).await?;
                 let input = StdioConsoleStream::stdin_stream(id.clone()).await;
                 let output = client.console_data(input).await?.into_inner();
                 let exit_hook_task =
@@ -208,19 +176,17 @@ async fn main() -> Result<()> {
         }
 
         Commands::Watch {} => {
-            let response = client
-                .watch_events(Request::new(WatchEventsRequest {}))
-                .await?;
-            let mut stream = response.into_inner();
-            while let Some(reply) = stream.message().await? {
-                let Some(event) = reply.event else {
-                    continue;
-                };
-
+            let mut stream = events.subscribe();
+            loop {
+                let event = stream.recv().await?;
                 match event {
                     Event::GuestChanged(changed) => {
                         if let Some(guest) = changed.guest {
-                            println!("event=guest.changed guest={}", guest.id);
+                            println!(
+                                "event=guest.changed guest={} status={}",
+                                guest.id,
+                                guest_status_text(guest.state.unwrap_or_default().status())
+                            );
                         }
                     }
                 }
@@ -232,7 +198,7 @@ async fn main() -> Result<()> {
 
 fn guest_status_text(status: GuestStatus) -> String {
     match status {
-        GuestStatus::Unknown => "unknown",
+        GuestStatus::Destroy => "destroying",
         GuestStatus::Destroyed => "destroyed",
         GuestStatus::Start => "starting",
         GuestStatus::Exited => "exited",
@@ -253,4 +219,39 @@ fn guest_state_text(state: GuestState) -> String {
         text.push_str(&format!(" (error: {})", error.message));
     }
     text
+}
+
+async fn wait_guest_started(id: &str, events: EventStream) -> Result<()> {
+    let mut stream = events.subscribe();
+    while let Ok(event) = stream.recv().await {
+        match event {
+            Event::GuestChanged(changed) => {
+                let Some(guest) = changed.guest else {
+                    continue;
+                };
+
+                if guest.id != id {
+                    continue;
+                }
+
+                let Some(state) = guest.state else {
+                    continue;
+                };
+
+                if let Some(ref error) = state.error_info {
+                    error!("guest error: {}", error.message);
+                }
+
+                if state.status() == GuestStatus::Destroyed {
+                    error!("guest destroyed");
+                    std::process::exit(1);
+                }
+
+                if state.status() == GuestStatus::Started {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(())
 }

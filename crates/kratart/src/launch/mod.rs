@@ -45,7 +45,7 @@ impl GuestLauncher {
         request: GuestLaunchRequest<'r>,
     ) -> Result<GuestInfo> {
         let uuid = request.uuid.unwrap_or_else(Uuid::new_v4);
-        let name = format!("krata-{uuid}");
+        let xen_name = format!("krata-{uuid}");
         let image_info = self.compile(request.image, &context.image_cache).await?;
 
         let mut gateway_mac = MacAddr6::random();
@@ -161,7 +161,7 @@ impl GuestLauncher {
 
         let config = DomainConfig {
             backend_domid: 0,
-            name: &name,
+            name: &xen_name,
             max_vcpus: request.vcpus,
             mem_mb: request.mem,
             kernel_path: &context.kernel,

@@ -191,11 +191,10 @@ impl ControlService for RuntimeControlService {
             .into());
         };
         let request = request?;
-        let mut console = self
-            .runtime
-            .console(&request.guest_id)
-            .await
-            .map_err(ApiError::from)?;
+        let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
+            message: error.to_string(),
+        })?;
+        let mut console = self.runtime.console(uuid).await.map_err(ApiError::from)?;
 
         let output = try_stream! {
             let mut buffer: Vec<u8> = vec![0u8; 256];

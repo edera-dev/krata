@@ -107,12 +107,8 @@ impl GuestReconciler {
             }))?;
 
         let result = match guest.state.as_ref().map(|x| x.status()).unwrap_or_default() {
-            GuestStatus::Start => self.start(uuid, guest).await.map(|_| true),
-
-            GuestStatus::Destroy | GuestStatus::Exited => {
-                self.destroy(uuid, guest).await.map(|_| true)
-            }
-
+            GuestStatus::Start => self.start(uuid, guest).await,
+            GuestStatus::Destroy | GuestStatus::Exited => self.destroy(uuid, guest).await,
             _ => Ok(false),
         };
 
@@ -149,7 +145,7 @@ impl GuestReconciler {
         Ok(())
     }
 
-    async fn start(&self, uuid: Uuid, guest: &mut Guest) -> Result<()> {
+    async fn start(&self, uuid: Uuid, guest: &mut Guest) -> Result<bool> {
         let Some(ref spec) = guest.spec else {
             return Err(anyhow!("guest spec not specified"));
         };
@@ -191,11 +187,11 @@ impl GuestReconciler {
             exit_info: None,
             error_info: None,
         });
-        Ok(())
+        Ok(true)
     }
 
-    async fn destroy(&self, uuid: Uuid, guest: &mut Guest) -> Result<()> {
-        self.runtime.destroy(&uuid.to_string()).await?;
+    async fn destroy(&self, uuid: Uuid, guest: &mut Guest) -> Result<bool> {
+        self.runtime.destroy(uuid).await?;
         info!("destroyed guest {}", uuid);
         guest.network = None;
         guest.state = Some(GuestState {
@@ -203,7 +199,7 @@ impl GuestReconciler {
             exit_info: None,
             error_info: None,
         });
-        Ok(())
+        Ok(true)
     }
 }
 
