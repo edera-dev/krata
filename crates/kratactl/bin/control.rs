@@ -1,11 +1,19 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use env_logger::Env;
-use krata::control::{
-    guest_image_spec::Image, watch_events_reply::Event, DestroyGuestRequest, GuestImageSpec,
-    GuestOciImageSpec, LaunchGuestRequest, ListGuestsRequest, WatchEventsRequest,
+use krata::{
+    common::{
+        guest_image_spec::Image, GuestImageSpec, GuestOciImageSpec, GuestSpec, GuestState,
+        GuestStatus,
+    },
+    control::{
+        watch_events_reply::Event, CreateGuestRequest, DestroyGuestRequest, ListGuestsRequest,
+        WatchEventsRequest,
+    },
 };
 use kratactl::{client::ControlClientProvider, console::StdioConsoleStream};
+use log::error;
+use tokio_stream::StreamExt;
 use tonic::Request;
 
 #[derive(Parser, Debug)]
@@ -54,7 +62,7 @@ async fn main() -> Result<()> {
 
     let args = ControllerArgs::parse();
     let mut client = ControlClientProvider::dial(args.connection.parse()?).await?;
-    let events = client
+    let mut events = client
         .watch_events(WatchEventsRequest {})
         .await?
         .into_inner();
@@ -69,33 +77,67 @@ async fn main() -> Result<()> {
             env,
             run,
         } => {
-            let request = LaunchGuestRequest {
-                name: name.unwrap_or_default(),
-                image: Some(GuestImageSpec {
-                    image: Some(Image::Oci(GuestOciImageSpec { image: oci })),
+            let request = CreateGuestRequest {
+                spec: Some(GuestSpec {
+                    name: name.unwrap_or_default(),
+                    image: Some(GuestImageSpec {
+                        image: Some(Image::Oci(GuestOciImageSpec { image: oci })),
+                    }),
+                    vcpus: cpus,
+                    mem,
+                    env: env.unwrap_or_default(),
+                    run,
                 }),
-                vcpus: cpus,
-                mem,
-                env: env.unwrap_or_default(),
-                run,
             };
             let response = client
-                .launch_guest(Request::new(request))
+                .create_guest(Request::new(request))
                 .await?
                 .into_inner();
-            let Some(guest) = response.guest else {
-                return Err(anyhow!(
-                    "control service did not return a guest in the response"
-                ));
-            };
-            println!("launched guest: {}", guest.id);
+            let id = response.guest_id;
             if attach {
-                let input = StdioConsoleStream::stdin_stream(guest.id.clone()).await;
+                while let Some(event) = events.next().await {
+                    let reply = event?;
+                    match reply.event {
+                        Some(Event::GuestChanged(changed)) => {
+                            let Some(guest) = changed.guest else {
+                                continue;
+                            };
+
+                            if guest.id != id {
+                                continue;
+                            }
+
+                            let Some(state) = guest.state else {
+                                continue;
+                            };
+
+                            if let Some(ref error) = state.error_info {
+                                error!("guest error: {}", error.message);
+                            }
+
+                            if state.status() == GuestStatus::Destroyed {
+                                error!("guest destroyed");
+                                std::process::exit(1);
+                            }
+
+                            if state.status() == GuestStatus::Started {
+                                break;
+                            }
+                        }
+
+                        None => {
+                            continue;
+                        }
+                    }
+                }
+                let input = StdioConsoleStream::stdin_stream(id.clone()).await;
                 let output = client.console_data(input).await?.into_inner();
                 let exit_hook_task =
-                    StdioConsoleStream::guest_exit_hook(guest.id.clone(), events).await?;
+                    StdioConsoleStream::guest_exit_hook(id.clone(), events).await?;
                 StdioConsoleStream::stdout(output).await?;
                 exit_hook_task.abort();
+            } else {
+                println!("created guest: {}", id);
             }
         }
 
@@ -123,7 +165,7 @@ async fn main() -> Result<()> {
                 .await?
                 .into_inner();
             let mut table = cli_tables::Table::new();
-            let header = vec!["name", "uuid", "ipv4", "ipv6", "image"];
+            let header = vec!["name", "uuid", "state", "ipv4", "ipv6", "image"];
             table.push_row(&header)?;
             for guest in response.guests {
                 let ipv4 = guest
@@ -136,7 +178,10 @@ async fn main() -> Result<()> {
                     .as_ref()
                     .map(|x| x.ipv6.as_str())
                     .unwrap_or("unknown");
-                let image = guest
+                let Some(spec) = guest.spec else {
+                    continue;
+                };
+                let image = spec
                     .image
                     .map(|x| {
                         x.image
@@ -147,8 +192,9 @@ async fn main() -> Result<()> {
                     })
                     .unwrap_or("unknown".to_string());
                 table.push_row_string(&vec![
-                    guest.name,
+                    spec.name,
                     guest.id,
+                    format!("{}", guest_state_text(guest.state.unwrap_or_default())),
                     ipv4.to_string(),
                     ipv6.to_string(),
                     image,
@@ -172,23 +218,39 @@ async fn main() -> Result<()> {
                 };
 
                 match event {
-                    Event::GuestLaunched(launched) => {
-                        println!("event=guest.launched guest={}", launched.guest_id);
-                    }
-
-                    Event::GuestDestroyed(destroyed) => {
-                        println!("event=guest.destroyed guest={}", destroyed.guest_id);
-                    }
-
-                    Event::GuestExited(exited) => {
-                        println!(
-                            "event=guest.exited guest={} code={}",
-                            exited.guest_id, exited.code
-                        );
+                    Event::GuestChanged(changed) => {
+                        if let Some(guest) = changed.guest {
+                            println!("event=guest.changed guest={}", guest.id);
+                        }
                     }
                 }
             }
         }
     }
     Ok(())
+}
+
+fn guest_status_text(status: GuestStatus) -> String {
+    match status {
+        GuestStatus::Unknown => "unknown",
+        GuestStatus::Destroyed => "destroyed",
+        GuestStatus::Start => "starting",
+        GuestStatus::Exited => "exited",
+        GuestStatus::Started => "started",
+        _ => "unknown",
+    }
+    .to_string()
+}
+
+fn guest_state_text(state: GuestState) -> String {
+    let mut text = guest_status_text(state.status());
+
+    if let Some(exit) = state.exit_info {
+        text.push_str(&format!(" (exit code: {})", exit.code));
+    }
+
+    if let Some(error) = state.error_info {
+        text.push_str(&format!(" (error: {})", error.message));
+    }
+    text
 }

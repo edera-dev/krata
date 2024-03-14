@@ -14,6 +14,8 @@ futures = { workspace = true }
 krata = { path = "../krata" }
 kratart = { path = "../kratart" }
 log = { workspace = true }
+prost = { workspace = true }
+redb = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
@@ -28,3 +30,6 @@ name = "kratad"
 [[bin]]
 name = "kratad"
 path = "bin/daemon.rs"
+
+[build-dependencies]
+prost-build = { workspace = true }

@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "dev.krata.proto.common";
+option java_outer_classname = "CommonProto";
+
+package krata.common;
+
+message GuestOciImageSpec {
+    string image = 1;
+}
+
+message GuestImageSpec {
+    oneof image {
+        GuestOciImageSpec oci = 1;
+    }
+}
+
+message GuestSpec {
+    string name = 1;
+    GuestImageSpec image = 2;
+    uint32 vcpus = 3;
+    uint64 mem = 4;
+    repeated string env = 5;
+    repeated string run = 6;
+}
+
+message GuestNetworkState {
+    string ipv4 = 1;
+    string ipv6 = 2;
+}
+
+message GuestExitInfo {
+    int32 code = 1;
+}
+
+message GuestErrorInfo {
+    string message = 1;
+}
+
+enum GuestStatus {
+    GUEST_STATUS_UNKNOWN = 0;
+    GUEST_STATUS_START = 1;
+    GUEST_STATUS_STARTED = 2;
+    GUEST_STATUS_EXITED = 3;
+    GUEST_STATUS_DESTROY = 4;
+    GUEST_STATUS_DESTROYED = 5;
+}
+
+message GuestState {
+    GuestStatus status = 1;
+    GuestExitInfo exit_info = 2;
+    GuestErrorInfo error_info = 3;
+}
+
+message Guest {
+    string id = 1;
+    GuestState state = 2;
+    GuestSpec spec = 3;
+    GuestNetworkState network = 4;
+}

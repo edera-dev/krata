@@ -1,22 +1,29 @@
-use std::{io, pin::Pin};
+use std::{io, pin::Pin, str::FromStr};
 
 use async_stream::try_stream;
 use futures::Stream;
-use krata::control::{
-    control_service_server::ControlService, guest_image_spec::Image, ConsoleDataReply,
-    ConsoleDataRequest, DestroyGuestReply, DestroyGuestRequest, GuestImageSpec, GuestInfo,
-    GuestNetworkInfo, GuestOciImageSpec, LaunchGuestReply, LaunchGuestRequest, ListGuestsReply,
-    ListGuestsRequest, WatchEventsReply, WatchEventsRequest,
+use krata::{
+    common::{Guest, GuestState, GuestStatus},
+    control::{
+        control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
+        CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
+        ListGuestsReply, ListGuestsRequest, WatchEventsReply, WatchEventsRequest,
+    },
 };
+use kratart::Runtime;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     select,
+    sync::mpsc::Sender,
 };
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
+use uuid::Uuid;
 
-use crate::event::DaemonEventContext;
-use kratart::{launch::GuestLaunchRequest, Runtime};
+use crate::{
+    db::{proto::GuestEntry, GuestStore},
+    event::DaemonEventContext,
+};
 
 pub struct ApiError {
     message: String,
@@ -40,11 +47,23 @@ impl From<ApiError> for Status {
 pub struct RuntimeControlService {
     events: DaemonEventContext,
     runtime: Runtime,
+    guests: GuestStore,
+    guest_reconciler_notify: Sender<Uuid>,
 }
 
 impl RuntimeControlService {
-    pub fn new(events: DaemonEventContext, runtime: Runtime) -> Self {
-        Self { events, runtime }
+    pub fn new(
+        events: DaemonEventContext,
+        runtime: Runtime,
+        guests: GuestStore,
+        guest_reconciler_notify: Sender<Uuid>,
+    ) -> Self {
+        Self {
+            events,
+            runtime,
+            guests,
+            guest_reconciler_notify,
+        }
     }
 }
 
@@ -61,45 +80,46 @@ impl ControlService for RuntimeControlService {
     type WatchEventsStream =
         Pin<Box<dyn Stream<Item = Result<WatchEventsReply, Status>> + Send + 'static>>;
 
-    async fn launch_guest(
+    async fn create_guest(
         &self,
-        request: Request<LaunchGuestRequest>,
-    ) -> Result<Response<LaunchGuestReply>, Status> {
+        request: Request<CreateGuestRequest>,
+    ) -> Result<Response<CreateGuestReply>, Status> {
         let request = request.into_inner();
-        let Some(image) = request.image else {
+        let Some(spec) = request.spec else {
             return Err(ApiError {
-                message: "image spec not provider".to_string(),
+                message: "guest spec not provided".to_string(),
             }
             .into());
         };
-        let oci = match image.image {
-            Some(Image::Oci(oci)) => oci,
-            None => {
-                return Err(ApiError {
-                    message: "image spec not provided".to_string(),
-                }
-                .into())
-            }
-        };
-        let guest: GuestInfo = convert_guest_info(
-            self.runtime
-                .launch(GuestLaunchRequest {
-                    name: if request.name.is_empty() {
-                        None
-                    } else {
-                        Some(&request.name)
-                    },
-                    image: &oci.image,
-                    vcpus: request.vcpus,
-                    mem: request.mem,
-                    env: empty_vec_optional(request.env),
-                    run: empty_vec_optional(request.run),
-                    debug: false,
-                })
-                .await
-                .map_err(ApiError::from)?,
-        );
-        Ok(Response::new(LaunchGuestReply { guest: Some(guest) }))
+        let uuid = Uuid::new_v4();
+        self.guests
+            .update(
+                uuid,
+                GuestEntry {
+                    id: uuid.to_string(),
+                    guest: Some(Guest {
+                        id: uuid.to_string(),
+                        state: Some(GuestState {
+                            status: GuestStatus::Start.into(),
+                            exit_info: None,
+                            error_info: None,
+                        }),
+                        spec: Some(spec),
+                        network: None,
+                    }),
+                },
+            )
+            .await
+            .map_err(ApiError::from)?;
+        self.guest_reconciler_notify
+            .send(uuid)
+            .await
+            .map_err(|x| ApiError {
+                message: x.to_string(),
+            })?;
+        Ok(Response::new(CreateGuestReply {
+            guest_id: uuid.to_string(),
+        }))
     }
 
     async fn destroy_guest(
@@ -107,10 +127,42 @@ impl ControlService for RuntimeControlService {
         request: Request<DestroyGuestRequest>,
     ) -> Result<Response<DestroyGuestReply>, Status> {
         let request = request.into_inner();
-        self.runtime
-            .destroy(&request.guest_id)
+        let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
+            message: error.to_string(),
+        })?;
+        let Some(mut entry) = self.guests.read(uuid).await.map_err(ApiError::from)? else {
+            return Err(ApiError {
+                message: "guest not found".to_string(),
+            }
+            .into());
+        };
+        let Some(ref mut guest) = entry.guest else {
+            return Err(ApiError {
+                message: "guest not found".to_string(),
+            }
+            .into());
+        };
+
+        guest.state = Some(guest.state.as_mut().cloned().unwrap_or_default());
+
+        if guest.state.as_ref().unwrap().status() == GuestStatus::Destroyed {
+            return Err(ApiError {
+                message: "guest already destroyed".to_string(),
+            }
+            .into());
+        }
+
+        guest.state.as_mut().unwrap().status = GuestStatus::Destroy.into();
+        self.guests
+            .update(uuid, entry)
             .await
             .map_err(ApiError::from)?;
+        self.guest_reconciler_notify
+            .send(uuid)
+            .await
+            .map_err(|x| ApiError {
+                message: x.to_string(),
+            })?;
         Ok(Response::new(DestroyGuestReply {}))
     }
 
@@ -119,11 +171,11 @@ impl ControlService for RuntimeControlService {
         request: Request<ListGuestsRequest>,
     ) -> Result<Response<ListGuestsReply>, Status> {
         let _ = request.into_inner();
-        let guests = self.runtime.list().await.map_err(ApiError::from)?;
+        let guests = self.guests.list().await.map_err(ApiError::from)?;
         let guests = guests
-            .into_iter()
-            .map(convert_guest_info)
-            .collect::<Vec<GuestInfo>>();
+            .into_values()
+            .filter_map(|entry| entry.guest)
+            .collect::<Vec<Guest>>();
         Ok(Response::new(ListGuestsReply { guests }))
     }
 
@@ -189,27 +241,5 @@ impl ControlService for RuntimeControlService {
             }
         };
         Ok(Response::new(Box::pin(output) as Self::WatchEventsStream))
-    }
-}
-
-fn empty_vec_optional<T>(value: Vec<T>) -> Option<Vec<T>> {
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
-    }
-}
-
-fn convert_guest_info(value: kratart::GuestInfo) -> GuestInfo {
-    GuestInfo {
-        name: value.name.unwrap_or_default(),
-        id: value.uuid.to_string(),
-        image: Some(GuestImageSpec {
-            image: Some(Image::Oci(GuestOciImageSpec { image: value.image })),
-        }),
-        network: Some(GuestNetworkInfo {
-            ipv4: value.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
-            ipv6: value.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
-        }),
     }
 }

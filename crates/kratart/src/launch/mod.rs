@@ -22,6 +22,7 @@ use crate::RuntimeContext;
 use super::{GuestInfo, GuestState};
 
 pub struct GuestLaunchRequest<'a> {
+    pub uuid: Option<Uuid>,
     pub name: Option<&'a str>,
     pub image: &'a str,
     pub vcpus: u32,
@@ -43,7 +44,7 @@ impl GuestLauncher {
         context: &mut RuntimeContext,
         request: GuestLaunchRequest<'r>,
     ) -> Result<GuestInfo> {
-        let uuid = Uuid::new_v4();
+        let uuid = request.uuid.unwrap_or_else(Uuid::new_v4);
         let name = format!("krata-{uuid}");
         let image_info = self.compile(request.image, &context.image_cache).await?;
 

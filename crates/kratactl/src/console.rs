@@ -5,8 +5,9 @@ use std::{
 
 use anyhow::Result;
 use async_stream::stream;
-use krata::control::{
-    watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest, WatchEventsReply,
+use krata::{
+    common::GuestStatus,
+    control::{watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest, WatchEventsReply},
 };
 use log::{debug, error, warn};
 use termion::raw::IntoRawMode;
@@ -76,21 +77,27 @@ impl StdioConsoleStream {
                         };
 
                         match event {
-                            Event::GuestExited(exit) => {
-                                if exit.guest_id == id {
-                                    std::process::exit(exit.code);
-                                }
-                            }
+                            Event::GuestChanged(changed) => {
+                                let Some(guest) = changed.guest else {
+                                    continue;
+                                };
 
-                            Event::GuestDestroyed(destroy) => {
-                                if destroy.guest_id == id {
-                                    warn!("attached guest destroyed");
+                                let Some(state) = guest.state else {
+                                    continue;
+                                };
+
+                                if guest.id != id {
+                                    continue;
+                                }
+
+                                if let Some(exit_info) = state.exit_info {
+                                    std::process::exit(exit_info.code);
+                                }
+
+                                if state.status() == GuestStatus::Destroyed {
+                                    warn!("attached guest was destroyed");
                                     std::process::exit(1);
                                 }
-                            }
-
-                            _ => {
-                                continue;
                             }
                         }
                     }

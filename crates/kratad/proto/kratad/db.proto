@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package kratad.db;
+
+import "krata/common.proto";
+
+message GuestEntry {
+    string id = 1;
+    krata.common.Guest guest = 2;
+}

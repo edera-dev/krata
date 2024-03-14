@@ -2,100 +2,72 @@ use std::{net::SocketAddr, path::PathBuf, str::FromStr};
 
 use anyhow::Result;
 use control::RuntimeControlService;
+use db::GuestStore;
 use event::{DaemonEventContext, DaemonEventGenerator};
 use krata::{control::control_service_server::ControlServiceServer, dial::ControlDialAddress};
-use kratart::{launch::GuestLaunchRequest, Runtime};
-use log::{info, warn};
-use tab::Tab;
-use tokio::{fs, net::UnixListener, task::JoinHandle};
+use kratart::Runtime;
+use log::info;
+use reconcile::GuestReconciler;
+use tokio::{
+    net::UnixListener,
+    sync::mpsc::{channel, Sender},
+    task::JoinHandle,
+};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
+use uuid::Uuid;
 
 pub mod control;
+pub mod db;
 pub mod event;
-pub mod tab;
+pub mod reconcile;
 
 pub struct Daemon {
     store: String,
     runtime: Runtime,
+    guests: GuestStore,
     events: DaemonEventContext,
-    task: JoinHandle<()>,
+    guest_reconciler_task: JoinHandle<()>,
+    guest_reconciler_notify: Sender<Uuid>,
+    generator_task: JoinHandle<()>,
 }
+
+const GUEST_RECONCILER_QUEUE_LEN: usize = 1000;
 
 impl Daemon {
     pub async fn new(store: String, runtime: Runtime) -> Result<Self> {
+        let guests_db_path = format!("{}/guests.db", store);
+        let guests = GuestStore::open(&PathBuf::from(guests_db_path))?;
         let runtime_for_events = runtime.dupe().await?;
-        let (events, generator) = DaemonEventGenerator::new(runtime_for_events).await?;
+        let (guest_reconciler_notify, guest_reconciler_receiver) =
+            channel::<Uuid>(GUEST_RECONCILER_QUEUE_LEN);
+        let (events, generator) = DaemonEventGenerator::new(
+            guests.clone(),
+            guest_reconciler_notify.clone(),
+            runtime_for_events,
+        )
+        .await?;
+        let runtime_for_reconciler = runtime.dupe().await?;
+        let guest_reconciler =
+            GuestReconciler::new(guests.clone(), events.clone(), runtime_for_reconciler)?;
         Ok(Self {
             store,
             runtime,
+            guests,
             events,
-            task: generator.launch().await?,
+            guest_reconciler_task: guest_reconciler.launch(guest_reconciler_receiver).await?,
+            guest_reconciler_notify,
+            generator_task: generator.launch().await?,
         })
     }
 
-    pub async fn load_guest_tab(&mut self) -> Result<()> {
-        let tab_path = PathBuf::from(format!("{}/guests.yml", self.store));
-
-        if !tab_path.exists() {
-            return Ok(());
-        }
-
-        info!("loading guest tab");
-
-        let tab_content = fs::read_to_string(tab_path).await?;
-        let tab: Tab = serde_yaml::from_str(&tab_content)?;
-        let running = self.runtime.list().await?;
-        for (name, guest) in tab.guests {
-            let existing = running
-                .iter()
-                .filter(|x| x.name.is_some())
-                .find(|run| *run.name.as_ref().unwrap() == name);
-
-            if let Some(existing) = existing {
-                info!("guest {} is already running: {}", name, existing.uuid);
-                continue;
-            }
-
-            let request = GuestLaunchRequest {
-                name: Some(&name),
-                image: &guest.image,
-                vcpus: guest.cpus,
-                mem: guest.mem,
-                env: if guest.env.is_empty() {
-                    None
-                } else {
-                    Some(
-                        guest
-                            .env
-                            .iter()
-                            .map(|(key, value)| format!("{}={}", key, value))
-                            .collect::<Vec<String>>(),
-                    )
-                },
-                run: if guest.run.is_empty() {
-                    None
-                } else {
-                    Some(guest.run)
-                },
-                debug: false,
-            };
-            match self.runtime.launch(request).await {
-                Err(error) => {
-                    warn!("failed to launch guest {}: {}", name, error);
-                }
-
-                Ok(info) => {
-                    info!("launched guest {}: {}", name, info.uuid);
-                }
-            }
-        }
-        info!("loaded guest tab");
-        Ok(())
-    }
-
     pub async fn listen(&mut self, addr: ControlDialAddress) -> Result<()> {
-        let control_service = RuntimeControlService::new(self.events.clone(), self.runtime.clone());
+        let control_service = RuntimeControlService::new(
+            self.events.clone(),
+            self.runtime.clone(),
+            self.guests.clone(),
+            self.guest_reconciler_notify.clone(),
+        );
 
         let mut server = Server::builder();
 
@@ -147,6 +119,7 @@ impl Daemon {
 
 impl Drop for Daemon {
     fn drop(&mut self) {
-        self.task.abort();
+        self.guest_reconciler_task.abort();
+        self.generator_task.abort();
     }
 }

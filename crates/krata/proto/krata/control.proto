@@ -6,45 +6,20 @@ option java_outer_classname = "ControlProto";
 
 package krata.control;
 
-message GuestOciImageSpec {
-    string image = 1;
+import "krata/common.proto";
+
+message CreateGuestRequest {
+    krata.common.GuestSpec spec = 1;
 }
 
-message GuestImageSpec {
-    oneof image {
-        GuestOciImageSpec oci = 1;
-    }
-}
-
-message GuestNetworkInfo {
-    string ipv4 = 1;
-    string ipv6 = 2;
-}
-
-message GuestInfo {
-    string id = 1;
-    string name = 2;
-    GuestImageSpec image = 3;
-    GuestNetworkInfo network = 4;
-}
-
-message LaunchGuestRequest {
-    string name = 1;
-    GuestImageSpec image = 2;
-    uint32 vcpus = 3;
-    uint64 mem = 4;
-    repeated string env = 5;
-    repeated string run = 6;
-}
-
-message LaunchGuestReply {
-    GuestInfo guest = 1;
+message CreateGuestReply {
+    string guest_id = 1;
 }
 
 message ListGuestsRequest {}
 
 message ListGuestsReply {
-    repeated GuestInfo guests = 1;
+    repeated krata.common.Guest guests = 1;
 }
 
 message DestroyGuestRequest {
@@ -64,32 +39,20 @@ message ConsoleDataReply {
 
 message WatchEventsRequest {}
 
-message GuestLaunchedEvent {
-    string guest_id = 1;
-}
-
-message GuestDestroyedEvent {
-    string guest_id = 1;
-}
-
-message GuestExitedEvent {
-    string guest_id = 1;
-    int32 code = 2;
+message GuestChangedEvent {
+    krata.common.Guest guest = 1;
 }
 
 message WatchEventsReply {
     oneof event {
-        GuestLaunchedEvent guest_launched = 1;
-        GuestDestroyedEvent guest_destroyed = 2;
-        GuestExitedEvent guest_exited = 3;
+        GuestChangedEvent guest_changed = 1;
     }
 }
 
 service ControlService {
-    rpc LaunchGuest(LaunchGuestRequest) returns (LaunchGuestReply);
+    rpc CreateGuest(CreateGuestRequest) returns (CreateGuestReply);
     rpc DestroyGuest(DestroyGuestRequest) returns (DestroyGuestReply);
     rpc ListGuests(ListGuestsRequest) returns (ListGuestsReply);
     rpc ConsoleData(stream ConsoleDataRequest) returns (stream ConsoleDataReply);
-
     rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
 }

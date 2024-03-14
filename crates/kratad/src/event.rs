@@ -1,12 +1,21 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
-use krata::control::{GuestDestroyedEvent, GuestExitedEvent, GuestLaunchedEvent};
-use log::{error, info, warn};
-use tokio::{sync::broadcast, task::JoinHandle, time};
+use krata::{
+    common::{GuestExitInfo, GuestState, GuestStatus},
+    control::watch_events_reply::Event,
+};
+use log::error;
+use tokio::{
+    sync::{broadcast, mpsc::Sender},
+    task::JoinHandle,
+    time,
+};
 use uuid::Uuid;
 
 use kratart::{GuestInfo, Runtime};
+
+use crate::db::GuestStore;
 
 pub type DaemonEvent = krata::control::watch_events_reply::Event;
 
@@ -21,21 +30,34 @@ impl DaemonEventContext {
     pub fn subscribe(&self) -> broadcast::Receiver<DaemonEvent> {
         self.sender.subscribe()
     }
+
+    pub fn send(&self, event: DaemonEvent) -> Result<()> {
+        let _ = self.sender.send(event);
+        Ok(())
+    }
 }
 
 pub struct DaemonEventGenerator {
     runtime: Runtime,
+    guests: GuestStore,
+    guest_reconciler_notify: Sender<Uuid>,
     last: HashMap<Uuid, GuestInfo>,
-    sender: broadcast::Sender<DaemonEvent>,
+    _sender: broadcast::Sender<Event>,
 }
 
 impl DaemonEventGenerator {
-    pub async fn new(runtime: Runtime) -> Result<(DaemonEventContext, DaemonEventGenerator)> {
+    pub async fn new(
+        guests: GuestStore,
+        guest_reconciler_notify: Sender<Uuid>,
+        runtime: Runtime,
+    ) -> Result<(DaemonEventContext, DaemonEventGenerator)> {
         let (sender, _) = broadcast::channel(EVENT_CHANNEL_QUEUE_LEN);
         let generator = DaemonEventGenerator {
             runtime,
+            guests,
+            guest_reconciler_notify,
             last: HashMap::new(),
-            sender: sender.clone(),
+            _sender: sender.clone(),
         };
         let context = DaemonEventContext { sender };
         Ok((context, generator))
@@ -51,24 +73,7 @@ impl DaemonEventGenerator {
             map
         };
 
-        let mut events: Vec<DaemonEvent> = Vec::new();
-        let mut exits: Vec<GuestExitedEvent> = Vec::new();
-
-        for uuid in guests.keys() {
-            if !self.last.contains_key(uuid) {
-                events.push(DaemonEvent::GuestLaunched(GuestLaunchedEvent {
-                    guest_id: uuid.to_string(),
-                }));
-            }
-        }
-
-        for uuid in self.last.keys() {
-            if !guests.contains_key(uuid) {
-                events.push(DaemonEvent::GuestDestroyed(GuestDestroyedEvent {
-                    guest_id: uuid.to_string(),
-                }));
-            }
-        }
+        let mut exits: Vec<(Uuid, i32)> = Vec::new();
 
         for (uuid, guest) in &guests {
             let Some(last) = self.last.get(uuid) else {
@@ -83,23 +88,27 @@ impl DaemonEventGenerator {
                 continue;
             };
 
-            let exit = GuestExitedEvent {
-                guest_id: uuid.to_string(),
-                code,
-            };
+            exits.push((*uuid, code));
+        }
 
-            exits.push(exit.clone());
-            events.push(DaemonEvent::GuestExited(exit));
+        for (uuid, code) in exits {
+            if let Some(mut entry) = self.guests.read(uuid).await? {
+                let Some(ref mut guest) = entry.guest else {
+                    continue;
+                };
+
+                guest.state = Some(GuestState {
+                    status: GuestStatus::Exited.into(),
+                    exit_info: Some(GuestExitInfo { code }),
+                    error_info: None,
+                });
+
+                self.guests.update(uuid, entry).await?;
+                self.guest_reconciler_notify.send(uuid).await?;
+            }
         }
 
         self.last = guests;
-
-        for event in events {
-            let _ = self.sender.send(event);
-        }
-
-        self.process_exit_auto_destroy(exits).await?;
-
         Ok(())
     }
 
@@ -114,22 +123,5 @@ impl DaemonEventGenerator {
                 }
             }
         }))
-    }
-
-    async fn process_exit_auto_destroy(&mut self, exits: Vec<GuestExitedEvent>) -> Result<()> {
-        for exit in exits {
-            if let Err(error) = self.runtime.destroy(&exit.guest_id).await {
-                warn!(
-                    "failed to auto-destroy exited guest {}: {}",
-                    exit.guest_id, error
-                );
-            } else {
-                info!(
-                    "auto-destroyed guest {}: exited with status {}",
-                    exit.guest_id, exit.code
-                );
-            }
-        }
-        Ok(())
     }
 }
