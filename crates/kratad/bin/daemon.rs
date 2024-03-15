@@ -10,7 +10,7 @@ use std::{
 };
 
 #[derive(Parser)]
-struct Args {
+struct DaemonCommand {
     #[arg(short, long, default_value = "unix:///var/lib/krata/daemon.socket")]
     listen: String,
     #[arg(short, long, default_value = "/var/lib/krata")]
@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
     mask_sighup()?;
 
-    let args = Args::parse();
+    let args = DaemonCommand::parse();
     let addr = ControlDialAddress::from_str(&args.listen)?;
     let runtime = Runtime::new(args.store.clone()).await?;
     let mut daemon = Daemon::new(args.store.clone(), runtime).await?;
