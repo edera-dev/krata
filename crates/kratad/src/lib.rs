@@ -7,7 +7,7 @@ use event::{DaemonEventContext, DaemonEventGenerator};
 use krata::{control::control_service_server::ControlServiceServer, dial::ControlDialAddress};
 use kratart::Runtime;
 use log::info;
-use reconcile::GuestReconciler;
+use reconcile::guest::GuestReconciler;
 use tokio::{
     net::UnixListener,
     sync::mpsc::{channel, Sender},

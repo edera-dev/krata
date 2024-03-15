@@ -6,14 +6,14 @@ use nix::{libc::c_int, unistd::Pid};
 use tokio::{select, time::sleep};
 use xenstore::{XsdClient, XsdInterface};
 
-pub struct ContainerBackground {
+pub struct GuestBackground {
     child: Pid,
     wait: ChildWait,
 }
 
-impl ContainerBackground {
-    pub async fn new(child: Pid) -> Result<ContainerBackground> {
-        Ok(ContainerBackground {
+impl GuestBackground {
+    pub async fn new(child: Pid) -> Result<GuestBackground> {
+        Ok(GuestBackground {
             child,
             wait: ChildWait::new()?,
         })

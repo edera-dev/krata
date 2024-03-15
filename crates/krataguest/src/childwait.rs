@@ -8,11 +8,9 @@ use std::{
 };
 
 use anyhow::Result;
+use libc::{c_int, waitpid, WEXITSTATUS, WIFEXITED};
 use log::warn;
-use nix::{
-    libc::{c_int, wait},
-    unistd::Pid,
-};
+use nix::unistd::Pid;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 const CHILD_WAIT_QUEUE_LEN: usize = 10;
@@ -63,15 +61,18 @@ impl ChildWaitTask {
     fn process(&mut self) -> Result<()> {
         loop {
             let mut status: c_int = 0;
-            let pid = unsafe { wait(addr_of_mut!(status)) };
-            let event = ChildEvent {
-                pid: Pid::from_raw(pid),
-                status,
-            };
-            let _ = self.sender.try_send(event);
+            let pid = unsafe { waitpid(-1, addr_of_mut!(status), 0) };
 
-            if self.signal.load(Ordering::Acquire) {
-                return Ok(());
+            if WIFEXITED(status) {
+                let event = ChildEvent {
+                    pid: Pid::from_raw(pid),
+                    status: WEXITSTATUS(status),
+                };
+                let _ = self.sender.try_send(event);
+
+                if self.signal.load(Ordering::Acquire) {
+                    return Ok(());
+                }
             }
         }
     }

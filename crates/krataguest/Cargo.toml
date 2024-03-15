@@ -10,6 +10,7 @@ env_logger = { workspace = true }
 futures = { workspace = true }
 ipnetwork = { workspace = true }
 krata = { path = "../krata" }
+libc = { workspace = true }
 log = { workspace = true }
 nix = { workspace = true, features = ["process"] }
 oci-spec = { workspace = true }

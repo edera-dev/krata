@@ -22,7 +22,7 @@ use std::{fs, io};
 use sys_mount::{FilesystemType, Mount, MountFlags};
 use walkdir::WalkDir;
 
-use crate::background::ContainerBackground;
+use crate::background::GuestBackground;
 
 const IMAGE_BLOCK_DEVICE_PATH: &str = "/dev/xvda";
 const CONFIG_BLOCK_DEVICE_PATH: &str = "/dev/xvdb";
@@ -516,7 +516,7 @@ impl GuestInit {
     }
 
     async fn background(&mut self, executed: Pid) -> Result<()> {
-        let mut background = ContainerBackground::new(executed).await?;
+        let mut background = GuestBackground::new(executed).await?;
         background.run().await?;
         Ok(())
     }
