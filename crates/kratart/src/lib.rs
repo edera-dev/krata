@@ -7,11 +7,15 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use ipnetwork::IpNetwork;
+use log::error;
 use loopdev::LoopControl;
-use tokio::sync::Mutex;
+use tokio::{
+    sync::{mpsc::Sender, Mutex},
+    task::JoinHandle,
+};
 use uuid::Uuid;
 use xenclient::XenClient;
-use xenstore::{XsdClient, XsdInterface};
+use xenstore::{XsdClient, XsdInterface, XsdWatchHandle};
 
 use self::{
     autoloop::AutoLoop,
@@ -232,6 +236,28 @@ impl Runtime {
         launcher.launch(&mut context, request).await
     }
 
+    pub async fn subscribe_exit_code(
+        &self,
+        uuid: Uuid,
+        sender: Sender<(Uuid, i32)>,
+    ) -> Result<JoinHandle<()>> {
+        let mut context = self.context.lock().await;
+        let info = context
+            .resolve(uuid)
+            .await?
+            .ok_or_else(|| anyhow!("unable to resolve guest: {}", uuid))?;
+        let path = format!("/local/domain/{}/krata/guest/exit-code", info.domid);
+        let handle = context.xen.store.watch(&path).await?;
+        let watch = ExitCodeWatch {
+            handle,
+            sender,
+            store: context.xen.store.clone(),
+            uuid,
+            path,
+        };
+        watch.launch().await
+    }
+
     pub async fn destroy(&self, uuid: Uuid) -> Result<Uuid> {
         let mut context = self.context.lock().await;
         let info = context
@@ -304,4 +330,45 @@ fn path_as_string(path: &Path) -> Result<String> {
     path.to_str()
         .ok_or_else(|| anyhow!("unable to convert path to string"))
         .map(|x| x.to_string())
+}
+
+struct ExitCodeWatch {
+    store: XsdClient,
+    handle: XsdWatchHandle,
+    uuid: Uuid,
+    sender: Sender<(Uuid, i32)>,
+    path: String,
+}
+
+impl ExitCodeWatch {
+    pub async fn launch(mut self) -> Result<JoinHandle<()>> {
+        Ok(tokio::task::spawn(async move {
+            if let Err(error) = self.process().await {
+                error!("failed to watch exit for guest {}: {}", self.uuid, error);
+            }
+        }))
+    }
+
+    async fn process(&mut self) -> Result<()> {
+        loop {
+            match self.handle.receiver.recv().await {
+                Some(_) => {
+                    let exit_code_string = self.store.read_string(&self.path).await?;
+                    if let Some(exit_code) = exit_code_string.and_then(|x| i32::from_str(&x).ok()) {
+                        match self.sender.try_send((self.uuid, exit_code)) {
+                            Ok(_) => {}
+                            Err(error) => {
+                                return Err(error.into());
+                            }
+                        }
+                        return Ok(());
+                    }
+                }
+
+                None => {
+                    return Ok(());
+                }
+            }
+        }
+    }
 }

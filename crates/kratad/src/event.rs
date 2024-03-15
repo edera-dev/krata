@@ -1,22 +1,27 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, str::FromStr, time::Duration};
 
 use anyhow::Result;
 use krata::common::{GuestExitInfo, GuestState, GuestStatus};
 use log::error;
 use tokio::{
-    sync::{broadcast, mpsc::Sender},
+    select,
+    sync::{
+        broadcast,
+        mpsc::{channel, Receiver, Sender},
+    },
     task::JoinHandle,
     time,
 };
 use uuid::Uuid;
 
-use kratart::{GuestInfo, Runtime};
+use kratart::Runtime;
 
 use crate::db::GuestStore;
 
 pub type DaemonEvent = krata::control::watch_events_reply::Event;
 
 const EVENT_CHANNEL_QUEUE_LEN: usize = 1000;
+const EXIT_CODE_CHANNEL_QUEUE_LEN: usize = 1000;
 
 #[derive(Clone)]
 pub struct DaemonEventContext {
@@ -38,8 +43,11 @@ pub struct DaemonEventGenerator {
     runtime: Runtime,
     guests: GuestStore,
     guest_reconciler_notify: Sender<Uuid>,
-    last: HashMap<Uuid, GuestInfo>,
-    _sender: broadcast::Sender<DaemonEvent>,
+    feed: broadcast::Receiver<DaemonEvent>,
+    exit_code_sender: Sender<(Uuid, i32)>,
+    exit_code_receiver: Receiver<(Uuid, i32)>,
+    exit_code_handles: HashMap<Uuid, JoinHandle<()>>,
+    _event_sender: broadcast::Sender<DaemonEvent>,
 }
 
 impl DaemonEventGenerator {
@@ -49,64 +57,93 @@ impl DaemonEventGenerator {
         runtime: Runtime,
     ) -> Result<(DaemonEventContext, DaemonEventGenerator)> {
         let (sender, _) = broadcast::channel(EVENT_CHANNEL_QUEUE_LEN);
+        let (exit_code_sender, exit_code_receiver) = channel(EXIT_CODE_CHANNEL_QUEUE_LEN);
         let generator = DaemonEventGenerator {
             runtime,
             guests,
             guest_reconciler_notify,
-            last: HashMap::new(),
-            _sender: sender.clone(),
+            feed: sender.subscribe(),
+            exit_code_receiver,
+            exit_code_sender,
+            exit_code_handles: HashMap::new(),
+            _event_sender: sender.clone(),
         };
         let context = DaemonEventContext { sender };
         Ok((context, generator))
     }
 
-    async fn evaluate(&mut self) -> Result<()> {
-        let guests = self.runtime.list().await?;
-        let guests = {
-            let mut map = HashMap::new();
-            for guest in guests {
-                map.insert(guest.uuid, guest);
-            }
-            map
-        };
-
-        let mut exits: Vec<(Uuid, i32)> = Vec::new();
-
-        for (uuid, guest) in &guests {
-            let Some(last) = self.last.get(uuid) else {
-                continue;
-            };
-
-            if last.state.exit_code.is_some() {
-                continue;
-            }
-
-            let Some(code) = guest.state.exit_code else {
-                continue;
-            };
-
-            exits.push((*uuid, code));
-        }
-
-        for (uuid, code) in exits {
-            if let Some(mut entry) = self.guests.read(uuid).await? {
-                let Some(ref mut guest) = entry.guest else {
-                    continue;
+    async fn handle_feed_event(&mut self, event: &DaemonEvent) -> Result<()> {
+        match event {
+            DaemonEvent::GuestChanged(changed) => {
+                let Some(ref guest) = changed.guest else {
+                    return Ok(());
                 };
 
-                guest.state = Some(GuestState {
-                    status: GuestStatus::Exited.into(),
-                    exit_info: Some(GuestExitInfo { code }),
-                    error_info: None,
-                });
+                let Some(ref state) = guest.state else {
+                    return Ok(());
+                };
 
-                self.guests.update(uuid, entry).await?;
-                self.guest_reconciler_notify.send(uuid).await?;
+                let status = state.status();
+                let id = Uuid::from_str(&guest.id)?;
+                match status {
+                    GuestStatus::Started => {
+                        let handle = self
+                            .runtime
+                            .subscribe_exit_code(id, self.exit_code_sender.clone())
+                            .await?;
+                        self.exit_code_handles.insert(id, handle);
+                    }
+
+                    GuestStatus::Destroyed => {
+                        if let Some(handle) = self.exit_code_handles.remove(&id) {
+                            handle.abort();
+                        }
+                    }
+
+                    _ => {}
+                }
             }
         }
-
-        self.last = guests;
         Ok(())
+    }
+
+    async fn handle_exit_code(&mut self, id: Uuid, code: i32) -> Result<()> {
+        if let Some(mut entry) = self.guests.read(id).await? {
+            let Some(ref mut guest) = entry.guest else {
+                return Ok(());
+            };
+
+            guest.state = Some(GuestState {
+                status: GuestStatus::Exited.into(),
+                exit_info: Some(GuestExitInfo { code }),
+                error_info: None,
+            });
+
+            self.guests.update(id, entry).await?;
+            self.guest_reconciler_notify.send(id).await?;
+        }
+        Ok(())
+    }
+
+    async fn evaluate(&mut self) -> Result<()> {
+        select! {
+            x = self.exit_code_receiver.recv() => match x {
+                Some((uuid, code)) => {
+                    self.handle_exit_code(uuid, code).await
+                },
+                None => {
+                    Ok(())
+                }
+            },
+            x = self.feed.recv() => match x {
+                Ok(event) => {
+                    self.handle_feed_event(&event).await
+                },
+                Err(error) => {
+                    Err(error.into())
+                }
+            }
+        }
     }
 
     pub async fn launch(mut self) -> Result<JoinHandle<()>> {
@@ -115,8 +152,6 @@ impl DaemonEventGenerator {
                 if let Err(error) = self.evaluate().await {
                     error!("failed to evaluate daemon events: {}", error);
                     time::sleep(Duration::from_secs(5)).await;
-                } else {
-                    time::sleep(Duration::from_millis(500)).await;
                 }
             }
         }))

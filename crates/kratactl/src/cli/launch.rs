@@ -7,6 +7,7 @@ use krata::{
     },
 };
 use log::error;
+use tokio::select;
 use tonic::{transport::Channel, Request};
 
 use crate::{console::StdioConsoleStream, events::EventStream};
@@ -52,17 +53,25 @@ impl LauchCommand {
             .await?
             .into_inner();
         let id = response.guest_id;
-        if self.attach {
+        let code = if self.attach {
             wait_guest_started(&id, events.clone()).await?;
             let input = StdioConsoleStream::stdin_stream(id.clone()).await;
             let output = client.console_data(input).await?.into_inner();
+            let stdout_handle =
+                tokio::task::spawn(async move { StdioConsoleStream::stdout(output).await });
             let exit_hook_task = StdioConsoleStream::guest_exit_hook(id.clone(), events).await?;
-            StdioConsoleStream::stdout(output).await?;
-            exit_hook_task.abort();
+            select! {
+                x = stdout_handle => {
+                    x??;
+                    None
+                },
+                x = exit_hook_task => x?
+            }
         } else {
             println!("created guest: {}", id);
-        }
-        Ok(())
+            None
+        };
+        std::process::exit(code.unwrap_or(0));
     }
 }
 

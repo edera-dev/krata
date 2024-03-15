@@ -9,7 +9,7 @@ use krata::{
     common::GuestStatus,
     control::{watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest},
 };
-use log::{debug, warn};
+use log::debug;
 use termion::raw::IntoRawMode;
 use tokio::{
     fs::File,
@@ -61,7 +61,10 @@ impl StdioConsoleStream {
         Ok(())
     }
 
-    pub async fn guest_exit_hook(id: String, events: EventStream) -> Result<JoinHandle<()>> {
+    pub async fn guest_exit_hook(
+        id: String,
+        events: EventStream,
+    ) -> Result<JoinHandle<Option<i32>>> {
         Ok(tokio::task::spawn(async move {
             let mut stream = events.subscribe();
             while let Ok(event) = stream.recv().await {
@@ -80,16 +83,17 @@ impl StdioConsoleStream {
                         }
 
                         if let Some(exit_info) = state.exit_info {
-                            std::process::exit(exit_info.code);
+                            return Some(exit_info.code);
                         }
 
-                        if state.status() == GuestStatus::Destroy {
-                            warn!("attached guest was destroyed");
-                            std::process::exit(1);
+                        let status = state.status();
+                        if status == GuestStatus::Destroy || status == GuestStatus::Destroyed {
+                            return Some(10);
                         }
                     }
                 }
             }
+            None
         }))
     }
 }
