@@ -3,12 +3,22 @@ pub mod elfloader;
 pub mod error;
 pub mod mem;
 pub mod sys;
+
+#[cfg(target_arch = "x86_64")]
 pub mod x86;
+
+#[cfg(target_arch = "x86_64")]
+use crate::x86::X86BootSetup;
+
+#[cfg(target_arch = "aarch64")]
+pub mod arm64;
+
+#[cfg(target_arch = "aarch64")]
+use crate::arm64::Arm64BootSetup;
 
 use crate::boot::BootSetup;
 use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
-use crate::x86::X86BootSetup;
 use log::{trace, warn};
 
 use std::fs::read;
@@ -17,7 +27,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
-use xencall::sys::CreateDomain;
+use xencall::sys::{CreateDomain, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST};
 use xencall::XenCall;
 use xenstore::{
     XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
@@ -90,10 +100,15 @@ impl XenClient {
     }
 
     pub async fn create(&mut self, config: &DomainConfig<'_>) -> Result<u32> {
-        let domain = CreateDomain {
+        let mut domain = CreateDomain {
             max_vcpus: config.max_vcpus,
             ..Default::default()
         };
+
+        if cfg!(target_arch = "aarch64") {
+            domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP;
+        }
+
         let domid = self.call.create_domain(domain)?;
         match self.init(domid, &domain, config).await {
             Ok(_) => Ok(domid),
@@ -233,7 +248,10 @@ impl XenClient {
 
         {
             let mut boot = BootSetup::new(&self.call, domid);
+            #[cfg(target_arch = "x86_64")]
             let mut arch = X86BootSetup::new();
+            #[cfg(target_arch = "aarch64")]
+            let mut arch = Arm64BootSetup::new();
             let initrd = read(config.initrd_path)?;
             let mut state = boot.initialize(
                 &mut arch,
@@ -448,7 +466,7 @@ impl XenClient {
         domid: u32,
         index: usize,
         port: Option<u32>,
-        mfn: Option<u64>,
+        ring: Option<u64>,
     ) -> Result<()> {
         let mut backend_entries = vec![
             ("frontend-id", domid.to_string()),
@@ -472,10 +490,10 @@ impl XenClient {
             backend_entries.push(("output", "pty".to_string()));
         }
 
-        if port.is_some() && mfn.is_some() {
+        if port.is_some() && ring.is_some() {
             frontend_entries.extend_from_slice(&[
                 ("port", port.unwrap().to_string()),
-                ("ring-ref", mfn.unwrap().to_string()),
+                ("ring-ref", ring.unwrap().to_string()),
             ]);
         } else {
             frontend_entries.extend_from_slice(&[

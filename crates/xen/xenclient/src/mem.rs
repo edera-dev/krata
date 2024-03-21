@@ -5,7 +5,11 @@ use libc::munmap;
 use log::debug;
 use std::ffi::c_void;
 
-use crate::x86::X86_PAGE_SHIFT;
+#[cfg(target_arch = "aarch64")]
+pub(crate) use crate::arm64::ARM_PAGE_SHIFT as ARCH_PAGE_SHIFT;
+#[cfg(target_arch = "x86_64")]
+pub(crate) use crate::x86::X86_PAGE_SHIFT as ARCH_PAGE_SHIFT;
+
 use xencall::sys::MmapEntry;
 use xencall::XenCall;
 
@@ -65,7 +69,7 @@ impl PhysicalPages<'_> {
                 }
             }
 
-            return Ok(page.ptr + ((pfn - page.pfn) << X86_PAGE_SHIFT));
+            return Ok(page.ptr + ((pfn - page.pfn) << ARCH_PAGE_SHIFT));
         }
 
         if count == 0 {
@@ -148,7 +152,7 @@ impl PhysicalPages<'_> {
             unsafe {
                 let err = munmap(
                     page.ptr as *mut c_void,
-                    (page.count << X86_PAGE_SHIFT) as usize,
+                    (page.count << ARCH_PAGE_SHIFT) as usize,
                 );
                 if err != 0 {
                     return Err(Error::UnmapFailed);
@@ -169,11 +173,11 @@ impl PhysicalPages<'_> {
         unsafe {
             let err = munmap(
                 page.ptr as *mut c_void,
-                (page.count << X86_PAGE_SHIFT) as usize,
+                (page.count << ARCH_PAGE_SHIFT) as usize,
             );
             debug!(
                 "unmapped {:#x} foreign bytes at {:#x}",
-                (page.count << X86_PAGE_SHIFT) as usize,
+                (page.count << ARCH_PAGE_SHIFT) as usize,
                 page.ptr
             );
             if err != 0 {

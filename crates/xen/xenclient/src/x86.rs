@@ -291,7 +291,7 @@ impl ArchBootSetup for X86BootSetup {
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
-    ) -> Result<DomainSegment> {
+    ) -> Result<Option<DomainSegment>> {
         let mut p2m_alloc_size =
             ((setup.phys.p2m_size() * 8) + X86_PAGE_SIZE - 1) & !(X86_PAGE_SIZE - 1);
         let from = image_info.virt_p2m_base;
@@ -310,14 +310,14 @@ impl ArchBootSetup for X86BootSetup {
         self.table.mappings_count += 1;
         p2m_alloc_size += (pgtables << X86_PAGE_SHIFT) as u64;
         let p2m_segment = setup.alloc_segment(self, 0, p2m_alloc_size)?;
-        Ok(p2m_segment)
+        Ok(Some(p2m_segment))
     }
 
     fn alloc_page_tables(
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
-    ) -> Result<DomainSegment> {
+    ) -> Result<Option<DomainSegment>> {
         let mut extra_pages = 1;
         extra_pages += (512 * 1024) / X86_PAGE_SIZE;
         let mut pages = extra_pages;
@@ -345,7 +345,7 @@ impl ArchBootSetup for X86BootSetup {
             "alloc_page_tables table={:?} segment={:?}",
             self.table, segment
         );
-        Ok(segment)
+        Ok(Some(segment))
     }
 
     fn setup_page_tables(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
@@ -461,22 +461,13 @@ impl ArchBootSetup for X86BootSetup {
         Ok(())
     }
 
-    fn setup_hypercall_page(
+    fn meminit(
         &mut self,
         setup: &mut BootSetup,
-        image_info: &BootImageInfo,
+        total_pages: u64,
+        kernel_segment: &DomainSegment,
+        initrd_segment: &Option<DomainSegment>,
     ) -> Result<()> {
-        if image_info.virt_hypercall == XEN_UNSET_ADDR {
-            return Ok(());
-        }
-
-        let pfn = (image_info.virt_hypercall - image_info.virt_base) >> X86_PAGE_SHIFT;
-        let mfn = setup.phys.p2m[pfn as usize];
-        setup.call.hypercall_init(setup.domid, mfn)?;
-        Ok(())
-    }
-
-    fn meminit(&mut self, setup: &mut BootSetup, total_pages: u64) -> Result<()> {
         setup.call.claim_pages(setup.domid, total_pages)?;
         let mut vmemranges: Vec<VmemRange> = Vec::new();
         let stub = VmemRange {
