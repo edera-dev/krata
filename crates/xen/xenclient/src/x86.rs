@@ -1,6 +1,4 @@
-use crate::boot::{
-    ArchBootSetup, BootImageInfo, BootSetup, BootState, DomainSegment, XEN_UNSET_ADDR,
-};
+use crate::boot::{ArchBootSetup, BootImageInfo, BootSetup, BootState, DomainSegment};
 use crate::error::Result;
 use crate::sys::{
     SUPERPAGE_2MB_NR_PFNS, SUPERPAGE_2MB_SHIFT, SUPERPAGE_BATCH_SIZE, VGCF_IN_KERNEL, VGCF_ONLINE,
@@ -349,11 +347,9 @@ impl ArchBootSetup for X86BootSetup {
     }
 
     fn setup_page_tables(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
+        let p2m_segment = state.p2m_segment.as_ref().ok_or(Error::MemorySetupFailed)?;
         let p2m_guest = unsafe {
-            slice::from_raw_parts_mut(
-                state.p2m_segment.addr as *mut u64,
-                setup.phys.p2m_size() as usize,
-            )
+            slice::from_raw_parts_mut(p2m_segment.addr as *mut u64, setup.phys.p2m_size() as usize)
         };
         copy(p2m_guest, &setup.phys.p2m);
 
@@ -416,6 +412,12 @@ impl ArchBootSetup for X86BootSetup {
             unsafe { slice::from_raw_parts_mut(ptr as *mut u8, X86_PAGE_SIZE as usize) };
         byte_slice.fill(0);
         let info = ptr as *mut StartInfo;
+
+        let page_table_segment = state
+            .page_table_segment
+            .as_ref()
+            .ok_or(Error::MemorySetupFailed)?;
+        let p2m_segment = state.p2m_segment.as_ref().ok_or(Error::MemorySetupFailed)?;
         unsafe {
             for (i, c) in X86_GUEST_MAGIC.chars().enumerate() {
                 (*info).magic[i] = c as c_char;
@@ -423,11 +425,11 @@ impl ArchBootSetup for X86BootSetup {
             (*info).magic[X86_GUEST_MAGIC.len()] = 0 as c_char;
             (*info).nr_pages = setup.total_pages;
             (*info).shared_info = state.shared_info_frame << X86_PAGE_SHIFT;
-            (*info).pt_base = state.page_table_segment.vstart;
+            (*info).pt_base = page_table_segment.vstart;
             (*info).nr_pt_frames = self.table.mappings[0].area.pgtables as u64;
-            (*info).mfn_list = state.p2m_segment.vstart;
-            (*info).first_p2m_pfn = state.p2m_segment.pfn;
-            (*info).nr_p2m_frames = state.p2m_segment.pages;
+            (*info).mfn_list = p2m_segment.vstart;
+            (*info).first_p2m_pfn = p2m_segment.pfn;
+            (*info).nr_p2m_frames = p2m_segment.pages;
             (*info).flags = 0;
             (*info).store_evtchn = state.store_evtchn;
             (*info).store_mfn = setup.phys.p2m[state.xenstore_segment.pfn as usize];
@@ -465,8 +467,8 @@ impl ArchBootSetup for X86BootSetup {
         &mut self,
         setup: &mut BootSetup,
         total_pages: u64,
-        kernel_segment: &DomainSegment,
-        initrd_segment: &Option<DomainSegment>,
+        _: &DomainSegment,
+        _: &Option<DomainSegment>,
     ) -> Result<()> {
         setup.call.claim_pages(setup.domid, total_pages)?;
         let mut vmemranges: Vec<VmemRange> = Vec::new();
@@ -574,10 +576,15 @@ impl ArchBootSetup for X86BootSetup {
     }
 
     fn bootlate(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
-        let pg_pfn = state.page_table_segment.pfn;
+        let p2m_segment = state.p2m_segment.as_ref().ok_or(Error::MemorySetupFailed)?;
+        let page_table_segment = state
+            .page_table_segment
+            .as_ref()
+            .ok_or(Error::MemorySetupFailed)?;
+        let pg_pfn = page_table_segment.pfn;
         let pg_mfn = setup.phys.p2m[pg_pfn as usize];
         setup.phys.unmap(pg_pfn)?;
-        setup.phys.unmap(state.p2m_segment.pfn)?;
+        setup.phys.unmap(p2m_segment.pfn)?;
         setup
             .call
             .mmuext(setup.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)?;
@@ -585,7 +592,11 @@ impl ArchBootSetup for X86BootSetup {
     }
 
     fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
-        let pg_pfn = state.page_table_segment.pfn;
+        let page_table_segment = state
+            .page_table_segment
+            .as_ref()
+            .ok_or(Error::MemorySetupFailed)?;
+        let pg_pfn = page_table_segment.pfn;
         let pg_mfn = setup.phys.p2m[pg_pfn as usize];
         let mut vcpu = VcpuGuestContext::default();
         vcpu.user_regs.rip = state.image_info.virt_entry;
@@ -598,10 +609,7 @@ impl ArchBootSetup for X86BootSetup {
         vcpu.debugreg[7] = 0x00000400;
         vcpu.flags = VGCF_IN_KERNEL | VGCF_ONLINE;
         let cr3_pfn = pg_mfn;
-        debug!(
-            "cr3: pfn {:#x} mfn {:#x}",
-            state.page_table_segment.pfn, cr3_pfn
-        );
+        debug!("cr3: pfn {:#x} mfn {:#x}", page_table_segment.pfn, cr3_pfn);
         vcpu.ctrlreg[3] = cr3_pfn << 12;
         vcpu.user_regs.ds = 0x0;
         vcpu.user_regs.es = 0x0;

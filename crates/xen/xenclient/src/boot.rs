@@ -38,6 +38,7 @@ pub struct BootSetup<'a> {
     pub(crate) pfn_alloc_end: u64,
     pub(crate) virt_pgtab_end: u64,
     pub(crate) total_pages: u64,
+    #[cfg(target_arch = "aarch64")]
     pub(crate) dtb: Option<Vec<u8>>,
 }
 
@@ -78,6 +79,7 @@ impl BootSetup<'_> {
             pfn_alloc_end: 0,
             virt_pgtab_end: 0,
             total_pages: 0,
+            #[cfg(target_arch = "aarch64")]
             dtb: None,
         }
     }
