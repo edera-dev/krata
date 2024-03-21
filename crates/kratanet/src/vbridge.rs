@@ -60,7 +60,7 @@ pub struct VirtualBridge {
 }
 
 enum VirtualBridgeSelect {
-    BroadcastSent(Option<BytesMut>),
+    BroadcastSent,
     PacketReceived(Option<BytesMut>),
     MemberLeave(Option<EthernetAddress>),
 }
@@ -133,7 +133,7 @@ impl VirtualBridge {
         loop {
             let selection = select! {
                 biased;
-                x = from_broadcast_receiver.recv() => VirtualBridgeSelect::BroadcastSent(x.ok()),
+                _ = from_broadcast_receiver.recv() => VirtualBridgeSelect::BroadcastSent,
                 x = to_bridge_receiver.recv() => VirtualBridgeSelect::PacketReceived(x),
                 x = member_leave_reciever.recv() => VirtualBridgeSelect::MemberLeave(x),
             };
@@ -204,7 +204,7 @@ impl VirtualBridge {
 
                 VirtualBridgeSelect::PacketReceived(None) => break,
                 VirtualBridgeSelect::MemberLeave(None) => {}
-                VirtualBridgeSelect::BroadcastSent(_) => {}
+                VirtualBridgeSelect::BroadcastSent => {}
             }
         }
         Ok(())
