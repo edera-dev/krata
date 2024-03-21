@@ -4,7 +4,7 @@ set -e
 # shellcheck source-path=SCRIPTDIR source=common.sh
 . "$(dirname "${0}")/common.sh"
 
-export RUST_LIBC="musl"
+export TARGET_LIBC="musl"
 KRATA_SYSTAR_OPENRC=1 "${KRATA_DIR}/hack/dist/systar.sh"
 
 KRATA_VERSION="$("${KRATA_DIR}/hack/dist/version.sh")"
@@ -22,4 +22,4 @@ fpm -s tar -t apk \
   --description "Krata Hypervisor" \
   --url "https://krata.dev" \
   --maintainer "Edera Team <contact@edera.dev>" \
-  "${OUTPUT_DIR}/system-openrc.tgz"
+  "${OUTPUT_DIR}/system-openrc-${TARGET_ARCH}.tgz"

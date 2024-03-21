@@ -24,8 +24,8 @@ pub enum Error {
     MmapFailed,
     #[error("munmap failed")]
     UnmapFailed,
-    #[error("memory setup failed")]
-    MemorySetupFailed,
+    #[error("memory setup failed: {0}")]
+    MemorySetupFailed(&'static str),
     #[error("populate physmap failed: wanted={0}, received={1}, input_extents={2}")]
     PopulatePhysmapFailed(usize, usize, usize),
     #[error("unknown elf compression method")]

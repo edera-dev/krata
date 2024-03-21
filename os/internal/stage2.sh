@@ -1,9 +1,20 @@
 #!/bin/sh
 set -e
 
+TARGET_ARCH="${1}"
+TARGET_ARCH_ALT="${2}"
 apk add --update-cache grub-efi
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --no-nvram --skip-fs-probe --bootloader-id=BOOT
-mv /boot/efi/EFI/BOOT/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.efi
+grub-install --target="${TARGET_ARCH_ALT}-efi" --efi-directory=/boot/efi --no-nvram --skip-fs-probe --bootloader-id=BOOT
+
+FROM_EFI_FILE="grubx64.efi"
+TO_EFI_FILE="BOOTX64.efi"
+if [ "${TARGET_ARCH}" = "aarch64" ]
+then
+  FROM_EFI_FILE="grubaa64.efi"
+  TO_EFI_FILE="BOOTA64.efi"
+fi
+
+mv "/boot/efi/EFI/BOOT/${FROM_EFI_FILE}" "/boot/efi/EFI/BOOT/${TO_EFI_FILE}"
 
 ROOT_UUID="$(cat /root-uuid)"
 

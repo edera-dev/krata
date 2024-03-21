@@ -2,24 +2,45 @@ name: check
 on: [push, pull_request]
 jobs:
   build:
-    name: cargo build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: cargo build ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
     - run: ./hack/ci/install-deps.sh
     - run: ./hack/build/cargo.sh build
   test:
-    name: cargo test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: cargo test ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
     - run: ./hack/ci/install-deps.sh
     - run: ./hack/build/cargo.sh test
   clippy:
-    name: cargo clippy
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: cargo clippy ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
@@ -27,6 +48,23 @@ jobs:
         components: clippy
     - run: ./hack/ci/install-deps.sh
     - run: ./hack/build/cargo.sh clippy
+  initrd:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: initrd ${{ matrix.arch }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
+    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/initrd/build.sh
   fmt:
     name: cargo fmt
     runs-on: ubuntu-latest
@@ -37,16 +75,6 @@ jobs:
         components: rustfmt
     - run: ./hack/ci/install-deps.sh
     - run: ./hack/build/cargo.sh fmt --all -- --check
-  initrd:
-    name: initrd
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: "x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl"
-    - run: ./hack/ci/install-deps.sh
-    - run: ./hack/initrd/build.sh
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest

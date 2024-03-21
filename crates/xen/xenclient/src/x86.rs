@@ -116,7 +116,6 @@ pub struct SharedInfo {
     pub wc_sec: u32,
     pub wc_nsec: u32,
     pub wc_sec_hi: u32,
-
     // arch shared info
     pub max_pfn: u64,
     pub pfn_to_mfn_frame_list_list: u64,
@@ -201,19 +200,19 @@ impl X86BootSetup {
     ) -> Result<usize> {
         debug!("counting pgtables from={} to={} pfn={}", from, to, pfn);
         if self.table.mappings_count == X86_PAGE_TABLE_MAX_MAPPINGS {
-            return Err(Error::MemorySetupFailed);
+            return Err(Error::MemorySetupFailed("max page table count reached"));
         }
 
         let m = self.table.mappings_count;
 
         let pfn_end = pfn + ((to - from) >> X86_PAGE_SHIFT);
         if pfn_end >= setup.phys.p2m_size() {
-            return Err(Error::MemorySetupFailed);
+            return Err(Error::MemorySetupFailed("pfn_end greater than p2m size"));
         }
 
         for idx in 0..self.table.mappings_count {
             if from < self.table.mappings[idx].area.to && to > self.table.mappings[idx].area.from {
-                return Err(Error::MemorySetupFailed);
+                return Err(Error::MemorySetupFailed("page table calculation failed"));
             }
         }
         let mut map = PageTableMapping::default();
@@ -285,6 +284,10 @@ impl ArchBootSetup for X86BootSetup {
         X86_PAGE_SHIFT
     }
 
+    fn needs_early_kernel(&mut self) -> bool {
+        false
+    }
+
     fn alloc_p2m_segment(
         &mut self,
         setup: &mut BootSetup,
@@ -347,7 +350,10 @@ impl ArchBootSetup for X86BootSetup {
     }
 
     fn setup_page_tables(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
-        let p2m_segment = state.p2m_segment.as_ref().ok_or(Error::MemorySetupFailed)?;
+        let p2m_segment = state
+            .p2m_segment
+            .as_ref()
+            .ok_or(Error::MemorySetupFailed("p2m_segment missing"))?;
         let p2m_guest = unsafe {
             slice::from_raw_parts_mut(p2m_segment.addr as *mut u64, setup.phys.p2m_size() as usize)
         };
@@ -416,8 +422,11 @@ impl ArchBootSetup for X86BootSetup {
         let page_table_segment = state
             .page_table_segment
             .as_ref()
-            .ok_or(Error::MemorySetupFailed)?;
-        let p2m_segment = state.p2m_segment.as_ref().ok_or(Error::MemorySetupFailed)?;
+            .ok_or(Error::MemorySetupFailed("page_table_segment missing"))?;
+        let p2m_segment = state
+            .p2m_segment
+            .as_ref()
+            .ok_or(Error::MemorySetupFailed("p2m_segment missing"))?;
         unsafe {
             for (i, c) in X86_GUEST_MAGIC.chars().enumerate() {
                 (*info).magic[i] = c as c_char;
@@ -467,7 +476,7 @@ impl ArchBootSetup for X86BootSetup {
         &mut self,
         setup: &mut BootSetup,
         total_pages: u64,
-        _: &DomainSegment,
+        _: &Option<DomainSegment>,
         _: &Option<DomainSegment>,
     ) -> Result<()> {
         setup.call.claim_pages(setup.domid, total_pages)?;
@@ -487,7 +496,7 @@ impl ArchBootSetup for X86BootSetup {
         }
 
         if total != total_pages {
-            return Err(Error::MemorySetupFailed);
+            return Err(Error::MemorySetupFailed("total pages mismatch"));
         }
 
         setup.total_pages = total;
@@ -576,11 +585,14 @@ impl ArchBootSetup for X86BootSetup {
     }
 
     fn bootlate(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
-        let p2m_segment = state.p2m_segment.as_ref().ok_or(Error::MemorySetupFailed)?;
+        let p2m_segment = state
+            .p2m_segment
+            .as_ref()
+            .ok_or(Error::MemorySetupFailed("p2m_segment missing"))?;
         let page_table_segment = state
             .page_table_segment
             .as_ref()
-            .ok_or(Error::MemorySetupFailed)?;
+            .ok_or(Error::MemorySetupFailed("page_table_segment missing"))?;
         let pg_pfn = page_table_segment.pfn;
         let pg_mfn = setup.phys.p2m[pg_pfn as usize];
         setup.phys.unmap(pg_pfn)?;
@@ -595,7 +607,7 @@ impl ArchBootSetup for X86BootSetup {
         let page_table_segment = state
             .page_table_segment
             .as_ref()
-            .ok_or(Error::MemorySetupFailed)?;
+            .ok_or(Error::MemorySetupFailed("page_table_segment missing"))?;
         let pg_pfn = page_table_segment.pfn;
         let pg_mfn = setup.phys.p2m[pg_pfn as usize];
         let mut vcpu = VcpuGuestContext::default();

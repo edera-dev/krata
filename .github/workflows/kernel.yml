@@ -10,10 +10,18 @@ on:
     - "hack/ci/**"
 jobs:
   build:
-    name: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: build ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
     - run: ./hack/ci/install-deps.sh
     - run: ./hack/kernel/build.sh
       env:

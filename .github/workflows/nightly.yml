@@ -5,43 +5,50 @@ on:
   - cron: "0 10 * * *"
 jobs:
   build:
-    name: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: build ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
       with:
-        targets: "x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl"
+        targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
     - run: ./hack/ci/install-deps.sh
     - run: ./hack/dist/bundle.sh
       env:
         KRATA_KERNEL_BUILD_JOBS: "5"
     - uses: actions/upload-artifact@v4
       with:
-        name: krata-bundle-systemd-x86_64
-        path: "target/dist/bundle-systemd.tgz"
+        name: krata-bundle-systemd-${{ matrix.arch }}
+        path: "target/dist/bundle-systemd-${{ matrix.arch }}.tgz"
         compression-level: 0
     - run: ./hack/dist/deb.sh
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
     - uses: actions/upload-artifact@v4
       with:
-        name: krata-debian-x86_64
-        path: "target/dist/*_amd64.deb"
+        name: krata-debian-${{ matrix.arch }}
+        path: "target/dist/*.deb"
         compression-level: 0
     - run: ./hack/dist/apk.sh
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
     - uses: actions/upload-artifact@v4
       with:
-        name: krata-alpine-x86_64
-        path: "target/dist/*_x86_64.apk"
+        name: krata-alpine-${{ matrix.arch }}
+        path: "target/dist/*_${{ matrix.arch }}.apk"
         compression-level: 0
     - run: ./hack/os/build.sh
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
     - uses: actions/upload-artifact@v4
       with:
-        name: krata-os-x86_64
-        path: "target/os/krata.qcow2"
+        name: krata-os-${{ matrix.arch }}
+        path: "target/os/krata-${{ matrix.arch }}.qcow2"
         compression-level: 0

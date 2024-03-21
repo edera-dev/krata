@@ -9,15 +9,18 @@ then
   KRATA_KERNEL_BUILD_JOBS="2"
 fi
 
-BUNDLE_TAR="${OUTPUT_DIR}/bundle-systemd.tgz"
+TARGET_ARCH="$("${KRATA_DIR}/hack/build/arch.sh")"
+BUNDLE_TAR="${OUTPUT_DIR}/bundle-systemd-${TARGET_ARCH}.tgz"
 rm -f "${BUNDLE_TAR}"
 BUNDLE_DIR="$(mktemp -d /tmp/krata-bundle.XXXXXXXXXXXXX)"
 BUNDLE_DIR="${BUNDLE_DIR}/krata"
 mkdir -p "${BUNDLE_DIR}"
+
+./hack/build/cargo.sh build --release --bin kratad --bin kratanet --bin kratactl
+
+RUST_TARGET="$(./hack/build/target.sh)"
 for X in kratad kratanet kratactl
 do
-  ./hack/build/cargo.sh build --release --bin "${X}"
-  RUST_TARGET="$(./hack/build/target.sh)"
   cp "${KRATA_DIR}/target/${RUST_TARGET}/release/${X}" "${BUNDLE_DIR}/${X}"
 done
 ./hack/initrd/build.sh
@@ -28,8 +31,8 @@ fi
 
 cd "${BUNDLE_DIR}"
 
-cp "${KRATA_DIR}/target/initrd/initrd" initrd
-cp "${KRATA_DIR}/target/kernel/kernel" kernel
+cp "${KRATA_DIR}/target/initrd/initrd-${TARGET_ARCH}" initrd
+cp "${KRATA_DIR}/target/kernel/kernel-${TARGET_ARCH}" kernel
 cp "${KRATA_DIR}/resources/systemd/kratad.service" kratad.service
 cp "${KRATA_DIR}/resources/systemd/kratanet.service" kratanet.service
 cp "${KRATA_DIR}/resources/bundle/install.sh" install.sh

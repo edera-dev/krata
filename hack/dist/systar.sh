@@ -12,11 +12,12 @@ then
   SYSTAR_VARIANT="openrc"
 fi
 
-SYSTAR="${OUTPUT_DIR}/system-${SYSTAR_VARIANT}.tgz"
+TARGET_ARCH="$("${KRATA_DIR}/hack/build/arch.sh")"
+SYSTAR="${OUTPUT_DIR}/system-${SYSTAR_VARIANT}-${TARGET_ARCH}.tgz"
 rm -f "${SYSTAR}"
 SYSTAR_DIR="$(mktemp -d /tmp/krata-systar.XXXXXXXXXXXXX)"
 cd "${SYSTAR_DIR}"
-tar xf "${OUTPUT_DIR}/bundle-systemd.tgz"
+tar xf "${OUTPUT_DIR}/bundle-systemd-${TARGET_ARCH}.tgz"
 
 mkdir sys
 cd sys

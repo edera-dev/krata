@@ -57,7 +57,7 @@ impl PhysicalPages<'_> {
                 }
 
                 if pfn < page.pfn || (pfn + count) > page.pfn + page.count {
-                    return Err(Error::MemorySetupFailed);
+                    return Err(Error::MemorySetupFailed("pfn is out of range"));
                 }
             } else {
                 if pfn < page.pfn {
@@ -73,7 +73,7 @@ impl PhysicalPages<'_> {
         }
 
         if count == 0 {
-            return Err(Error::MemorySetupFailed);
+            return Err(Error::MemorySetupFailed("page count is zero"));
         }
 
         self.pfn_alloc(pfn, count)
@@ -166,7 +166,7 @@ impl PhysicalPages<'_> {
     pub fn unmap(&mut self, pfn: u64) -> Result<()> {
         let page = self.pages.iter().enumerate().find(|(_, x)| x.pfn == pfn);
         if page.is_none() {
-            return Err(Error::MemorySetupFailed);
+            return Err(Error::MemorySetupFailed("cannot unmap missing page"));
         }
         let (i, page) = page.unwrap();
 

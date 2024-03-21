@@ -88,7 +88,7 @@ impl BootSetup<'_> {
         &mut self,
         arch: &mut dyn ArchBootSetup,
         total_pages: u64,
-        kernel_segment: &DomainSegment,
+        kernel_segment: &Option<DomainSegment>,
         initrd_segment: &Option<DomainSegment>,
     ) -> Result<()> {
         self.call.set_address_size(self.domid, 64)?;
@@ -119,15 +119,24 @@ impl BootSetup<'_> {
 
         let image_info = image_loader.parse()?;
         debug!("initialize image_info={:?}", image_info);
-        let kernel_segment = self.load_kernel_segment(arch, image_loader, &image_info)?;
+        let mut kernel_segment: Option<DomainSegment> = None;
         let mut initrd_segment: Option<DomainSegment> = None;
         if !image_info.unmapped_initrd {
             initrd_segment = Some(self.alloc_module(arch, initrd)?);
         }
+
+        if arch.needs_early_kernel() {
+            kernel_segment = Some(self.load_kernel_segment(arch, image_loader, &image_info)?);
+        }
+
         let total_pages = mem_mb << (20 - arch.page_shift());
         self.initialize_memory(arch, total_pages, &kernel_segment, &initrd_segment)?;
-
         self.virt_alloc_end = image_info.virt_base;
+
+        if kernel_segment.is_none() {
+            kernel_segment = Some(self.load_kernel_segment(arch, image_loader, &image_info)?);
+        }
+
         let mut p2m_segment: Option<DomainSegment> = None;
         if image_info.virt_p2m_base >= image_info.virt_base
             || (image_info.virt_p2m_base & ((1 << arch.page_shift()) - 1)) != 0
@@ -158,6 +167,10 @@ impl BootSetup<'_> {
         let initrd_segment = initrd_segment.unwrap();
         let store_evtchn = self.call.evtchn_alloc_unbound(self.domid, 0)?;
         let console_evtchn = self.call.evtchn_alloc_unbound(self.domid, 0)?;
+
+        let kernel_segment =
+            kernel_segment.ok_or(Error::MemorySetupFailed("kernel_segment missing"))?;
+
         let state = BootState {
             kernel_segment,
             start_info_segment,
@@ -317,11 +330,11 @@ impl BootSetup<'_> {
 
     fn alloc_padding_pages(&mut self, arch: &mut dyn ArchBootSetup, boundary: u64) -> Result<()> {
         if (boundary & (arch.page_size() - 1)) != 0 {
-            return Err(Error::MemorySetupFailed);
+            return Err(Error::MemorySetupFailed("boundary is incorrect"));
         }
 
         if boundary < self.virt_alloc_end {
-            return Err(Error::MemorySetupFailed);
+            return Err(Error::MemorySetupFailed("boundary is below allocation end"));
         }
         let pages = (boundary - self.virt_alloc_end) / arch.page_size();
         self.chk_alloc_pages(arch, pages)?;
@@ -333,7 +346,7 @@ impl BootSetup<'_> {
             || self.pfn_alloc_end > self.total_pages
             || pages > self.total_pages - self.pfn_alloc_end
         {
-            return Err(Error::MemorySetupFailed);
+            return Err(Error::MemorySetupFailed("no more pages left"));
         }
 
         self.pfn_alloc_end += pages;
@@ -345,6 +358,8 @@ impl BootSetup<'_> {
 pub trait ArchBootSetup {
     fn page_size(&mut self) -> u64;
     fn page_shift(&mut self) -> u64;
+
+    fn needs_early_kernel(&mut self) -> bool;
 
     fn alloc_p2m_segment(
         &mut self,
@@ -373,7 +388,7 @@ pub trait ArchBootSetup {
         &mut self,
         setup: &mut BootSetup,
         total_pages: u64,
-        kernel_segment: &DomainSegment,
+        kernel_segment: &Option<DomainSegment>,
         initrd_segment: &Option<DomainSegment>,
     ) -> Result<()>;
     fn bootlate(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()>;

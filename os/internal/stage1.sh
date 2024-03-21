@@ -1,12 +1,13 @@
 #!/bin/sh
 set -e
 
+TARGET_ARCH="${1}"
 apk add --update-cache alpine-base \
   linux-lts linux-firmware-none \
   mkinitfs dosfstools e2fsprogs \
   tzdata chrony
 
-apk add --allow-untrusted /mnt/target/os/krata.apk
+apk add --allow-untrusted "/mnt/target/os/krata-${TARGET_ARCH}.apk"
 
 for SERVICE in kratad kratanet
 do
@@ -74,7 +75,7 @@ rm -rf /var/cache/apk/*
 rm -rf /.dockerenv
 
 cd /
-rm -f /mnt/target/os/rootfs.tar
-tar cf /mnt/target/os/rootfs.tar --numeric-owner \
+rm -f "/mnt/target/os/rootfs-${TARGET_ARCH}.tar"
+tar cf "/mnt/target/os/rootfs-${TARGET_ARCH}.tar" --numeric-owner \
   --exclude 'mnt/**' --exclude 'proc/**' \
   --exclude 'sys/**' --exclude 'dev/**' .

@@ -18,7 +18,7 @@ it's corresponding code path from the above table.
 
 | Component     | Specification | Notes                                                                             |
 | ------------- | ------------- | --------------------------------------------------------------------------------- |
-| Architecture  | x86_64        | aarch64 support requires minimal effort, but limited to x86 for research phase    |
+| Architecture  | x86_64        | aarch64 support is still in development                                           |
 | Memory        | At least 6GB  | dom0 will need to be configured will lower memory limit to give krata guests room | 
 | Xen           | 4.17          | Temporary due to hardcoded interface version constants                            |
 | Debian        | stable / sid  | Debian is recommended due to the ease of Xen setup                                |

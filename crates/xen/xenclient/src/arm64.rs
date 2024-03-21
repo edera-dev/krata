@@ -137,7 +137,7 @@ impl Arm64BootSetup {
                 &mut extents,
             )?;
             if allocsz == 0 {
-                return Err(Error::MemorySetupFailed);
+                return Err(Error::MemorySetupFailed("allocsz is zero"));
             }
         }
 
@@ -154,6 +154,10 @@ impl ArchBootSetup for Arm64BootSetup {
         ARM_PAGE_SHIFT
     }
 
+    fn needs_early_kernel(&mut self) -> bool {
+        true
+    }
+
     fn setup_shared_info(&mut self, _: &mut BootSetup, _: u64) -> Result<()> {
         Ok(())
     }
@@ -166,9 +170,12 @@ impl ArchBootSetup for Arm64BootSetup {
         &mut self,
         setup: &mut BootSetup,
         total_pages: u64,
-        kernel_segment: &DomainSegment,
+        kernel_segment: &Option<DomainSegment>,
         initrd_segment: &Option<DomainSegment>,
     ) -> Result<()> {
+        let kernel_segment = kernel_segment
+            .as_ref()
+            .ok_or(Error::MemorySetupFailed("kernel_segment missing"))?;
         setup.call.claim_pages(setup.domid, total_pages)?;
         let mut ramsize = total_pages << XEN_PAGE_SHIFT;
 
@@ -218,7 +225,7 @@ impl ArchBootSetup for Arm64BootSetup {
         } else if kernbase - bankbase[0] > modsize {
             kernbase - modsize
         } else {
-            return Err(Error::MemorySetupFailed);
+            return Err(Error::MemorySetupFailed("unable to determine modbase"));
         };
         setup.call.claim_pages(setup.domid, 0)?;
         Ok(())
