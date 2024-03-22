@@ -7,7 +7,7 @@ use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader};
 use log::{debug, trace, warn};
 use oci_spec::image::{ImageConfiguration, ImageManifest};
 use std::fs::File;
-use std::io::{BufReader, Cursor};
+use std::io::{ErrorKind, Read};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -20,18 +20,7 @@ use walkdir::WalkDir;
 
 use crate::image::fetch::{OciImageDownloader, OciImageLayer};
 
-pub const IMAGE_SQUASHFS_VERSION: u64 = 1;
-const LAYER_BUFFER_SIZE: usize = 128 * 1024;
-
-// we utilize in-memory buffers when generating the squashfs for files
-// under this size. for files of or above this size, we open a file.
-// the file is then read during writing. we want to reduce the number
-// of open files during squashfs generation, so this limit should be set
-// to something that limits the number of files on average, at the expense
-// of increased memory usage.
-// TODO: it may be wise to, during crawling of the image layers, infer this
-//       value from the size to file count ratio of all layers.
-const SQUASHFS_MEMORY_BUFFER_LIMIT: usize = 8 * 1024 * 1024;
+pub const IMAGE_SQUASHFS_VERSION: u64 = 2;
 
 pub struct ImageInfo {
     pub image_squashfs: PathBuf,
@@ -238,13 +227,24 @@ impl ImageCompiler<'_> {
         layer: &OciImageLayer,
         image_dir: &Path,
     ) -> Result<()> {
+        let uid = entry.header().uid()?;
+        let gid = entry.header().gid()?;
         trace!(
-            "unpack entry layer={} path={:?} type={:?}",
+            "unpack entry layer={} path={:?} type={:?} uid={} gid={}",
             &layer.digest,
             entry.path()?,
-            entry.header().entry_type()
+            entry.header().entry_type(),
+            uid,
+            gid,
         );
-        entry.unpack_in(image_dir).await?;
+        entry.set_preserve_mtime(true);
+        entry.set_preserve_permissions(true);
+        entry.set_unpack_xattrs(true);
+        if let Some(path) = entry.unpack_in(image_dir).await? {
+            if !path.is_symlink() {
+                std::os::unix::fs::chown(path, Some(uid as u32), Some(gid as u32))?;
+            }
+        }
         Ok(())
     }
 
@@ -319,14 +319,7 @@ impl ImageCompiler<'_> {
             } else if typ.is_dir() {
                 writer.push_dir(rel, header)?;
             } else if typ.is_file() {
-                if metadata.size() >= SQUASHFS_MEMORY_BUFFER_LIMIT as u64 {
-                    let reader =
-                        BufReader::with_capacity(LAYER_BUFFER_SIZE, File::open(entry.path())?);
-                    writer.push_file(reader, rel, header)?;
-                } else {
-                    let cursor = Cursor::new(std::fs::read(entry.path())?);
-                    writer.push_file(cursor, rel, header)?;
-                }
+                writer.push_file(ConsumingFileReader::new(entry.path()), rel, header)?;
             } else if typ.is_block_device() {
                 let device = metadata.dev();
                 writer.push_block_device(device as u32, rel, header)?;
@@ -338,8 +331,6 @@ impl ImageCompiler<'_> {
             }
         }
 
-        std::fs::remove_dir_all(image_dir)?;
-
         let squash_file_path = squash_file
             .to_str()
             .ok_or_else(|| anyhow!("failed to convert squashfs string"))?;
@@ -347,6 +338,46 @@ impl ImageCompiler<'_> {
         let mut file = File::create(squash_file)?;
         trace!("squash generate: {}", squash_file_path);
         writer.write(&mut file)?;
+        std::fs::remove_dir_all(image_dir)?;
         Ok(())
+    }
+}
+
+struct ConsumingFileReader {
+    path: PathBuf,
+    file: Option<File>,
+}
+
+impl ConsumingFileReader {
+    fn new(path: &Path) -> ConsumingFileReader {
+        ConsumingFileReader {
+            path: path.to_path_buf(),
+            file: None,
+        }
+    }
+}
+
+impl Read for ConsumingFileReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.file.is_none() {
+            self.file = Some(File::open(&self.path)?);
+        }
+        let Some(ref mut file) = self.file else {
+            return Err(std::io::Error::new(
+                ErrorKind::NotFound,
+                "file was not opened",
+            ));
+        };
+        file.read(buf)
+    }
+}
+
+impl Drop for ConsumingFileReader {
+    fn drop(&mut self) {
+        let file = self.file.take();
+        drop(file);
+        if let Err(error) = std::fs::remove_file(&self.path) {
+            warn!("failed to delete consuming file {:?}: {}", self.path, error);
+        }
     }
 }

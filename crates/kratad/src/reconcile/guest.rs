@@ -191,7 +191,10 @@ impl GuestReconciler {
     }
 
     async fn destroy(&self, uuid: Uuid, guest: &mut Guest) -> Result<bool> {
-        self.runtime.destroy(uuid).await?;
+        if let Err(error) = self.runtime.destroy(uuid).await {
+            warn!("failed to destroy runtime guest {}: {}", uuid, error);
+        }
+
         info!("destroyed guest {}", uuid);
         guest.network = None;
         guest.state = Some(GuestState {

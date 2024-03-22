@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::fmt;
 use url::Url;
 
-const DOCKER_HUB_MIRROR: &str = "registry.docker.io";
+const DOCKER_HUB_MIRROR: &str = "mirror.gcr.io";
 const DEFAULT_IMAGE_TAG: &str = "latest";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

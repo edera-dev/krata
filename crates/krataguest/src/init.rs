@@ -106,6 +106,7 @@ impl GuestInit {
         self.mount_kernel_fs("devtmpfs", "/dev", "mode=0755")?;
         self.mount_kernel_fs("proc", "/proc", "")?;
         self.mount_kernel_fs("sysfs", "/sys", "")?;
+        std::os::unix::fs::symlink("/proc/self/fd", "/dev/fd")?;
         Ok(())
     }
 
@@ -391,6 +392,12 @@ impl GuestInit {
             cmd = launch.run.as_ref().unwrap().clone();
         }
 
+        if let Some(entrypoint) = config.entrypoint() {
+            for item in entrypoint.iter().rev() {
+                cmd.insert(0, item.to_string());
+            }
+        }
+
         if cmd.is_empty() {
             cmd.push("/bin/sh".to_string());
         }
@@ -433,8 +440,7 @@ impl GuestInit {
             working_dir = "/".to_string();
         }
 
-        std::env::set_current_dir(&working_dir)?;
-        self.fork_and_exec(path, cmd, env).await?;
+        self.fork_and_exec(working_dir, path, cmd, env).await?;
         Ok(())
     }
 
@@ -485,23 +491,26 @@ impl GuestInit {
 
     async fn fork_and_exec(
         &mut self,
+        working_dir: String,
         path: CString,
         cmd: Vec<CString>,
         env: Vec<CString>,
     ) -> Result<()> {
         match unsafe { fork()? } {
             ForkResult::Parent { child } => self.background(child).await,
-            ForkResult::Child => self.foreground(path, cmd, env).await,
+            ForkResult::Child => self.foreground(working_dir, path, cmd, env).await,
         }
     }
 
     async fn foreground(
         &mut self,
+        working_dir: String,
         path: CString,
         cmd: Vec<CString>,
         env: Vec<CString>,
     ) -> Result<()> {
         GuestInit::set_controlling_terminal()?;
+        std::env::set_current_dir(working_dir)?;
         execve(&path, &cmd, &env)?;
         Ok(())
     }

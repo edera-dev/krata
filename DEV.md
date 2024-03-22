@@ -2,7 +2,7 @@
 
 ## Structure
 
-krata is composed of three major executables:
+krata is composed of four major executables:
 
 | Executable | Runs On | User Interaction | Dev Runner               | Code Path         |
 | ---------- | ------- | ---------------- | ------------------------ | ----------------- |
@@ -54,10 +54,10 @@ $ cd krata
 6. Build a guest kernel image:
 
 ```sh
-$ ./hack/kernel/build.sh -j4
+$ ./hack/kernel/build.sh
 ```
 
-7. Copy the guest kernel image at `target/kernel/kernel` to `/var/lib/krata/guest/kernel` to have it automatically detected by kratad.
+7. Copy the guest kernel image at `target/kernel/kernel-x86_64` to `/var/lib/krata/guest/kernel` to have it automatically detected by kratad.
 8. Launch `./hack/debug/kratanet.sh` and keep it running in the foreground.
 9. Launch `./hack/debug/kratad.sh` and keep it running in the foreground.
 10. Run kratactl to launch a guest:
