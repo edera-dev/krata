@@ -7,6 +7,7 @@ jobs:
   server:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         arch:
         - x86_64
@@ -54,6 +55,7 @@ jobs:
         compression-level: 0
   client:
     strategy:
+      fail-fast: false
       matrix:
         platform:
         - { os: linux, arch: x86_64, on: ubuntu-latest, deps: linux }
@@ -80,7 +82,7 @@ jobs:
       if: ${{ matrix.platform.os == 'darwin' }}
     - uses: homebrew/actions/setup-homebrew@master
       if: ${{ matrix.platform.os == 'darwin' }}
-    - run: ./hack/ci/install-${{ matrix.platform.os }}-deps.sh
+    - run: ./hack/ci/install-${{ matrix.platform.deps }}-deps.sh
     - run: ./hack/build/cargo.sh build --release --bin kratactl
     - uses: actions/upload-artifact@v4
       with:
