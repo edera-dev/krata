@@ -1,70 +1,6 @@
 name: check
 on: [push, pull_request]
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch:
-        - x86_64
-        - aarch64
-    env:
-      TARGET_ARCH: "${{ matrix.arch }}"
-    name: build ${{ matrix.arch }}
-    steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-    - run: ./hack/ci/install-deps.sh
-    - run: ./hack/build/cargo.sh build
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch:
-        - x86_64
-        - aarch64
-    env:
-      TARGET_ARCH: "${{ matrix.arch }}"
-    name: test ${{ matrix.arch }}
-    steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-    - run: ./hack/ci/install-deps.sh
-    - run: ./hack/build/cargo.sh test
-  clippy:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch:
-        - x86_64
-        - aarch64
-    env:
-      TARGET_ARCH: "${{ matrix.arch }}"
-    name: clippy ${{ matrix.arch }}
-    steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy
-    - run: ./hack/ci/install-deps.sh
-    - run: ./hack/build/cargo.sh clippy
-  initrd:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch:
-        - x86_64
-        - aarch64
-    env:
-      TARGET_ARCH: "${{ matrix.arch }}"
-    name: initrd ${{ matrix.arch }}
-    steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
-    - run: ./hack/ci/install-deps.sh
-    - run: ./hack/initrd/build.sh
   fmt:
     name: fmt
     runs-on: ubuntu-latest
@@ -73,7 +9,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt
-    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/ci/install-linux-deps.sh
     - run: ./hack/build/cargo.sh fmt --all -- --check
   shellcheck:
     name: shellcheck
