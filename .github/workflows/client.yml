@@ -18,6 +18,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
+      if: ${{ matrix.os.name != 'darwin' }}
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: "${{ matrix.arch }}-apple-darwin"
+      if: ${{ matrix.os.name == 'darwin' }}
     - run: ./hack/ci/install-deps.sh
       if: ${{ matrix.os.name == 'linux' }}
     - uses: homebrew/actions/setup-homebrew@master
