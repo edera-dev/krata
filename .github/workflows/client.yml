@@ -18,6 +18,9 @@ jobs:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
     - run: ./hack/ci/install-deps.sh
+      if: ${{ matrix.os.name == 'linux' }}
+    - run: ./hack/ci/install-mac-deps.sh
+      if: ${{ matrix.os.name == 'darwin' }}
     - run: ./hack/build/cargo.sh build --bin kratactl
   test:
     runs-on: ubuntu-latest
@@ -36,4 +39,7 @@ jobs:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
     - run: ./hack/ci/install-deps.sh
+      if: ${{ matrix.os.name == 'linux' }}
+    - run: ./hack/ci/install-mac-deps.sh
+      if: ${{ matrix.os.name == 'darwin' }}
     - run: ./hack/build/cargo.sh test --bin kratactl
