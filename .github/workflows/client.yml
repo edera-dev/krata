@@ -19,6 +19,8 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
     - run: ./hack/ci/install-deps.sh
       if: ${{ matrix.os.name == 'linux' }}
+    - uses: homebrew/actions/setup-homebrew@master
+      if: ${{ matrix.os.name == 'darwin' }}
     - run: ./hack/ci/install-mac-deps.sh
       if: ${{ matrix.os.name == 'darwin' }}
     - run: ./hack/build/cargo.sh build --bin kratactl
@@ -40,6 +42,8 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
     - run: ./hack/ci/install-deps.sh
       if: ${{ matrix.os.name == 'linux' }}
+    - uses: homebrew/actions/setup-homebrew@master
+      if: ${{ matrix.os.name == 'darwin' }}
     - run: ./hack/ci/install-mac-deps.sh
       if: ${{ matrix.os.name == 'darwin' }}
     - run: ./hack/build/cargo.sh test --bin kratactl
