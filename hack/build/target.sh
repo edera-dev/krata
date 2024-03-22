@@ -32,56 +32,41 @@ if [ "${TARGET_OS}" = "darwin" ]
 then
   if [ -z "${RUST_TARGET}" ]
   then
-    if [ "${TARGET_ARCH}" = "x86_64" ]
-    then
-      RUST_TARGET="x86_64-apple-darwin"
-    fi
-
-    if [ "${TARGET_ARCH}" = "aarch64" ]
-    then
-      RUST_TARGET="aarch64-apple-darwin"
-    fi
+    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-apple-darwin"
+    [ "${TARGET_ARCH}" = "aarch64" ] && RUST_TARGET="aarch64-apple-darwin"
   fi
 elif [ "${TARGET_OS}" = "windows" ]
 then
   if [ -z "${RUST_TARGET}" ]
   then
-    if [ "${TARGET_ARCH}" = "x86_64" ]
-    then
-      RUST_TARGET="x86_64-pc-windows-msvc"
-    fi
-
-    if [ "${TARGET_ARCH}" = "aarch64" ]
-    then
-      RUST_TARGET="aarch64-pc-windows-msvc"
-    fi
+    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-pc-windows-msvc"
+    [ "${TARGET_ARCH}" = "aarch64" ] && RUST_TARGET="aarch64-pc-windows-msvc"
+  fi
+elif [ "${TARGET_OS}" = "freebsd" ]
+then
+  if [ -z "${RUST_TARGET}" ]
+  then
+    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-unknown-freebsd"
+  fi
+elif [ "${TARGET_OS}" = "netbsd" ]
+then
+  if [ -z "${RUST_TARGET}" ]
+  then
+    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-unknown-netbsd"
   fi
 else
   if [ -z "${RUST_TARGET}" ]
   then
-    if [ "${TARGET_ARCH}" = "x86_64" ]
-    then
-      RUST_TARGET="x86_64-unknown-linux-${TARGET_LIBC}"
-    fi
-
-    if [ "${TARGET_ARCH}" = "aarch64" ]
-    then
-      RUST_TARGET="aarch64-unknown-linux-${TARGET_LIBC}"
-    fi
+    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-unknown-linux-${TARGET_LIBC}"
+    [ "${TARGET_ARCH}" = "aarch64" ] && RUST_TARGET="aarch64-unknown-linux-${TARGET_LIBC}"
+    [ "${TARGET_ARCH}" = "riscv64gc" ] && RUST_TARGET="riscv64gc-unknown-linux-${TARGET_LIBC}"
   fi
 fi
 
 if [ -z "${C_TARGET}" ]
 then
-  if [ "${TARGET_ARCH}" = "x86_64" ]
-  then
-    C_TARGET="x86_64-linux-${TARGET_LIBC}"
-  fi
-
-  if [ "${TARGET_ARCH}" = "aarch64" ]
-  then
-    C_TARGET="aarch64-linux-${TARGET_LIBC}"
-  fi
+  [ "${TARGET_ARCH}" = "x86_64" ] && C_TARGET="x86_64-linux-${TARGET_LIBC}"
+  [ "${TARGET_ARCH}" = "aarch64" ] && C_TARGET="aarch64-linux-${TARGET_LIBC}"
 fi
 
 if [ "${KRATA_TARGET_C_MODE}" = "1" ]

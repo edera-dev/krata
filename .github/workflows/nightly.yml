@@ -55,38 +55,34 @@ jobs:
   client:
     strategy:
       matrix:
-        os:
-        - { name: linux, on: ubuntu-latest }
-        - { name: darwin, on: macos-14 }
-        - { name: windows, on: windows-latest }
-        arch:
-        - x86_64
-        - aarch64
-        exclude:
-        # aarch64 windows support is not available in downstream dependencies
-        - os: { name: windows, on: windows-latest }
-          arch: aarch64
+        platform:
+        - { os: linux, arch: x86_64, on: ubuntu-latest, deps: linux }
+        - { os: linux, arch: aarch64, on: ubuntu-latest, deps: linux }
+        - { os: darwin, arch: x86_64, on: macos-14, deps: darwin }
+        - { os: darwin, arch: aarch64, on: macos-14, deps: darwin }
+        - { os: freebsd, arch: x86_64, on: ubuntu-latest, deps: linux }
+        - { os: windows, arch: x86_64, on: windows-latest, deps: windows }
     env:
-      TARGET_OS: "${{ matrix.os.name }}"
-      TARGET_ARCH: "${{ matrix.arch }}"
-    runs-on: "${{ matrix.os.on }}"
-    name: client ${{ matrix.os.name }}-${{ matrix.arch }}
+      TARGET_OS: "${{ matrix.platform.os }}"
+      TARGET_ARCH: "${{ matrix.platform.arch }}"
+    runs-on: "${{ matrix.platform.on }}"
+    name: client ${{ matrix.platform.os }}-${{ matrix.platform.arch }}
     defaults:
       run:
         shell: bash
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
-      if: ${{ matrix.os.name != 'darwin' }}
+      if: ${{ matrix.platform.os != 'darwin' }}
     - uses: dtolnay/rust-toolchain@stable
       with:
-        targets: "${{ matrix.arch }}-apple-darwin"
-      if: ${{ matrix.os.name == 'darwin' }}
+        targets: "${{ matrix.platform.arch }}-apple-darwin"
+      if: ${{ matrix.platform.os == 'darwin' }}
     - uses: homebrew/actions/setup-homebrew@master
-      if: ${{ matrix.os.name == 'darwin' }}
-    - run: ./hack/ci/install-${{ matrix.os.name }}-deps.sh
+      if: ${{ matrix.platform.os == 'darwin' }}
+    - run: ./hack/ci/install-${{ matrix.platform.os }}-deps.sh
     - run: ./hack/build/cargo.sh build --release --bin kratactl
     - uses: actions/upload-artifact@v4
       with:
-        name: kratactl-${{ matrix.os.name }}-${{ matrix.arch }}
+        name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
         path: "target/*/release/kratactl*"
