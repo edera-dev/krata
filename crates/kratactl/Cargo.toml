@@ -9,18 +9,18 @@ anyhow = { workspace = true }
 async-stream = { workspace = true }
 clap = { workspace = true }
 cli-tables = { workspace = true }
+crossterm = { workspace = true }
+ctrlc = { workspace = true, features = ["termination"] }
 env_logger = { workspace = true }
 krata = { path = "../krata" }
 log = { workspace = true }
 serde = { workspace = true }
+signal-hook = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
 url = { workspace = true }
-
-[target.'cfg(unix)'.dependencies]
-termion = { workspace = true }
 
 [lib]
 name = "kratactl"

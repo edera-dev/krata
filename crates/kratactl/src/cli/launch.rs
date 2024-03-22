@@ -71,6 +71,7 @@ impl LauchCommand {
             println!("created guest: {}", id);
             None
         };
+        StdioConsoleStream::restore_terminal_mode();
         std::process::exit(code.unwrap_or(0));
     }
 }

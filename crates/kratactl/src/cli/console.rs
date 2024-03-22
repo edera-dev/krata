@@ -32,6 +32,7 @@ impl ConsoleCommand {
             },
             x = exit_hook_task => x?
         };
+        StdioConsoleStream::restore_terminal_mode();
         std::process::exit(code.unwrap_or(0));
     }
 }

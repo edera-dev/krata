@@ -1,18 +1,16 @@
 use anyhow::Result;
 use async_stream::stream;
+use crossterm::{
+    terminal::{disable_raw_mode, enable_raw_mode, is_raw_mode_enabled},
+    tty::IsTty,
+};
 use krata::{
     common::GuestStatus,
     control::{watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest},
 };
 use log::debug;
-#[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd};
-#[cfg(unix)]
-use termion::raw::IntoRawMode;
-#[cfg(unix)]
-use tokio::fs::File;
 use tokio::{
-    io::{stdin, AsyncReadExt, AsyncWriteExt},
+    io::{stdin, stdout, AsyncReadExt, AsyncWriteExt},
     task::JoinHandle,
 };
 use tokio_stream::{Stream, StreamExt};
@@ -47,14 +45,11 @@ impl StdioConsoleStream {
     }
 
     pub async fn stdout(mut stream: Streaming<ConsoleDataReply>) -> Result<()> {
-        #[cfg(unix)]
-        let terminal = std::io::stdout().into_raw_mode()?;
-        #[cfg(unix)]
-        let mut stdout =
-            unsafe { File::from_std(std::fs::File::from_raw_fd(terminal.as_raw_fd())) };
-        #[cfg(not(unix))]
-        let mut stdout = tokio::io::stdout();
-
+        if stdin().is_tty() {
+            enable_raw_mode()?;
+            StdioConsoleStream::register_terminal_restore_hook()?;
+        }
+        let mut stdout = stdout();
         while let Some(reply) = stream.next().await {
             let reply = reply?;
             if reply.data.is_empty() {
@@ -100,5 +95,20 @@ impl StdioConsoleStream {
             }
             None
         }))
+    }
+
+    fn register_terminal_restore_hook() -> Result<()> {
+        if stdin().is_tty() {
+            ctrlc::set_handler(move || {
+                StdioConsoleStream::restore_terminal_mode();
+            })?;
+        }
+        Ok(())
+    }
+
+    pub fn restore_terminal_mode() {
+        if is_raw_mode_enabled().unwrap_or(false) {
+            let _ = disable_raw_mode();
+        }
     }
 }
