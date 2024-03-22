@@ -21,6 +21,14 @@ then
   TARGET_OS="${HOST_OS}"
 fi
 
+# Darwin can cross compile on all architectures to all other supported
+# architectures without cross compilation consideration. For cross-compile
+# check, make sure HOST_ARCH is TARGET_ARCH for comparison.
+if [ "${TARGET_OS}" = "darwin" ]
+then
+  HOST_ARCH="${TARGET_ARCH}"
+fi
+
 if [ "${HOST_ARCH}" != "${TARGET_ARCH}" ] || [ "${HOST_OS}" != "${TARGET_OS}" ]
 then
   echo "1"
