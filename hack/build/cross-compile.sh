@@ -14,7 +14,13 @@ then
 fi
 
 HOST_OS="$(uname -s)"
+HOST_OS="$(echo "${HOST_OS}" | awk -F '_' '{print $1}')"
 HOST_OS="$(echo "${HOST_OS}" | tr '[:upper:]' '[:lower:]')"
+
+if [ "${HOST_OS}" = "mingw64" ]
+then
+  HOST_OS="windows"
+fi
 
 if [ -z "${TARGET_OS}" ]
 then

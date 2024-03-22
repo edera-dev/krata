@@ -7,9 +7,14 @@ jobs:
         os:
         - { name: linux, on: ubuntu-latest }
         - { name: darwin, on: macos-14 }
+        - { name: windows, on: windows-latest }
         arch:
         - x86_64
         - aarch64
+        exclude:
+        # aarch64 windows support is not available in downstream dependencies
+        - os: { name: windows, on: windows-latest }
+          arch: aarch64
     env:
       TARGET_OS: "${{ matrix.os.name }}"
       TARGET_ARCH: "${{ matrix.arch }}"
@@ -29,4 +34,6 @@ jobs:
       if: ${{ matrix.os.name == 'darwin' }}
     - run: ./hack/ci/install-mac-deps.sh
       if: ${{ matrix.os.name == 'darwin' }}
+    - run: ./hack/ci/install-windows-deps.sh
+      if: ${{ matrix.os.name == 'windows' }}
     - run: ./hack/build/cargo.sh build --bin kratactl

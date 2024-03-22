@@ -19,7 +19,13 @@ fi
 if [ -z "${TARGET_OS}" ]
 then
   TARGET_OS="$(uname -s)"
+  TARGET_OS="$(echo "${TARGET_OS}" | awk -F '_' '{print $1}')"
   TARGET_OS="$(echo "${TARGET_OS}" | tr '[:upper:]' '[:lower:]')"
+
+  if [ "${TARGET_OS}" = "mingw64" ]
+  then
+    TARGET_OS="windows"
+  fi
 fi
 
 if [ "${TARGET_OS}" = "darwin" ]
@@ -34,6 +40,20 @@ then
     if [ "${TARGET_ARCH}" = "aarch64" ]
     then
       RUST_TARGET="aarch64-apple-darwin"
+    fi
+  fi
+elif [ "${TARGET_OS}" = "windows" ]
+then
+  if [ -z "${RUST_TARGET}" ]
+  then
+    if [ "${TARGET_ARCH}" = "x86_64" ]
+    then
+      RUST_TARGET="x86_64-pc-windows-msvc"
+    fi
+
+    if [ "${TARGET_ARCH}" = "aarch64" ]
+    then
+      RUST_TARGET="aarch64-pc-windows-msvc"
     fi
   fi
 else

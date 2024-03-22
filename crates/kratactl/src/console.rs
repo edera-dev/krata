@@ -1,8 +1,3 @@
-use std::{
-    io::stdout,
-    os::fd::{AsRawFd, FromRawFd},
-};
-
 use anyhow::Result;
 use async_stream::stream;
 use krata::{
@@ -10,9 +5,13 @@ use krata::{
     control::{watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest},
 };
 use log::debug;
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd};
+#[cfg(unix)]
 use termion::raw::IntoRawMode;
+#[cfg(unix)]
+use tokio::fs::File;
 use tokio::{
-    fs::File,
     io::{stdin, AsyncReadExt, AsyncWriteExt},
     task::JoinHandle,
 };
@@ -48,8 +47,14 @@ impl StdioConsoleStream {
     }
 
     pub async fn stdout(mut stream: Streaming<ConsoleDataReply>) -> Result<()> {
-        let terminal = stdout().into_raw_mode()?;
-        let mut stdout = unsafe { File::from_raw_fd(terminal.as_raw_fd()) };
+        #[cfg(unix)]
+        let terminal = std::io::stdout().into_raw_mode()?;
+        #[cfg(unix)]
+        let mut stdout =
+            unsafe { File::from_std(std::fs::File::from_raw_fd(terminal.as_raw_fd())) };
+        #[cfg(not(unix))]
+        let mut stdout = tokio::io::stdout();
+
         while let Some(reply) = stream.next().await {
             let reply = reply?;
             if reply.data.is_empty() {

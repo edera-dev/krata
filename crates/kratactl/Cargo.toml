@@ -13,12 +13,14 @@ env_logger = { workspace = true }
 krata = { path = "../krata" }
 log = { workspace = true }
 serde = { workspace = true }
-termion = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
 url = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+termion = { workspace = true }
 
 [lib]
 name = "kratactl"
