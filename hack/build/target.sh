@@ -11,16 +11,43 @@ then
   TARGET_ARCH="$(uname -m)"
 fi
 
-if [ -z "${RUST_TARGET}" ]
+if [ "${TARGET_ARCH}" = "arm64" ]
 then
-  if [ "${TARGET_ARCH}" = "x86_64" ]
-  then
-    RUST_TARGET="x86_64-unknown-linux-${TARGET_LIBC}"
-  fi
+  TARGET_ARCH="aarch64"
+fi
 
-  if [ "${TARGET_ARCH}" = "aarch64" ]
+if [ -z "${TARGET_OS}" ]
+then
+  TARGET_OS="$(uname -s)"
+  TARGET_OS="$(echo "${TARGET_OS}" | tr '[:upper:]' '[:lower:]')"
+fi
+
+if [ "${TARGET_OS}" = "darwin" ]
+then
+  if [ -z "${RUST_TARGET}" ]
   then
-    RUST_TARGET="aarch64-unknown-linux-${TARGET_LIBC}"
+    if [ "${TARGET_ARCH}" = "x86_64" ]
+    then
+      RUST_TARGET="x86_64-apple-darwin"
+    fi
+
+    if [ "${TARGET_ARCH}" = "aarch64" ]
+    then
+      RUST_TARGET="aarch64-apple-darwin"
+    fi
+  fi
+else
+  if [ -z "${RUST_TARGET}" ]
+  then
+    if [ "${TARGET_ARCH}" = "x86_64" ]
+    then
+      RUST_TARGET="x86_64-unknown-linux-${TARGET_LIBC}"
+    fi
+
+    if [ "${TARGET_ARCH}" = "aarch64" ]
+    then
+      RUST_TARGET="aarch64-unknown-linux-${TARGET_LIBC}"
+    fi
   fi
 fi
 
@@ -41,7 +68,7 @@ if [ "${KRATA_TARGET_C_MODE}" = "1" ]
 then
   if [ -z "${C_TARGET}" ]
   then
-    echo "ERROR: Unable to determine C_TARGET, your architecture may not be supported by krata." > /dev/stderr
+    echo "ERROR: Unable to determine C_TARGET, your os or architecture may not be supported by krata." > /dev/stderr
     exit 1
   fi
 
@@ -49,7 +76,7 @@ then
 else
   if [ -z "${RUST_TARGET}" ]
   then
-    echo "ERROR: Unable to determine RUST_TARGET, your architecture may not be supported by krata." > /dev/stderr
+    echo "ERROR: Unable to determine RUST_TARGET, your os or architecture may not be supported by krata." > /dev/stderr
     exit 1
   fi
 

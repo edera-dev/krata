@@ -1,0 +1,39 @@
+name: client
+on: [push, pull_request]
+jobs:
+  build:
+    strategy:
+      matrix:
+        os:
+        - { name: linux, on: ubuntu-latest }
+        - { name: darwin, on: macos-latest }
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    runs-on: "${{ matrix.os.on }}"
+    name: build ${{ matrix.os.name }}-${{ matrix.arch }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/build/cargo.sh build --bin kratactl
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os:
+          - { name: linux, on: ubuntu-latest }
+          - { name: darwin, on: macos-latest }
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: test ${{ matrix.os.name }}-${{ matrix.arch }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/build/cargo.sh test --bin kratactl

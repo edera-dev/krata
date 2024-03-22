@@ -5,9 +5,23 @@ TOOLS_DIR="$(dirname "${0}")"
 
 RUST_TARGET="$("${TOOLS_DIR}/target.sh")"
 TARGET_ARCH="$(echo "${RUST_TARGET}" | awk -F '-' '{print $1}')"
+
 HOST_ARCH="$(uname -m)"
 
-if [ "${HOST_ARCH}" != "${TARGET_ARCH}" ]
+if [ "${HOST_ARCH}" = "arm64" ]
+then
+  HOST_ARCH="aarch64"
+fi
+
+HOST_OS="$(uname -s)"
+HOST_OS="$(echo "${HOST_OS}" | tr '[:upper:]' '[:lower:]')"
+
+if [ -z "${TARGET_OS}" ]
+then
+  TARGET_OS="${HOST_OS}"
+fi
+
+if [ "${HOST_ARCH}" != "${TARGET_ARCH}" ] || [ "${HOST_OS}" != "${TARGET_OS}" ]
 then
   echo "1"
 else
