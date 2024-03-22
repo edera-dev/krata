@@ -11,6 +11,7 @@ jobs:
         - x86_64
         - aarch64
     env:
+      TARGET_OS: "${{ matrix.os.name }}"
       TARGET_ARCH: "${{ matrix.arch }}"
     runs-on: "${{ matrix.os.on }}"
     name: build ${{ matrix.os.name }}-${{ matrix.arch }}
@@ -35,6 +36,7 @@ jobs:
         - x86_64
         - aarch64
     env:
+      TARGET_OS: "${{ matrix.os.name }}"
       TARGET_ARCH: "${{ matrix.arch }}"
     name: test ${{ matrix.os.name }}-${{ matrix.arch }}
     steps:
