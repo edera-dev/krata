@@ -13,7 +13,7 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: build ${{ matrix.arch }}
+    name: server ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
@@ -70,7 +70,7 @@ jobs:
       TARGET_OS: "${{ matrix.os.name }}"
       TARGET_ARCH: "${{ matrix.arch }}"
     runs-on: "${{ matrix.os.on }}"
-    name: build ${{ matrix.os.name }}-${{ matrix.arch }}
+    name: client ${{ matrix.os.name }}-${{ matrix.arch }}
     defaults:
       run:
         shell: bash
