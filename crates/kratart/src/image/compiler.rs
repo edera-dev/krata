@@ -109,17 +109,16 @@ impl ImageCompiler<'_> {
         }
 
         let local = downloader.download(resolved).await?;
-        for layer in local.layers {
+        for layer in &local.layers {
             debug!(
                 "process layer digest={} compression={:?}",
-                &layer.digest, layer.compression
+                &layer.digest, layer.compression,
             );
+            self.process_layer_whiteout(layer, image_dir).await?;
             let mut archive = layer.archive().await?;
-
             let mut entries = archive.entries()?;
             while let Some(entry) = entries.next().await {
-                let mut entry: Entry<tokio_tar::Archive<std::pin::Pin<Box<dyn AsyncRead + Send>>>> =
-                    entry?;
+                let mut entry = entry?;
                 let path = entry.path()?;
                 let Some(name) = path.file_name() else {
                     return Err(anyhow!("unable to get file name"));
@@ -129,14 +128,18 @@ impl ImageCompiler<'_> {
                 };
 
                 if name.starts_with(".wh.") {
-                    self.process_whiteout_entry(&entry, name, &layer, image_dir)
-                        .await?;
+                    continue;
                 } else {
-                    self.process_write_entry(&mut entry, &layer, image_dir)
+                    self.process_write_entry(&mut entry, layer, image_dir)
                         .await?;
                 }
             }
-            fs::remove_file(&layer.path).await?;
+        }
+
+        for layer in &local.layers {
+            if layer.path.exists() {
+                fs::remove_file(&layer.path).await?;
+            }
         }
 
         self.squash(image_dir, squash_file)?;
@@ -146,6 +149,27 @@ impl ImageCompiler<'_> {
             local.config,
         )?;
         self.cache.store(&cache_digest, &info).await
+    }
+
+    async fn process_layer_whiteout(&self, layer: &OciImageLayer, image_dir: &Path) -> Result<()> {
+        let mut archive = layer.archive().await?;
+        let mut entries = archive.entries()?;
+        while let Some(entry) = entries.next().await {
+            let entry = entry?;
+            let path = entry.path()?;
+            let Some(name) = path.file_name() else {
+                return Err(anyhow!("unable to get file name"));
+            };
+            let Some(name) = name.to_str() else {
+                return Err(anyhow!("unable to get file name as string"));
+            };
+
+            if name.starts_with(".wh.") {
+                self.process_whiteout_entry(&entry, name, layer, image_dir)
+                    .await?;
+            }
+        }
+        Ok(())
     }
 
     async fn process_whiteout_entry(
@@ -162,7 +186,7 @@ impl ImageCompiler<'_> {
         let opaque = name == ".wh..wh..opq";
 
         if !opaque {
-            dst.push(name);
+            dst.push(&name[4..]);
             self.check_safe_path(&dst, image_dir)?;
         }
 
@@ -187,7 +211,7 @@ impl ImageCompiler<'_> {
                 }
             } else {
                 warn!(
-                    "whiteout entry missing locally layer={} path={:?} local={:?}",
+                    "whiteout opaque entry missing locally layer={} path={:?} local={:?}",
                     &layer.digest,
                     entry.path()?,
                     dst,
@@ -196,7 +220,7 @@ impl ImageCompiler<'_> {
         } else if dst.is_file() || dst.is_symlink() {
             fs::remove_file(&dst).await?;
         } else if dst.is_dir() {
-            fs::remove_dir(&dst).await?;
+            fs::remove_dir_all(&dst).await?;
         } else {
             warn!(
                 "whiteout entry missing locally layer={} path={:?} local={:?}",

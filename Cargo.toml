@@ -60,7 +60,7 @@ termion = "3.0.0"
 thiserror = "1.0"
 tokio-listener = "0.3.1"
 tokio-native-tls = "0.3.1"
-tokio-tar = "0.3.1"
+tokio-tar = { git = "https://github.com/edera-dev/tokio-tar.git", branch = "edera" }
 tokio-tun = "0.11.2"
 tonic-build = "0.11.0"
 tower = "0.4.13"
