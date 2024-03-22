@@ -26,7 +26,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
-    - run: ./hack/ci/install-deps.sh
+    - run: ./hack/ci/install-linux-deps.sh
     - run: ./hack/os/build.sh
       env:
         KRATA_KERNEL_BUILD_JOBS: "5"
