@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use oci_spec::image::{Arch, Descriptor, ImageIndex, ImageManifest, MediaType, Os, ToDockerV2S2};
-use reqwest::{Client, RequestBuilder, Response};
+use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use tokio::{fs::File, io::AsyncWriteExt};
 use url::Url;
 
@@ -33,6 +35,7 @@ pub struct OciRegistryClient {
     agent: Client,
     url: Url,
     platform: OciRegistryPlatform,
+    token: Option<String>,
 }
 
 impl OciRegistryClient {
@@ -41,11 +44,79 @@ impl OciRegistryClient {
             agent: Client::new(),
             url,
             platform,
+            token: None,
         })
     }
 
-    async fn call(&mut self, req: RequestBuilder) -> Result<Response> {
-        self.agent.execute(req.build()?).await.map_err(|x| x.into())
+    async fn call(&mut self, mut req: RequestBuilder) -> Result<Response> {
+        if let Some(ref token) = self.token {
+            req = req.bearer_auth(token);
+        }
+        let req_first_try = req.try_clone().ok_or(anyhow!("request is not clonable"))?;
+        let response = self.agent.execute(req_first_try.build()?).await?;
+        if response.status() == StatusCode::UNAUTHORIZED && self.token.is_none() {
+            let Some(www_authenticate) = response.headers().get("www-authenticate") else {
+                return Err(anyhow!("not authorized to perform this action"));
+            };
+
+            let www_authenticate = www_authenticate.to_str()?;
+            if !www_authenticate.starts_with("Bearer ") {
+                return Err(anyhow!("unknown authentication scheme"));
+            }
+
+            let details = &www_authenticate[7..];
+            let details = details
+                .split(',')
+                .map(|x| x.split('='))
+                .map(|mut x| (x.next(), x.next()))
+                .filter(|(key, value)| key.is_some() && value.is_some())
+                .map(|(key, value)| {
+                    (
+                        key.unwrap().trim().to_lowercase(),
+                        value.unwrap().trim().to_string(),
+                    )
+                })
+                .map(|(key, value)| (key, value.trim_matches('\"').to_string()))
+                .collect::<HashMap<_, _>>();
+            let realm = details.get("realm");
+            let service = details.get("service");
+            let scope = details.get("scope");
+            if realm.is_none() || service.is_none() || scope.is_none() {
+                return Err(anyhow!(
+                    "unknown authentication scheme: realm, service, and scope are required"
+                ));
+            }
+            let mut url = Url::parse(realm.unwrap())?;
+            url.query_pairs_mut()
+                .append_pair("service", service.unwrap())
+                .append_pair("scope", scope.unwrap());
+            let token_response = self.agent.get(url.clone()).send().await?;
+            if token_response.status() != StatusCode::OK {
+                return Err(anyhow!(
+                    "failed to acquire token via {}: status {}",
+                    url,
+                    token_response.status()
+                ));
+            }
+            let token_bytes = token_response.bytes().await?;
+            let token = serde_json::from_slice::<serde_json::Value>(&token_bytes)?;
+            let token = token
+                .get("token")
+                .and_then(|x| x.as_str())
+                .ok_or(anyhow!("token key missing from response"))?;
+            self.token = Some(token.to_string());
+            return Ok(self.agent.execute(req.bearer_auth(token).build()?).await?);
+        }
+
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "failed to send request to {}: status {}",
+                req.build()?.url(),
+                response.status()
+            ));
+        }
+
+        Ok(response)
     }
 
     pub async fn get_blob<N: AsRef<str>>(
