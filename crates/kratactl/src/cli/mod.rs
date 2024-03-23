@@ -56,7 +56,7 @@ impl ControlCommand {
             }
 
             Commands::Destroy(destroy) => {
-                destroy.run(client).await?;
+                destroy.run(client, events).await?;
             }
 
             Commands::Attach(attach) => {
@@ -93,6 +93,6 @@ pub async fn resolve_guest(
     if let Some(guest) = reply.guest {
         Ok(guest.id)
     } else {
-        Err(anyhow!("unable to resolve guest {}", name))
+        Err(anyhow!("unable to resolve guest '{}'", name))
     }
 }

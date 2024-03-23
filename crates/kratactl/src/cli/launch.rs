@@ -24,6 +24,8 @@ pub struct LauchCommand {
     env: Option<Vec<String>>,
     #[arg(short, long)]
     attach: bool,
+    #[arg(short = 'W', long)]
+    wait: bool,
     #[arg()]
     oci: String,
     #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
@@ -53,8 +55,12 @@ impl LauchCommand {
             .await?
             .into_inner();
         let id = response.guest_id;
-        let code = if self.attach {
+
+        if self.wait || self.attach {
             wait_guest_started(&id, events.clone()).await?;
+        }
+
+        let code = if self.attach {
             let input = StdioConsoleStream::stdin_stream(id.clone()).await;
             let output = client.console_data(input).await?.into_inner();
             let stdout_handle =
@@ -68,7 +74,7 @@ impl LauchCommand {
                 x = exit_hook_task => x?
             }
         } else {
-            println!("created guest: {}", id);
+            println!("{}", id);
             None
         };
         StdioConsoleStream::restore_terminal_mode();
