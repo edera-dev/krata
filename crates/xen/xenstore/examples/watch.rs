@@ -4,7 +4,7 @@ use xenstore::XsdClient;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let path = args().nth(1).unwrap_or("/local/domain".to_string());
     let client = XsdClient::open().await?;
     let mut handle = client.watch(&path).await?;
