@@ -1,10 +1,10 @@
-use std::{collections::HashMap, ffi::CString, io::ErrorKind, sync::Arc, time::Duration};
+use std::{collections::HashMap, ffi::CString, io::ErrorKind, os::fd::AsRawFd, sync::Arc};
 
-use libc::O_NONBLOCK;
+use libc::{fcntl, F_GETFL, F_SETFL, O_NONBLOCK};
 use log::warn;
 use tokio::{
     fs::{metadata, File},
-    io::{unix::AsyncFd, AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt},
     select,
     sync::{
         mpsc::{channel, Receiver, Sender},
@@ -12,7 +12,6 @@ use tokio::{
         Mutex,
     },
     task::JoinHandle,
-    time::timeout,
 };
 
 use crate::{
@@ -182,22 +181,14 @@ struct XsdSocketProcessor {
 }
 
 impl XsdSocketProcessor {
-    async fn process_rx(read: File, rx_sender: Sender<XsdMessage>) -> Result<()> {
-        let mut buffer: Vec<u8> = vec![0u8; XEN_BUS_MAX_PACKET_SIZE];
-        let mut fd = AsyncFd::new(read)?;
+    async fn process_rx(mut read: File, rx_sender: Sender<XsdMessage>) -> Result<()> {
+        let mut header_buffer: Vec<u8> = vec![0u8; XsdMessageHeader::SIZE];
+        let mut buffer: Vec<u8> = vec![0u8; XEN_BUS_MAX_PACKET_SIZE - XsdMessageHeader::SIZE];
         loop {
             select! {
-                x = fd.readable_mut() => match x {
-                    Ok(mut guard) => {
-                        let future = XsdSocketProcessor::read_message(&mut buffer, guard.get_inner_mut());
-                        if let Ok(message) = timeout(Duration::from_secs(1), future).await {
-                            rx_sender.send(message?).await?;
-                        }
-                    },
-
-                    Err(error) => {
-                        return Err(error.into());
-                    }
+                message = XsdSocketProcessor::read_message(&mut header_buffer, &mut buffer, &mut read) => {
+                    let message = message?;
+                    rx_sender.send(message).await?;
                 },
 
                 _ = rx_sender.closed() => {
@@ -208,9 +199,37 @@ impl XsdSocketProcessor {
         Ok(())
     }
 
-    async fn read_message(buffer: &mut [u8], read: &mut File) -> Result<XsdMessage> {
-        let size = loop {
-            match read.read(buffer).await {
+    fn set_nonblocking(fd: i32, nonblock: bool) -> Result<()> {
+        let mut flags = unsafe { fcntl(fd, F_GETFL) };
+        if flags == -1 {
+            return Err(Error::Io(std::io::Error::new(
+                ErrorKind::Unsupported,
+                "failed to get fd flags",
+            )));
+        }
+        if nonblock {
+            flags |= O_NONBLOCK;
+        } else {
+            flags &= !O_NONBLOCK;
+        }
+        let result = unsafe { fcntl(fd, F_SETFL, flags) };
+        if result == -1 {
+            return Err(Error::Io(std::io::Error::new(
+                ErrorKind::Unsupported,
+                "failed to set fd flags",
+            )));
+        }
+        Ok(())
+    }
+
+    async fn read_message(
+        header_buffer: &mut [u8],
+        buffer: &mut [u8],
+        read: &mut File,
+    ) -> Result<XsdMessage> {
+        XsdSocketProcessor::set_nonblocking(read.as_raw_fd(), true)?;
+        let header_size = loop {
+            match read.read_exact(header_buffer).await {
                 Ok(size) => break size,
                 Err(error) => {
                     if error.kind() == ErrorKind::WouldBlock {
@@ -222,19 +241,23 @@ impl XsdSocketProcessor {
             };
         };
 
-        if size < XsdMessageHeader::SIZE {
+        if header_size < XsdMessageHeader::SIZE {
             return Err(Error::InvalidBusData);
         }
 
-        let header = XsdMessageHeader::decode(&buffer[0..XsdMessageHeader::SIZE])?;
-        if size < XsdMessageHeader::SIZE + header.len as usize {
+        let header = XsdMessageHeader::decode(header_buffer)?;
+        if header.len as usize > buffer.len() {
             return Err(Error::InvalidBusData);
         }
-        let payload =
-            &mut buffer[XsdMessageHeader::SIZE..XsdMessageHeader::SIZE + header.len as usize];
+        let payload_buffer = &mut buffer[0..header.len as usize];
+        XsdSocketProcessor::set_nonblocking(read.as_raw_fd(), false)?;
+        let payload_size = read.read_exact(payload_buffer).await?;
+        if payload_size != header.len as usize {
+            return Err(Error::InvalidBusData);
+        }
         Ok(XsdMessage {
             header,
-            payload: payload.to_vec(),
+            payload: payload_buffer.to_vec(),
         })
     }
 

@@ -247,7 +247,8 @@ impl Runtime {
             .await?
             .ok_or_else(|| anyhow!("unable to resolve guest: {}", uuid))?;
         let path = format!("/local/domain/{}/krata/guest/exit-code", info.domid);
-        let handle = context.xen.store.watch(&path).await?;
+        let handle = context.xen.store.create_watch().await?;
+        context.xen.store.bind_watch(&handle, &path).await?;
         let watch = ExitCodeWatch {
             handle,
             sender,

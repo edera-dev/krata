@@ -192,18 +192,22 @@ impl XsdClient {
         response.parse_bool()
     }
 
-    pub async fn watch<P: AsRef<str>>(&self, path: P) -> Result<XsdWatchHandle> {
+    pub async fn create_watch(&self) -> Result<XsdWatchHandle> {
         let (id, receiver, unwatch_sender) = self.socket.add_watch().await?;
-        let id_string = id.to_string();
-        let _ = self
-            .socket
-            .send(0, XSD_WATCH, &[path.as_ref(), &id_string])
-            .await?;
         Ok(XsdWatchHandle {
             id,
             receiver,
             unwatch_sender,
         })
+    }
+
+    pub async fn bind_watch<P: AsRef<str>>(&self, handle: &XsdWatchHandle, path: P) -> Result<()> {
+        let id_string = handle.id.to_string();
+        let _ = self
+            .socket
+            .send(0, XSD_WATCH, &[path.as_ref(), &id_string])
+            .await?;
+        Ok(())
     }
 }
 
