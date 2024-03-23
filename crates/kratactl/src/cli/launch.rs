@@ -94,7 +94,12 @@ async fn wait_guest_started(id: &str, events: EventStream) -> Result<()> {
                 };
 
                 if let Some(ref error) = state.error_info {
-                    error!("guest error: {}", error.message);
+                    if state.status() == GuestStatus::Failed {
+                        error!("launch failed: {}", error.message);
+                        std::process::exit(1);
+                    } else {
+                        error!("guest error: {}", error.message);
+                    }
                 }
 
                 if state.status() == GuestStatus::Destroyed {

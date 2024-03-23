@@ -121,6 +121,7 @@ impl DaemonEventGenerator {
 
             guest.state = Some(GuestState {
                 status: GuestStatus::Exited.into(),
+                network: guest.state.clone().unwrap_or_default().network,
                 exit_info: Some(GuestExitInfo { code }),
                 error_info: None,
             });

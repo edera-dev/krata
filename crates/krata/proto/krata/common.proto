@@ -40,22 +40,23 @@ message GuestErrorInfo {
 
 enum GuestStatus {
     GUEST_STATUS_UNKNOWN = 0;
-    GUEST_STATUS_START = 1;
+    GUEST_STATUS_STARTING = 1;
     GUEST_STATUS_STARTED = 2;
     GUEST_STATUS_EXITED = 3;
-    GUEST_STATUS_DESTROY = 4;
+    GUEST_STATUS_DESTROYING = 4;
     GUEST_STATUS_DESTROYED = 5;
+    GUEST_STATUS_FAILED = 6;
 }
 
 message GuestState {
     GuestStatus status = 1;
-    GuestExitInfo exit_info = 2;
-    GuestErrorInfo error_info = 3;
+    GuestNetworkState network = 2;
+    GuestExitInfo exit_info = 3;
+    GuestErrorInfo error_info = 4;
 }
 
 message Guest {
     string id = 1;
-    GuestState state = 2;
-    GuestSpec spec = 3;
-    GuestNetworkState network = 4;
+    GuestSpec spec = 2;
+    GuestState state = 3;
 }

@@ -49,3 +49,10 @@ pub fn proto2kv(proto: impl ReflectMessage) -> Result<HashMap<String, String>> {
 
     Ok(map)
 }
+
+pub fn kv2line(map: HashMap<String, String>) -> String {
+    map.iter()
+        .map(|(k, v)| format!("{}=\"{}\"", k, v.replace('"', "\\\"")))
+        .collect::<Vec<_>>()
+        .join(" ")
+}

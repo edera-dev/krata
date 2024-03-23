@@ -110,7 +110,7 @@ impl OciRegistryClient {
 
         if !response.status().is_success() {
             return Err(anyhow!(
-                "failed to send request to {}: status {}",
+                "request to {} failed: status {}",
                 req.build()?.url(),
                 response.status()
             ));

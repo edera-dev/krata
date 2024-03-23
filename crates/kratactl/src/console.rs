@@ -87,7 +87,7 @@ impl StdioConsoleStream {
                         }
 
                         let status = state.status();
-                        if status == GuestStatus::Destroy || status == GuestStatus::Destroyed {
+                        if status == GuestStatus::Destroying || status == GuestStatus::Destroyed {
                             return Some(10);
                         }
                     }

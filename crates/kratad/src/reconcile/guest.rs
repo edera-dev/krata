@@ -53,7 +53,7 @@ impl GuestReconciler {
                         }
                     },
 
-                    _ = sleep(Duration::from_secs(30)) => {
+                    _ = sleep(Duration::from_secs(5)) => {
                         if let Err(error) = self.reconcile_runtime(false).await {
                             error!("runtime reconciler failed: {}", error);
                         }
@@ -79,10 +79,9 @@ impl GuestReconciler {
                 None => {
                     let mut state = stored_guest.state.as_mut().cloned().unwrap_or_default();
                     if state.status() == GuestStatus::Started {
-                        state.status = GuestStatus::Start.into();
+                        state.status = GuestStatus::Starting.into();
                     }
                     stored_guest.state = Some(state);
-                    stored_guest.network = None;
                 }
 
                 Some(runtime) => {
@@ -93,18 +92,18 @@ impl GuestReconciler {
                     } else {
                         state.status = GuestStatus::Started.into();
                     }
-                    stored_guest.state = Some(state);
-                    stored_guest.network = Some(GuestNetworkState {
+                    state.network = Some(GuestNetworkState {
                         ipv4: runtime.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
                         ipv6: runtime.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
                     });
+                    stored_guest.state = Some(state);
                 }
             }
 
             let changed = *stored_guest != previous_guest;
-            self.guests.update(uuid, stored_guest_entry).await?;
 
             if changed || initial {
+                self.guests.update(uuid, stored_guest_entry).await?;
                 if let Err(error) = self.reconcile(uuid).await {
                     error!("failed to reconcile guest {}: {}", uuid, error);
                 }
@@ -134,8 +133,8 @@ impl GuestReconciler {
             }))?;
 
         let result = match guest.state.as_ref().map(|x| x.status()).unwrap_or_default() {
-            GuestStatus::Start => self.start(uuid, guest).await,
-            GuestStatus::Destroy | GuestStatus::Exited => self.destroy(uuid, guest).await,
+            GuestStatus::Starting => self.start(uuid, guest).await,
+            GuestStatus::Destroying | GuestStatus::Exited => self.destroy(uuid, guest).await,
             _ => Ok(false),
         };
 
@@ -143,6 +142,7 @@ impl GuestReconciler {
             Ok(changed) => changed,
             Err(error) => {
                 guest.state = Some(guest.state.as_mut().cloned().unwrap_or_default());
+                guest.state.as_mut().unwrap().status = GuestStatus::Failed.into();
                 guest.state.as_mut().unwrap().error_info = Some(GuestErrorInfo {
                     message: error.to_string(),
                 });
@@ -152,8 +152,8 @@ impl GuestReconciler {
 
         info!("reconciled guest {}", uuid);
 
-        let destroyed =
-            guest.state.as_ref().map(|x| x.status()).unwrap_or_default() == GuestStatus::Destroyed;
+        let status = guest.state.as_ref().map(|x| x.status()).unwrap_or_default();
+        let destroyed = status == GuestStatus::Destroyed || status == GuestStatus::Failed;
 
         if changed {
             let event = DaemonEvent::GuestChanged(GuestChangedEvent {
@@ -205,12 +205,12 @@ impl GuestReconciler {
             })
             .await?;
         info!("started guest {}", uuid);
-        guest.network = Some(GuestNetworkState {
-            ipv4: info.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
-            ipv6: info.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
-        });
         guest.state = Some(GuestState {
             status: GuestStatus::Started.into(),
+            network: Some(GuestNetworkState {
+                ipv4: info.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
+                ipv6: info.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
+            }),
             exit_info: None,
             error_info: None,
         });
@@ -219,13 +219,13 @@ impl GuestReconciler {
 
     async fn destroy(&self, uuid: Uuid, guest: &mut Guest) -> Result<bool> {
         if let Err(error) = self.runtime.destroy(uuid).await {
-            warn!("failed to destroy runtime guest {}: {}", uuid, error);
+            trace!("failed to destroy runtime guest {}: {}", uuid, error);
         }
 
         info!("destroyed guest {}", uuid);
-        guest.network = None;
         guest.state = Some(GuestState {
             status: GuestStatus::Destroyed.into(),
+            network: None,
             exit_info: None,
             error_info: None,
         });

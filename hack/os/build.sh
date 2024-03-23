@@ -15,15 +15,14 @@ TARGET_OS_DIR="${TARGET_DIR}/os"
 mkdir -p "${TARGET_OS_DIR}"
 cp "${TARGET_DIR}/dist/krata_${KRATA_VERSION}_${TARGET_ARCH}.apk" "${TARGET_OS_DIR}/krata-${TARGET_ARCH}.apk"
 
-DOCKER_FLAGS=""
+DOCKER_FLAGS="--platform linux/${TARGET_ARCH_ALT}"
 if [ -t 0 ]
 then
- DOCKER_FLAGS="-it"
+ DOCKER_FLAGS="${DOCKER_FLAGS} -it"
 fi
 
 if [ "${CROSS_COMPILE}" = "1" ]
 then
-  DOCKER_FLAGS="${DOCKER_FLAGS} --platform linux/${TARGET_ARCH_ALT}"
   docker run --privileged --rm tonistiigi/binfmt --install all
 fi
 

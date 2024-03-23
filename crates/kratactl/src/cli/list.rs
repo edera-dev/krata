@@ -11,14 +11,13 @@ use tonic::{transport::Channel, Request};
 
 use crate::{
     events::EventStream,
-    format::{proto2dynamic, proto2kv},
+    format::{kv2line, proto2dynamic, proto2kv},
 };
 
 use super::pretty::guest_state_text;
 
-#[derive(ValueEnum, Clone, Default, Debug, PartialEq, Eq)]
+#[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum ListFormat {
-    #[default]
     CliTable,
     Json,
     JsonPretty,
@@ -29,7 +28,7 @@ enum ListFormat {
 
 #[derive(Parser)]
 pub struct ListCommand {
-    #[arg(short, long)]
+    #[arg(short, long, default_value = "cli-table")]
     format: ListFormat,
 }
 
@@ -87,13 +86,15 @@ impl ListCommand {
         table.push_row(&header)?;
         for guest in guests {
             let ipv4 = guest
-                .network
+                .state
                 .as_ref()
+                .and_then(|x| x.network.as_ref())
                 .map(|x| x.ipv4.as_str())
                 .unwrap_or("unknown");
             let ipv6 = guest
-                .network
+                .state
                 .as_ref()
+                .and_then(|x| x.network.as_ref())
                 .map(|x| x.ipv6.as_str())
                 .unwrap_or("unknown");
             let Some(spec) = guest.spec else {
@@ -112,7 +113,7 @@ impl ListCommand {
             table.push_row_string(&vec![
                 spec.name,
                 guest.id,
-                format!("{}", guest_state_text(guest.state.unwrap_or_default())),
+                format!("{}", guest_state_text(guest.state.as_ref())),
                 ipv4.to_string(),
                 ipv6.to_string(),
                 image,
@@ -129,13 +130,7 @@ impl ListCommand {
     fn print_key_value(&self, guests: Vec<Guest>) -> Result<()> {
         for guest in guests {
             let kvs = proto2kv(guest)?;
-            println!(
-                "{}",
-                kvs.iter()
-                    .map(|(k, v)| format!("{}={}", k, v))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            );
+            println!("{}", kv2line(kvs),);
         }
         Ok(())
     }

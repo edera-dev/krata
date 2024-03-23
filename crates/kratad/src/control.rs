@@ -100,12 +100,12 @@ impl ControlService for RuntimeControlService {
                     guest: Some(Guest {
                         id: uuid.to_string(),
                         state: Some(GuestState {
-                            status: GuestStatus::Start.into(),
+                            status: GuestStatus::Starting.into(),
+                            network: None,
                             exit_info: None,
                             error_info: None,
                         }),
                         spec: Some(spec),
-                        network: None,
                     }),
                 },
             )
@@ -152,7 +152,7 @@ impl ControlService for RuntimeControlService {
             .into());
         }
 
-        guest.state.as_mut().unwrap().status = GuestStatus::Destroy.into();
+        guest.state.as_mut().unwrap().status = GuestStatus::Destroying.into();
         self.guests
             .update(uuid, entry)
             .await
