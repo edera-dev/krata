@@ -7,24 +7,26 @@ use tonic::transport::Channel;
 
 use crate::{console::StdioConsoleStream, events::EventStream};
 
+use super::resolve_guest;
+
 #[derive(Parser)]
-pub struct ConsoleCommand {
+pub struct AttachCommand {
     #[arg()]
     guest: String,
 }
 
-impl ConsoleCommand {
+impl AttachCommand {
     pub async fn run(
         self,
         mut client: ControlServiceClient<Channel>,
         events: EventStream,
     ) -> Result<()> {
-        let input = StdioConsoleStream::stdin_stream(self.guest.clone()).await;
+        let guest_id: String = resolve_guest(&mut client, &self.guest).await?;
+        let input = StdioConsoleStream::stdin_stream(guest_id.clone()).await;
         let output = client.console_data(input).await?.into_inner();
         let stdout_handle =
             tokio::task::spawn(async move { StdioConsoleStream::stdout(output).await });
-        let exit_hook_task =
-            StdioConsoleStream::guest_exit_hook(self.guest.clone(), events).await?;
+        let exit_hook_task = StdioConsoleStream::guest_exit_hook(guest_id.clone(), events).await?;
         let code = select! {
             x = stdout_handle => {
                 x??;

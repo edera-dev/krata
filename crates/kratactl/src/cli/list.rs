@@ -11,10 +11,8 @@ use tonic::{transport::Channel, Request};
 
 use crate::{
     events::EventStream,
-    format::{kv2line, proto2dynamic, proto2kv},
+    format::{guest_state_text, kv2line, proto2dynamic, proto2kv},
 };
-
-use super::pretty::guest_state_text;
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum ListFormat {

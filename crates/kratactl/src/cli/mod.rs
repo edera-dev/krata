@@ -1,19 +1,22 @@
-pub mod console;
+pub mod attach;
 pub mod destroy;
 pub mod launch;
 pub mod list;
-pub mod pretty;
+pub mod resolve;
 pub mod watch;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use krata::control::WatchEventsRequest;
+use krata::control::{
+    control_service_client::ControlServiceClient, ResolveGuestRequest, WatchEventsRequest,
+};
+use tonic::{transport::Channel, Request};
 
 use crate::{client::ControlClientProvider, events::EventStream};
 
 use self::{
-    console::ConsoleCommand, destroy::DestroyCommand, launch::LauchCommand, list::ListCommand,
-    watch::WatchCommand,
+    attach::AttachCommand, destroy::DestroyCommand, launch::LauchCommand, list::ListCommand,
+    resolve::ResolveCommand, watch::WatchCommand,
 };
 
 #[derive(Parser)]
@@ -31,8 +34,9 @@ pub enum Commands {
     Launch(LauchCommand),
     Destroy(DestroyCommand),
     List(ListCommand),
-    Console(ConsoleCommand),
+    Attach(AttachCommand),
     Watch(WatchCommand),
+    Resolve(ResolveCommand),
 }
 
 impl ControlCommand {
@@ -52,11 +56,11 @@ impl ControlCommand {
             }
 
             Commands::Destroy(destroy) => {
-                destroy.run(client, events).await?;
+                destroy.run(client).await?;
             }
 
-            Commands::Console(console) => {
-                console.run(client, events).await?;
+            Commands::Attach(attach) => {
+                attach.run(client, events).await?;
             }
 
             Commands::List(list) => {
@@ -66,7 +70,29 @@ impl ControlCommand {
             Commands::Watch(watch) => {
                 watch.run(events).await?;
             }
+
+            Commands::Resolve(resolve) => {
+                resolve.run(client).await?;
+            }
         }
         Ok(())
+    }
+}
+
+pub async fn resolve_guest(
+    client: &mut ControlServiceClient<Channel>,
+    name: &str,
+) -> Result<String> {
+    let reply = client
+        .resolve_guest(Request::new(ResolveGuestRequest {
+            name: name.to_string(),
+        }))
+        .await?
+        .into_inner();
+
+    if let Some(guest) = reply.guest {
+        Ok(guest.id)
+    } else {
+        Err(anyhow!("unable to resolve guest {}", name))
     }
 }

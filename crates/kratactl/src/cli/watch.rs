@@ -5,9 +5,8 @@ use prost_reflect::ReflectMessage;
 use serde_json::Value;
 
 use crate::{
-    cli::pretty::guest_state_text,
     events::EventStream,
-    format::{kv2line, proto2dynamic, proto2kv},
+    format::{guest_state_text, kv2line, proto2dynamic, proto2kv},
 };
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]

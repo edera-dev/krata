@@ -22,6 +22,14 @@ message ListGuestsReply {
     repeated krata.common.Guest guests = 1;
 }
 
+message ResolveGuestRequest {
+    string name = 1;
+}
+
+message ResolveGuestReply {
+    krata.common.Guest guest = 1;
+}
+
 message DestroyGuestRequest {
     string guest_id = 1;
 }
@@ -53,6 +61,7 @@ service ControlService {
     rpc CreateGuest(CreateGuestRequest) returns (CreateGuestReply);
     rpc DestroyGuest(DestroyGuestRequest) returns (DestroyGuestReply);
     rpc ListGuests(ListGuestsRequest) returns (ListGuestsReply);
+    rpc ResolveGuest(ResolveGuestRequest) returns (ResolveGuestReply);
     rpc ConsoleData(stream ConsoleDataRequest) returns (stream ConsoleDataReply);
     rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
 }

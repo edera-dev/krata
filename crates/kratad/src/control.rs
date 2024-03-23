@@ -7,7 +7,8 @@ use krata::{
     control::{
         control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
         CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-        ListGuestsReply, ListGuestsRequest, WatchEventsReply, WatchEventsRequest,
+        ListGuestsReply, ListGuestsRequest, ResolveGuestReply, ResolveGuestRequest,
+        WatchEventsReply, WatchEventsRequest,
     },
 };
 use kratart::Runtime;
@@ -177,6 +178,26 @@ impl ControlService for RuntimeControlService {
             .filter_map(|entry| entry.guest)
             .collect::<Vec<Guest>>();
         Ok(Response::new(ListGuestsReply { guests }))
+    }
+
+    async fn resolve_guest(
+        &self,
+        request: Request<ResolveGuestRequest>,
+    ) -> Result<Response<ResolveGuestReply>, Status> {
+        let request = request.into_inner();
+        let guests = self.guests.list().await.map_err(ApiError::from)?;
+        let guests = guests
+            .into_values()
+            .filter_map(|entry| entry.guest)
+            .filter(|x| {
+                let comparison_spec = x.spec.as_ref().cloned().unwrap_or_default();
+                (!request.name.is_empty() && comparison_spec.name == request.name)
+                    || x.id == request.name
+            })
+            .collect::<Vec<Guest>>();
+        Ok(Response::new(ResolveGuestReply {
+            guest: guests.first().cloned(),
+        }))
     }
 
     async fn console_data(
