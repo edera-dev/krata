@@ -14,7 +14,10 @@ ctrlc = { workspace = true, features = ["termination"] }
 env_logger = { workspace = true }
 krata = { path = "../krata" }
 log = { workspace = true }
+prost-reflect = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }

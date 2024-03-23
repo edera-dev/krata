@@ -1,18 +1,37 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+use cli_tables::Table;
 use krata::{
-    common::guest_image_spec::Image,
+    common::{guest_image_spec::Image, Guest},
     control::{control_service_client::ControlServiceClient, ListGuestsRequest},
 };
 
+use serde_json::Value;
 use tonic::{transport::Channel, Request};
 
-use crate::events::EventStream;
+use crate::{
+    events::EventStream,
+    format::{proto2dynamic, proto2kv},
+};
 
 use super::pretty::guest_state_text;
 
+#[derive(ValueEnum, Clone, Default, Debug, PartialEq, Eq)]
+enum ListFormat {
+    #[default]
+    CliTable,
+    Json,
+    JsonPretty,
+    Jsonl,
+    Yaml,
+    KeyValue,
+}
+
 #[derive(Parser)]
-pub struct ListCommand {}
+pub struct ListCommand {
+    #[arg(short, long)]
+    format: ListFormat,
+}
 
 impl ListCommand {
     pub async fn run(
@@ -24,10 +43,49 @@ impl ListCommand {
             .list_guests(Request::new(ListGuestsRequest {}))
             .await?
             .into_inner();
-        let mut table = cli_tables::Table::new();
+
+        match self.format {
+            ListFormat::CliTable => {
+                self.print_guest_table(response.guests)?;
+            }
+
+            ListFormat::Json | ListFormat::JsonPretty | ListFormat::Yaml => {
+                let mut values = Vec::new();
+                for guest in response.guests {
+                    let message = proto2dynamic(guest)?;
+                    values.push(serde_json::to_value(message)?);
+                }
+                let value = Value::Array(values);
+                let encoded = if self.format == ListFormat::JsonPretty {
+                    serde_json::to_string_pretty(&value)?
+                } else if self.format == ListFormat::Yaml {
+                    serde_yaml::to_string(&value)?
+                } else {
+                    serde_json::to_string(&value)?
+                };
+                println!("{}", encoded.trim());
+            }
+
+            ListFormat::Jsonl => {
+                for guest in response.guests {
+                    let message = proto2dynamic(guest)?;
+                    println!("{}", serde_json::to_string(&message)?);
+                }
+            }
+
+            ListFormat::KeyValue => {
+                self.print_key_value(response.guests)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn print_guest_table(&self, guests: Vec<Guest>) -> Result<()> {
+        let mut table = Table::new();
         let header = vec!["name", "uuid", "state", "ipv4", "ipv6", "image"];
         table.push_row(&header)?;
-        for guest in response.guests {
+        for guest in guests {
             let ipv4 = guest
                 .network
                 .as_ref()
@@ -64,6 +122,20 @@ impl ListCommand {
             println!("no guests have been launched");
         } else {
             println!("{}", table.to_string());
+        }
+        Ok(())
+    }
+
+    fn print_key_value(&self, guests: Vec<Guest>) -> Result<()> {
+        for guest in guests {
+            let kvs = proto2kv(guest)?;
+            println!(
+                "{}",
+                kvs.iter()
+                    .map(|(k, v)| format!("{}={}", k, v))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
         }
         Ok(())
     }

@@ -8,7 +8,9 @@ resolver = "2"
 anyhow = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
+once_cell = { workspace = true }
 prost = { workspace = true }
+prost-reflect = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
@@ -16,6 +18,8 @@ url = { workspace = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }
+prost-build = { workspace = true }
+prost-reflect-build = { workspace = true }
 
 [lib]
 name = "krata"
