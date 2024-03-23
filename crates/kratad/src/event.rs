@@ -1,4 +1,8 @@
-use std::{collections::HashMap, str::FromStr, time::Duration};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    str::FromStr,
+    time::Duration,
+};
 
 use anyhow::Result;
 use krata::common::{GuestExitInfo, GuestState, GuestStatus};
@@ -87,11 +91,13 @@ impl DaemonEventGenerator {
                 let id = Uuid::from_str(&guest.id)?;
                 match status {
                     GuestStatus::Started => {
-                        let handle = self
-                            .runtime
-                            .subscribe_exit_code(id, self.exit_code_sender.clone())
-                            .await?;
-                        self.exit_code_handles.insert(id, handle);
+                        if let Entry::Vacant(e) = self.exit_code_handles.entry(id) {
+                            let handle = self
+                                .runtime
+                                .subscribe_exit_code(id, self.exit_code_sender.clone())
+                                .await?;
+                            e.insert(handle);
+                        }
                     }
 
                     GuestStatus::Destroyed => {

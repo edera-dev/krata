@@ -3,9 +3,10 @@ use futures::stream::TryStreamExt;
 use ipnetwork::IpNetwork;
 use krata::ethtool::EthtoolHandle;
 use krata::launchcfg::{LaunchInfo, LaunchNetwork};
+use libc::{setsid, TIOCSCTTY};
 use log::{trace, warn};
-use nix::libc::{dup2, ioctl};
-use nix::unistd::{execve, fork, ForkResult, Pid};
+use nix::ioctl_write_int_bad;
+use nix::unistd::{dup2, execve, fork, ForkResult, Pid};
 use oci_spec::image::{Config, ImageConfiguration};
 use path_absolutize::Absolutize;
 use std::collections::HashMap;
@@ -15,7 +16,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{chroot, PermissionsExt};
+use std::os::unix::fs::{chroot, symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{fs, io};
@@ -46,6 +47,8 @@ const NEW_ROOT_DEV_PATH: &str = "/newroot/dev";
 
 const IMAGE_CONFIG_JSON_PATH: &str = "/config/image/config.json";
 const LAUNCH_CONFIG_JSON_PATH: &str = "/config/launch.json";
+
+ioctl_write_int_bad!(set_controlling_terminal, TIOCSCTTY);
 
 pub struct GuestInit {}
 
@@ -106,7 +109,7 @@ impl GuestInit {
         self.mount_kernel_fs("devtmpfs", "/dev", "mode=0755")?;
         self.mount_kernel_fs("proc", "/proc", "")?;
         self.mount_kernel_fs("sysfs", "/sys", "")?;
-        std::os::unix::fs::symlink("/proc/self/fd", "/dev/fd")?;
+        symlink("/proc/self/fd", "/dev/fd")?;
         Ok(())
     }
 
@@ -139,11 +142,9 @@ impl GuestInit {
 
     fn map_console(&mut self, console: &File) -> Result<()> {
         trace!("mapping console");
-        unsafe {
-            dup2(console.as_raw_fd(), 0);
-            dup2(console.as_raw_fd(), 1);
-            dup2(console.as_raw_fd(), 2);
-        }
+        dup2(console.as_raw_fd(), 0)?;
+        dup2(console.as_raw_fd(), 1)?;
+        dup2(console.as_raw_fd(), 2)?;
         Ok(())
     }
 
@@ -516,10 +517,9 @@ impl GuestInit {
     }
 
     fn set_controlling_terminal() -> Result<()> {
-        unsafe { nix::libc::setsid() };
-        let result = unsafe { ioctl(io::stdin().as_raw_fd(), nix::libc::TIOCSCTTY, 0) };
-        if result != 0 {
-            warn!("failed to set controlling terminal, result={}", result);
+        unsafe {
+            setsid();
+            set_controlling_terminal(io::stdin().as_raw_fd(), 0)?;
         }
         Ok(())
     }

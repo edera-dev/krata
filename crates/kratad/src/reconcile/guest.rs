@@ -1,13 +1,16 @@
+use std::time::Duration;
+
 use anyhow::{anyhow, Result};
 use krata::{
     common::{
-        guest_image_spec::Image, Guest, GuestErrorInfo, GuestNetworkState, GuestState, GuestStatus,
+        guest_image_spec::Image, Guest, GuestErrorInfo, GuestExitInfo, GuestNetworkState,
+        GuestState, GuestStatus,
     },
     control::GuestChangedEvent,
 };
 use kratart::{launch::GuestLaunchRequest, Runtime};
-use log::{error, info, warn};
-use tokio::{sync::mpsc::Receiver, task::JoinHandle};
+use log::{error, info, trace, warn};
+use tokio::{select, sync::mpsc::Receiver, task::JoinHandle, time::sleep};
 use uuid::Uuid;
 
 use crate::{
@@ -32,22 +35,36 @@ impl GuestReconciler {
 
     pub async fn launch(self, mut notify: Receiver<Uuid>) -> Result<JoinHandle<()>> {
         Ok(tokio::task::spawn(async move {
-            if let Err(error) = self.reconcile_runtime().await {
+            if let Err(error) = self.reconcile_runtime(true).await {
                 error!("runtime reconciler failed: {}", error);
             }
 
             loop {
-                let Some(uuid) = notify.recv().await else {
-                    break;
+                select! {
+                    x = notify.recv() => match x {
+                        None => {
+                            break;
+                        },
+
+                        Some(uuid) => {
+                            if let Err(error) = self.reconcile(uuid).await {
+                                error!("failed to reconcile guest {}: {}", uuid, error);
+                            }
+                        }
+                    },
+
+                    _ = sleep(Duration::from_secs(30)) => {
+                        if let Err(error) = self.reconcile_runtime(false).await {
+                            error!("runtime reconciler failed: {}", error);
+                        }
+                    }
                 };
-                if let Err(error) = self.reconcile(uuid).await {
-                    error!("guest reconciler failed: {}", error);
-                }
             }
         }))
     }
 
-    pub async fn reconcile_runtime(&self) -> Result<()> {
+    pub async fn reconcile_runtime(&self, initial: bool) -> Result<()> {
+        trace!("reconciling runtime");
         let runtime_guests = self.runtime.list().await?;
         let stored_guests = self.guests.list().await?;
         for (uuid, mut stored_guest_entry) in stored_guests {
@@ -56,6 +73,7 @@ impl GuestReconciler {
                 self.guests.remove(uuid).await?;
                 continue;
             };
+            let previous_guest = stored_guest.clone();
             let runtime_guest = runtime_guests.iter().find(|x| x.uuid == uuid);
             match runtime_guest {
                 None => {
@@ -65,21 +83,30 @@ impl GuestReconciler {
                     }
                     stored_guest.state = Some(state);
                     stored_guest.network = None;
-                    self.guests.update(uuid, stored_guest_entry).await?;
-                    if let Err(error) = self.reconcile(uuid).await {
-                        error!("failed to reconcile guest {}: {}", uuid, error);
-                    }
                 }
 
-                Some(_) => {
+                Some(runtime) => {
                     let mut state = stored_guest.state.as_mut().cloned().unwrap_or_default();
-                    state.status = GuestStatus::Started.into();
-                    stored_guest.state = Some(state);
-                    stored_guest.network = None;
-                    self.guests.update(uuid, stored_guest_entry).await?;
-                    if let Err(error) = self.reconcile(uuid).await {
-                        error!("failed to reconcile guest {}: {}", uuid, error);
+                    if let Some(code) = runtime.state.exit_code {
+                        state.status = GuestStatus::Exited.into();
+                        state.exit_info = Some(GuestExitInfo { code });
+                    } else {
+                        state.status = GuestStatus::Started.into();
                     }
+                    stored_guest.state = Some(state);
+                    stored_guest.network = Some(GuestNetworkState {
+                        ipv4: runtime.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
+                        ipv6: runtime.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
+                    });
+                }
+            }
+
+            let changed = *stored_guest != previous_guest;
+            self.guests.update(uuid, stored_guest_entry).await?;
+
+            if changed || initial {
+                if let Err(error) = self.reconcile(uuid).await {
+                    error!("failed to reconcile guest {}: {}", uuid, error);
                 }
             }
         }
