@@ -4,6 +4,7 @@ use env_logger::Env;
 use krata::dial::ControlDialAddress;
 use kratad::Daemon;
 use kratart::Runtime;
+use log::LevelFilter;
 use std::{
     str::FromStr,
     sync::{atomic::AtomicBool, Arc},
@@ -19,7 +20,9 @@ struct DaemonCommand {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() -> Result<()> {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info"))
+        .filter(Some("backhand::filesystem::writer"), LevelFilter::Warn)
+        .init();
     mask_sighup()?;
 
     let args = DaemonCommand::parse();
