@@ -405,17 +405,14 @@ impl GuestInit {
 
         let path = cmd.remove(0);
 
-        let mut env = vec!["KRATA_CONTAINER=1".to_string(), "TERM=vt100".to_string()];
-
+        let mut env = HashMap::new();
         if let Some(config_env) = config.env() {
-            env.extend_from_slice(config_env);
+            env.extend(GuestInit::env_map(config_env));
         }
+        env.extend(launch.env.clone());
+        env.insert("KRATA_CONTAINER".to_string(), "1".to_string());
+        env.insert("TERM".to_string(), "vt100".to_string());
 
-        if let Some(extra_env) = &launch.env {
-            env.extend_from_slice(extra_env.as_slice());
-        }
-
-        let env = GuestInit::env_map(env);
         let path = GuestInit::resolve_executable(&env, path.into())?;
         let Some(file_name) = path.file_name() else {
             return Err(anyhow!("cannot get file name of command path"));
@@ -453,7 +450,7 @@ impl GuestInit {
         Ok(results)
     }
 
-    fn env_map(env: Vec<String>) -> HashMap<String, String> {
+    fn env_map(env: &[String]) -> HashMap<String, String> {
         let mut map = HashMap::<String, String>::new();
         for item in env {
             if let Some((key, value)) = item.split_once('=') {

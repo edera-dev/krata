@@ -1,12 +1,21 @@
 syntax = "proto3";
 
+package krata.control;
+
 option java_multiple_files = true;
 option java_package = "dev.krata.proto.control";
 option java_outer_classname = "ControlProto";
 
-package krata.control;
-
 import "krata/common.proto";
+
+service ControlService {
+    rpc CreateGuest(CreateGuestRequest) returns (CreateGuestReply);
+    rpc DestroyGuest(DestroyGuestRequest) returns (DestroyGuestReply);
+    rpc ResolveGuest(ResolveGuestRequest) returns (ResolveGuestReply);
+    rpc ListGuests(ListGuestsRequest) returns (ListGuestsReply);
+    rpc ConsoleData(stream ConsoleDataRequest) returns (stream ConsoleDataReply);
+    rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
+}
 
 message CreateGuestRequest {
     krata.common.GuestSpec spec = 1;
@@ -16,11 +25,11 @@ message CreateGuestReply {
     string guest_id = 1;
 }
 
-message ListGuestsRequest {}
-
-message ListGuestsReply {
-    repeated krata.common.Guest guests = 1;
+message DestroyGuestRequest {
+    string guest_id = 1;
 }
+
+message DestroyGuestReply {}
 
 message ResolveGuestRequest {
     string name = 1;
@@ -30,11 +39,11 @@ message ResolveGuestReply {
     krata.common.Guest guest = 1;
 }
 
-message DestroyGuestRequest {
-    string guest_id = 1;
-}
+message ListGuestsRequest {}
 
-message DestroyGuestReply {}
+message ListGuestsReply {
+    repeated krata.common.Guest guests = 1;
+}
 
 message ConsoleDataRequest {
     string guest_id = 1;
@@ -47,21 +56,12 @@ message ConsoleDataReply {
 
 message WatchEventsRequest {}
 
-message GuestChangedEvent {
-    krata.common.Guest guest = 1;
-}
-
 message WatchEventsReply {
     oneof event {
         GuestChangedEvent guest_changed = 1;
     }
 }
 
-service ControlService {
-    rpc CreateGuest(CreateGuestRequest) returns (CreateGuestReply);
-    rpc DestroyGuest(DestroyGuestRequest) returns (DestroyGuestReply);
-    rpc ListGuests(ListGuestsRequest) returns (ListGuestsReply);
-    rpc ResolveGuest(ResolveGuestRequest) returns (ResolveGuestReply);
-    rpc ConsoleData(stream ConsoleDataRequest) returns (stream ConsoleDataReply);
-    rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
+message GuestChangedEvent {
+    krata.common.Guest guest = 1;
 }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::{fs, net::Ipv4Addr, str::FromStr};
 
@@ -27,7 +28,7 @@ pub struct GuestLaunchRequest<'a> {
     pub image: &'a str,
     pub vcpus: u32,
     pub mem: u64,
-    pub env: Option<Vec<String>>,
+    pub env: HashMap<String, String>,
     pub run: Option<Vec<String>>,
     pub debug: bool,
 }

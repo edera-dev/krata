@@ -1,13 +1,24 @@
 syntax = "proto3";
 
+package krata.common;
+
 option java_multiple_files = true;
 option java_package = "dev.krata.proto.common";
 option java_outer_classname = "CommonProto";
 
-package krata.common;
+message Guest {
+    string id = 1;
+    GuestSpec spec = 2;
+    GuestState state = 3;
+}
 
-message GuestOciImageSpec {
-    string image = 1;
+message GuestSpec {
+    string name = 1;
+    GuestImageSpec image = 2;
+    uint32 vcpus = 3;
+    uint64 mem = 4;
+    repeated GuestEnvVar env = 5;
+    repeated string run = 6;
 }
 
 message GuestImageSpec {
@@ -16,13 +27,30 @@ message GuestImageSpec {
     }
 }
 
-message GuestSpec {
-    string name = 1;
-    GuestImageSpec image = 2;
-    uint32 vcpus = 3;
-    uint64 mem = 4;
-    repeated string env = 5;
-    repeated string run = 6;
+message GuestOciImageSpec {
+    string image = 1;
+}
+
+message GuestEnvVar {
+    string key = 1;
+    string value = 2;
+}
+
+message GuestState {
+    GuestStatus status = 1;
+    GuestNetworkState network = 2;
+    GuestExitInfo exit_info = 3;
+    GuestErrorInfo error_info = 4;
+}
+
+enum GuestStatus {
+    GUEST_STATUS_UNKNOWN = 0;
+    GUEST_STATUS_STARTING = 1;
+    GUEST_STATUS_STARTED = 2;
+    GUEST_STATUS_EXITED = 3;
+    GUEST_STATUS_DESTROYING = 4;
+    GUEST_STATUS_DESTROYED = 5;
+    GUEST_STATUS_FAILED = 6;
 }
 
 message GuestNetworkState {
@@ -36,27 +64,4 @@ message GuestExitInfo {
 
 message GuestErrorInfo {
     string message = 1;
-}
-
-enum GuestStatus {
-    GUEST_STATUS_UNKNOWN = 0;
-    GUEST_STATUS_STARTING = 1;
-    GUEST_STATUS_STARTED = 2;
-    GUEST_STATUS_EXITED = 3;
-    GUEST_STATUS_DESTROYING = 4;
-    GUEST_STATUS_DESTROYED = 5;
-    GUEST_STATUS_FAILED = 6;
-}
-
-message GuestState {
-    GuestStatus status = 1;
-    GuestNetworkState network = 2;
-    GuestExitInfo exit_info = 3;
-    GuestErrorInfo error_info = 4;
-}
-
-message Guest {
-    string id = 1;
-    GuestSpec spec = 2;
-    GuestState state = 3;
 }

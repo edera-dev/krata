@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::{anyhow, Result};
 use krata::{
@@ -199,7 +199,11 @@ impl GuestReconciler {
                 image: &oci.image,
                 vcpus: spec.vcpus,
                 mem: spec.mem,
-                env: empty_vec_optional(spec.env.clone()),
+                env: spec
+                    .env
+                    .iter()
+                    .map(|x| (x.key.clone(), x.value.clone()))
+                    .collect::<HashMap<_, _>>(),
                 run: empty_vec_optional(spec.run.clone()),
                 debug: false,
             })

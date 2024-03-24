@@ -1,7 +1,12 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use clap::Parser;
 use krata::{
-    common::{guest_image_spec::Image, GuestImageSpec, GuestOciImageSpec, GuestSpec, GuestStatus},
+    common::{
+        guest_image_spec::Image, GuestEnvVar, GuestImageSpec, GuestOciImageSpec, GuestSpec,
+        GuestStatus,
+    },
     control::{
         control_service_client::ControlServiceClient, watch_events_reply::Event, CreateGuestRequest,
     },
@@ -46,7 +51,13 @@ impl LauchCommand {
                 }),
                 vcpus: self.cpus,
                 mem: self.mem,
-                env: self.env.unwrap_or_default(),
+                env: env_map(&self.env.unwrap_or_default())
+                    .iter()
+                    .map(|(key, value)| GuestEnvVar {
+                        key: key.clone(),
+                        value: value.clone(),
+                    })
+                    .collect(),
                 run: self.run,
             }),
         };
@@ -120,4 +131,14 @@ async fn wait_guest_started(id: &str, events: EventStream) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn env_map(env: &[String]) -> HashMap<String, String> {
+    let mut map = HashMap::<String, String>::new();
+    for item in env {
+        if let Some((key, value)) = item.split_once('=') {
+            map.insert(key.to_string(), value.to_string());
+        }
+    }
+    map
 }
