@@ -4,7 +4,7 @@ use anyhow::Result;
 use control::RuntimeControlService;
 use db::GuestStore;
 use event::{DaemonEventContext, DaemonEventGenerator};
-use krata::{control::control_service_server::ControlServiceServer, dial::ControlDialAddress};
+use krata::{dial::ControlDialAddress, v1::control::control_service_server::ControlServiceServer};
 use kratart::Runtime;
 use log::info;
 use reconcile::guest::GuestReconciler;

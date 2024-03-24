@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use krata::{common::Guest, control::watch_events_reply::Event};
+use krata::v1::{common::Guest, control::watch_events_reply::Event};
 use prost_reflect::ReflectMessage;
 use serde_json::Value;
 

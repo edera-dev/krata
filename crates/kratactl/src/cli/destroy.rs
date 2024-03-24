@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use krata::{
+use krata::v1::{
     common::GuestStatus,
     control::{
         control_service_client::ControlServiceClient, watch_events_reply::Event,

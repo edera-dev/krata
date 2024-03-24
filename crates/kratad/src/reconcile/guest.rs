@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{anyhow, Result};
-use krata::{
+use krata::v1::{
     common::{
         guest_image_spec::Image, Guest, GuestErrorInfo, GuestExitInfo, GuestNetworkState,
         GuestState, GuestStatus,

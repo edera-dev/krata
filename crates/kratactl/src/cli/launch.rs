@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use clap::Parser;
-use krata::{
+use krata::v1::{
     common::{
         guest_image_spec::Image, GuestEnvVar, GuestImageSpec, GuestOciImageSpec, GuestSpec,
         GuestStatus,

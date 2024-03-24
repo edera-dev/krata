@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use krata::common::{GuestExitInfo, GuestState, GuestStatus};
+use krata::v1::common::{GuestExitInfo, GuestState, GuestStatus};
 use log::error;
 use tokio::{
     select,
@@ -22,7 +22,7 @@ use kratart::Runtime;
 
 use crate::db::GuestStore;
 
-pub type DaemonEvent = krata::control::watch_events_reply::Event;
+pub type DaemonEvent = krata::v1::control::watch_events_reply::Event;
 
 const EVENT_CHANNEL_QUEUE_LEN: usize = 1000;
 const EXIT_CODE_CHANNEL_QUEUE_LEN: usize = 1000;

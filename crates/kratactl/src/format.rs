@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use krata::common::{GuestState, GuestStatus};
+use krata::v1::common::{GuestState, GuestStatus};
 use prost_reflect::{DynamicMessage, ReflectMessage, Value};
 
 pub fn proto2dynamic(proto: impl ReflectMessage) -> Result<DynamicMessage> {

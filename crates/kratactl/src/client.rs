@@ -1,7 +1,7 @@
 #[cfg(not(unix))]
 use anyhow::anyhow;
 use anyhow::Result;
-use krata::{control::control_service_client::ControlServiceClient, dial::ControlDialAddress};
+use krata::{dial::ControlDialAddress, v1::control::control_service_client::ControlServiceClient};
 #[cfg(unix)]
 use tokio::net::UnixStream;
 #[cfg(unix)]

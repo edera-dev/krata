@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use krata::control::{watch_events_reply::Event, WatchEventsReply};
+use krata::v1::control::{watch_events_reply::Event, WatchEventsReply};
 use log::trace;
 use tokio::{sync::broadcast, task::JoinHandle};
 use tokio_stream::StreamExt;

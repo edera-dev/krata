@@ -4,7 +4,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, is_raw_mode_enabled},
     tty::IsTty,
 };
-use krata::{
+use krata::v1::{
     common::GuestStatus,
     control::{watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest},
 };

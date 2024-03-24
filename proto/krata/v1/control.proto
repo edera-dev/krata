@@ -1,12 +1,12 @@
 syntax = "proto3";
 
-package krata.control;
+package krata.v1.control;
 
 option java_multiple_files = true;
-option java_package = "dev.krata.proto.control";
+option java_package = "dev.krata.proto.v1.control";
 option java_outer_classname = "ControlProto";
 
-import "krata/common.proto";
+import "krata/v1/common.proto";
 
 service ControlService {
     rpc CreateGuest(CreateGuestRequest) returns (CreateGuestReply);
@@ -18,7 +18,7 @@ service ControlService {
 }
 
 message CreateGuestRequest {
-    krata.common.GuestSpec spec = 1;
+    krata.v1.common.GuestSpec spec = 1;
 }
 
 message CreateGuestReply {
@@ -36,13 +36,13 @@ message ResolveGuestRequest {
 }
 
 message ResolveGuestReply {
-    krata.common.Guest guest = 1;
+    krata.v1.common.Guest guest = 1;
 }
 
 message ListGuestsRequest {}
 
 message ListGuestsReply {
-    repeated krata.common.Guest guests = 1;
+    repeated krata.v1.common.Guest guests = 1;
 }
 
 message ConsoleDataRequest {
@@ -63,5 +63,5 @@ message WatchEventsReply {
 }
 
 message GuestChangedEvent {
-    krata.common.Guest guest = 1;
+    krata.v1.common.Guest guest = 1;
 }

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
 use cli_tables::Table;
-use krata::{
+use krata::v1::{
     common::{guest_image_spec::Image, Guest},
     control::{
         control_service_client::ControlServiceClient, ListGuestsRequest, ResolveGuestRequest,

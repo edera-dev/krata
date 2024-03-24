@@ -2,9 +2,9 @@ syntax = "proto3";
 
 package kratad.db;
 
-import "krata/common.proto";
+import "krata/v1/common.proto";
 
 message GuestEntry {
     string id = 1;
-    krata.common.Guest guest = 2;
+    krata.v1.common.Guest guest = 2;
 }

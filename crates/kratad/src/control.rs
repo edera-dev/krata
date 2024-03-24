@@ -2,7 +2,7 @@ use std::{io, pin::Pin, str::FromStr};
 
 use async_stream::try_stream;
 use futures::Stream;
-use krata::{
+use krata::v1::{
     common::{Guest, GuestState, GuestStatus},
     control::{
         control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,

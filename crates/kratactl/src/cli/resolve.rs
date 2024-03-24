@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use krata::control::{control_service_client::ControlServiceClient, ResolveGuestRequest};
+use krata::v1::control::{control_service_client::ControlServiceClient, ResolveGuestRequest};
 
 use tonic::{transport::Channel, Request};
 

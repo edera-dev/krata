@@ -1,9 +1,9 @@
 syntax = "proto3";
 
-package krata.common;
+package krata.v1.common;
 
 option java_multiple_files = true;
-option java_package = "dev.krata.proto.common";
+option java_package = "dev.krata.proto.v1.common";
 option java_outer_classname = "CommonProto";
 
 message Guest {
