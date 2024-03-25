@@ -8,6 +8,8 @@ pub enum Error {
     Io(#[from] io::Error),
     #[error("failed to read structure")]
     StructureReadFailed,
+    #[error("mmap failed")]
+    MmapFailed,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

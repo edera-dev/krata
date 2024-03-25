@@ -4,15 +4,18 @@ pub mod sys;
 use error::{Error, Result};
 use std::{
     fs::{File, OpenOptions},
-    os::fd::AsRawFd,
+    os::{fd::AsRawFd, raw::c_void},
+    sync::Arc,
 };
 use sys::{
     AllocGref, DeallocGref, GetOffsetForVaddr, GrantRef, MapGrantRef, SetMaxGrants, UnmapGrantRef,
     UnmapNotify, UNMAP_NOTIFY_CLEAR_BYTE, UNMAP_NOTIFY_SEND_EVENT,
 };
 
+use libc::{mmap, munmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
+
 pub struct GrantDevice {
-    handle: File,
+    handle: Arc<File>,
 }
 
 impl GrantDevice {
@@ -21,17 +24,12 @@ impl GrantDevice {
             .read(true)
             .write(true)
             .open("/dev/xen/gntdev")?;
-        Ok(GrantDevice { handle })
+        Ok(GrantDevice {
+            handle: Arc::new(handle),
+        })
     }
 
-    pub fn map_grant_ref(&self, count: u32) -> Result<(u64, Vec<GrantRef>)> {
-        let refs: Vec<GrantRef> = vec![
-            GrantRef {
-                domid: 0,
-                reference: 0
-            };
-            count as usize
-        ];
+    pub fn map_grant_ref(&self, refs: Vec<GrantRef>) -> Result<(u64, Vec<GrantRef>)> {
         let mut request = MapGrantRef::write(refs.as_slice());
         unsafe {
             sys::map_grant_ref(self.handle.as_raw_fd(), request.as_mut_ptr())?;
@@ -91,8 +89,9 @@ impl GrantDevice {
     }
 }
 
+#[derive(Clone)]
 pub struct GrantAlloc {
-    handle: File,
+    handle: Arc<File>,
 }
 
 impl GrantAlloc {
@@ -101,7 +100,9 @@ impl GrantAlloc {
             .read(true)
             .write(true)
             .open("/dev/xen/gntalloc")?;
-        Ok(GrantAlloc { handle })
+        Ok(GrantAlloc {
+            handle: Arc::new(handle),
+        })
     }
 
     pub fn alloc_gref(&self, domid: u16, flags: u16, count: u32) -> Result<(u64, Vec<u32>)> {
@@ -138,5 +139,76 @@ impl GrantAlloc {
             sys::unmap_notify(self.handle.as_raw_fd(), &mut request)?;
         }
         Ok(())
+    }
+}
+
+pub struct GrantTab {
+    device: GrantDevice,
+}
+
+const PAGE_SIZE: usize = 4096;
+
+#[allow(clippy::len_without_is_empty)]
+pub struct MappedMemory {
+    length: usize,
+    addr: *mut c_void,
+}
+
+impl MappedMemory {
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    pub fn ptr(&self) -> *mut c_void {
+        self.addr
+    }
+}
+
+impl Drop for MappedMemory {
+    fn drop(&mut self) {
+        let _ = unsafe { munmap(self.addr, self.length) };
+    }
+}
+
+impl GrantTab {
+    pub fn open() -> Result<GrantTab> {
+        Ok(GrantTab {
+            device: GrantDevice::open()?,
+        })
+    }
+
+    pub fn map_grant_refs(
+        &self,
+        refs: Vec<GrantRef>,
+        read: bool,
+        write: bool,
+    ) -> Result<MappedMemory> {
+        let (index, refs) = self.device.map_grant_ref(refs)?;
+        unsafe {
+            let mut flags: i32 = 0;
+            if read {
+                flags |= PROT_READ;
+            }
+
+            if write {
+                flags |= PROT_WRITE;
+            }
+
+            let addr = mmap(
+                std::ptr::null_mut(),
+                PAGE_SIZE * refs.len(),
+                flags,
+                MAP_SHARED,
+                self.device.handle.as_raw_fd(),
+                index as i64,
+            );
+            if addr == MAP_FAILED {
+                return Err(Error::MmapFailed);
+            }
+            Ok(MappedMemory {
+                addr,
+                length: PAGE_SIZE * refs.len(),
+            })
+        }
     }
 }
