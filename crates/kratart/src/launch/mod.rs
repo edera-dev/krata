@@ -13,12 +13,12 @@ use xenclient::{DomainConfig, DomainDisk, DomainNetworkInterface};
 use xenstore::XsdInterface;
 
 use crate::cfgblk::ConfigBlock;
-use crate::image::{
+use crate::RuntimeContext;
+use krataoci::{
     cache::ImageCache,
     compiler::{ImageCompiler, ImageInfo},
     name::ImageName,
 };
-use crate::RuntimeContext;
 
 use super::{GuestInfo, GuestState};
 

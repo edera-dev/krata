@@ -7,29 +7,15 @@ resolver = "2"
 [dependencies]
 advmac = { path = "../vendor/advmac" }
 anyhow = { workspace = true }
-async-compression = { workspace = true, features = ["tokio", "gzip", "zstd"] }
-async-stream = { workspace = true }
-async-trait = { workspace = true }
 backhand = { workspace = true }
-bytes = { workspace = true }
 ipnetwork = { workspace = true }
 krata = { path = "../krata" }
+krataoci = { path = "../krataoci" }
 log = { workspace = true }
 loopdev = { path = "../vendor/loopdev" }
-nix = { workspace = true, features = ["process"] }
-oci-spec = { workspace = true }
-path-clean = { workspace = true }
-reqwest = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
-sha256 = { workspace = true }
 tokio = { workspace = true }
-tokio-stream = { workspace = true }
-tokio-tar = { workspace = true }
-tonic = { workspace = true, features = ["tls"] }
-url = { workspace = true }
 uuid = { workspace = true }
-walkdir = { workspace = true }
 xenclient = { path = "../xen/xenclient" }
 xenstore = { path = "../xen/xenstore" }
 

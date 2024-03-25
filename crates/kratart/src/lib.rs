@@ -20,14 +20,13 @@ use xenstore::{XsdClient, XsdInterface, XsdWatchHandle};
 use self::{
     autoloop::AutoLoop,
     console::XenConsole,
-    image::cache::ImageCache,
     launch::{GuestLaunchRequest, GuestLauncher},
 };
+use krataoci::cache::ImageCache;
 
 pub mod autoloop;
 pub mod cfgblk;
 pub mod console;
-pub mod image;
 pub mod launch;
 
 pub struct ContainerLoopInfo {

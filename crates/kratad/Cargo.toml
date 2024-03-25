@@ -16,8 +16,6 @@ kratart = { path = "../kratart" }
 log = { workspace = true }
 prost = { workspace = true }
 redb = { workspace = true }
-serde = { workspace = true }
-serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }

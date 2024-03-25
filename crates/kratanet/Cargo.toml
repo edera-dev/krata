@@ -15,7 +15,6 @@ etherparse = { workspace = true }
 futures = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
-netlink-packet-route = { workspace = true }
 rtnetlink = { workspace = true }
 smoltcp = { workspace = true }
 tokio = { workspace = true }

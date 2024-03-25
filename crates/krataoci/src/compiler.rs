@@ -1,6 +1,7 @@
-use crate::image::cache::ImageCache;
-use crate::image::name::ImageName;
-use crate::image::registry::OciRegistryPlatform;
+use crate::cache::ImageCache;
+use crate::fetch::{OciImageDownloader, OciImageLayer};
+use crate::name::ImageName;
+use crate::registry::OciRegistryPlatform;
 use anyhow::{anyhow, Result};
 use backhand::compression::Compressor;
 use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader};
@@ -17,8 +18,6 @@ use tokio_stream::StreamExt;
 use tokio_tar::{Archive, Entry};
 use uuid::Uuid;
 use walkdir::WalkDir;
-
-use crate::image::fetch::{OciImageDownloader, OciImageLayer};
 
 pub const IMAGE_SQUASHFS_VERSION: u64 = 2;
 

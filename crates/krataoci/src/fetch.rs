@@ -1,3 +1,8 @@
+use super::{
+    name::ImageName,
+    registry::{OciRegistryClient, OciRegistryPlatform},
+};
+
 use std::{
     path::{Path, PathBuf},
     pin::Pin,
@@ -16,11 +21,6 @@ use tokio::{
 };
 use tokio_stream::StreamExt;
 use tokio_tar::Archive;
-
-use super::{
-    name::ImageName,
-    registry::{OciRegistryClient, OciRegistryPlatform},
-};
 
 pub struct OciImageDownloader {
     seed: Option<PathBuf>,

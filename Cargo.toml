@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/krata",
+    "crates/krataoci",
     "crates/krataguest",
     "crates/kratart",
     "crates/kratad",
@@ -21,6 +22,7 @@ version = "0.0.1"
 [workspace.dependencies]
 anyhow = "1.0"
 arrayvec = "0.7.4"
+async-compression = "0.4.6"
 async-stream = "0.3.5"
 async-trait = "0.1.77"
 backhand = "0.14.2"
@@ -29,10 +31,8 @@ bytes = "1.5.0"
 cli-tables = "0.2.1"
 crossterm = "0.27.0"
 ctrlc = "3.4.4"
-directories = "5.0.1"
 elf = "0.7.4"
 env_logger = "0.11.0"
-errno = "0.3.0"
 etherparse = "0.14.2"
 flate2 = "1.0"
 futures = "0.3.30"
@@ -40,7 +40,6 @@ ipnetwork = "0.20.0"
 libc = "0.2"
 log = "0.4.20"
 memchr = "2"
-netlink-packet-route = "0.19.0"
 nix = "0.28.0"
 oci-spec = "0.6.4"
 once_cell = "1.19.0"
@@ -53,28 +52,20 @@ rand = "0.8.5"
 redb = "1.5.0"
 rtnetlink = "0.14.1"
 serde_json = "1.0.113"
-sha256 = "1.5.0"
 serde_yaml = "0.9"
+sha256 = "1.5.0"
 signal-hook = "0.3.17"
 slice-copy = "0.3.0"
 smoltcp = "0.11.0"
-termion = "3.0.0"
 thiserror = "1.0"
-tokio-listener = "0.3.1"
-tokio-native-tls = "0.3.1"
 tokio-tar = { git = "https://github.com/edera-dev/tokio-tar.git", branch = "edera" }
 tokio-tun = "0.11.2"
 tonic-build = "0.11.0"
 tower = "0.4.13"
-trait-variant = "0.1.1"
 udp-stream = "0.0.11"
 url = "2.5.0"
 walkdir = "2"
 xz2 = "0.1"
-zstd = "0.13.0"
-
-[workspace.dependencies.async-compression]
-version = "0.4.6"
 
 [workspace.dependencies.clap]
 version = "4.4.18"
@@ -89,13 +80,13 @@ version = "0.12.0"
 default-features = false
 features = ["rustls-tls"]
 
-[workspace.dependencies.sys-mount]
-version = "3.0.0"
-default-features = false
-
 [workspace.dependencies.serde]
 version = "1.0.196"
 features = ["derive"]
+
+[workspace.dependencies.sys-mount]
+version = "3.0.0"
+default-features = false
 
 [workspace.dependencies.tokio]
 version = "1.35.1"
