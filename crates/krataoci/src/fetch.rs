@@ -17,7 +17,7 @@ use oci_spec::image::{
 use serde::de::DeserializeOwned;
 use tokio::{
     fs::File,
-    io::{AsyncRead, AsyncReadExt, BufReader},
+    io::{AsyncRead, AsyncReadExt, BufReader, BufWriter},
 };
 use tokio_stream::StreamExt;
 use tokio_tar::Archive;
@@ -138,8 +138,9 @@ impl OciImageDownloader {
             let mut entry = entry?;
             let path = String::from_utf8(entry.path_bytes().to_vec())?;
             if path == want {
-                let mut file = File::create(to).await?;
-                tokio::io::copy(&mut entry, &mut file).await?;
+                let file = File::create(to).await?;
+                let mut bufwrite = BufWriter::new(file);
+                tokio::io::copy(&mut entry, &mut bufwrite).await?;
                 return Ok(true);
             }
         }

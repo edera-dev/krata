@@ -7,8 +7,9 @@ use backhand::compression::Compressor;
 use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader};
 use log::{debug, trace, warn};
 use oci_spec::image::{ImageConfiguration, ImageManifest};
+use std::borrow::Cow;
 use std::fs::File;
-use std::io::{ErrorKind, Read};
+use std::io::{BufWriter, ErrorKind, Read};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -102,12 +103,25 @@ impl ImageCompiler<'_> {
                 "process layer digest={} compression={:?}",
                 &layer.digest, layer.compression,
             );
-            self.process_layer_whiteout(layer, image_dir).await?;
+            let whiteouts = self.process_layer_whiteout(layer, image_dir).await?;
+            debug!(
+                "process layer digest={} whiteouts={:?}",
+                &layer.digest, whiteouts
+            );
             let mut archive = layer.archive().await?;
             let mut entries = archive.entries()?;
             while let Some(entry) = entries.next().await {
                 let mut entry = entry?;
                 let path = entry.path()?;
+                let mut maybe_whiteout_path_str =
+                    path.to_str().map(|x| x.to_string()).unwrap_or_default();
+                if whiteouts.contains(&maybe_whiteout_path_str) {
+                    continue;
+                }
+                maybe_whiteout_path_str.push('/');
+                if whiteouts.contains(&maybe_whiteout_path_str) {
+                    continue;
+                }
                 let Some(name) = path.file_name() else {
                     return Err(anyhow!("unable to get file name"));
                 };
@@ -139,7 +153,12 @@ impl ImageCompiler<'_> {
         self.cache.store(&cache_digest, &info).await
     }
 
-    async fn process_layer_whiteout(&self, layer: &OciImageLayer, image_dir: &Path) -> Result<()> {
+    async fn process_layer_whiteout(
+        &self,
+        layer: &OciImageLayer,
+        image_dir: &Path,
+    ) -> Result<Vec<String>> {
+        let mut whiteouts = Vec::new();
         let mut archive = layer.archive().await?;
         let mut entries = archive.entries()?;
         while let Some(entry) = entries.next().await {
@@ -153,11 +172,15 @@ impl ImageCompiler<'_> {
             };
 
             if name.starts_with(".wh.") {
-                self.process_whiteout_entry(&entry, name, layer, image_dir)
+                let path = self
+                    .process_whiteout_entry(&entry, name, layer, image_dir)
                     .await?;
+                if let Some(path) = path {
+                    whiteouts.push(path);
+                }
             }
         }
-        Ok(())
+        Ok(whiteouts)
     }
 
     async fn process_whiteout_entry(
@@ -166,23 +189,28 @@ impl ImageCompiler<'_> {
         name: &str,
         layer: &OciImageLayer,
         image_dir: &Path,
-    ) -> Result<()> {
-        let dst = self.check_safe_entry(entry, image_dir)?;
-        let mut dst = dst.clone();
+    ) -> Result<Option<String>> {
+        let path = entry.path()?;
+        let mut dst = self.check_safe_entry(path.clone(), image_dir)?;
         dst.pop();
+        let mut path = path.to_path_buf();
+        path.pop();
 
         let opaque = name == ".wh..wh..opq";
 
         if !opaque {
-            dst.push(&name[4..]);
+            let file = &name[4..];
+            dst.push(file);
+            path.push(file);
             self.check_safe_path(&dst, image_dir)?;
         }
 
-        trace!(
-            "whiteout entry layer={} path={:?}",
-            &layer.digest,
-            entry.path()?
-        );
+        trace!("whiteout entry layer={} path={:?}", &layer.digest, path,);
+
+        let whiteout = path
+            .to_str()
+            .ok_or(anyhow!("unable to convert path to string"))?
+            .to_string();
 
         if opaque {
             if dst.is_dir() {
@@ -198,7 +226,7 @@ impl ImageCompiler<'_> {
                     }
                 }
             } else {
-                warn!(
+                debug!(
                     "whiteout opaque entry missing locally layer={} path={:?} local={:?}",
                     &layer.digest,
                     entry.path()?,
@@ -210,14 +238,14 @@ impl ImageCompiler<'_> {
         } else if dst.is_dir() {
             fs::remove_dir_all(&dst).await?;
         } else {
-            warn!(
+            debug!(
                 "whiteout entry missing locally layer={} path={:?} local={:?}",
                 &layer.digest,
                 entry.path()?,
                 dst,
             );
         }
-        Ok(())
+        Ok(if opaque { None } else { Some(whiteout) })
     }
 
     async fn process_write_entry(
@@ -247,13 +275,9 @@ impl ImageCompiler<'_> {
         Ok(())
     }
 
-    fn check_safe_entry(
-        &self,
-        entry: &Entry<Archive<Pin<Box<dyn AsyncRead + Send>>>>,
-        image_dir: &Path,
-    ) -> Result<PathBuf> {
+    fn check_safe_entry(&self, path: Cow<Path>, image_dir: &Path) -> Result<PathBuf> {
         let mut dst = image_dir.to_path_buf();
-        dst.push(entry.path()?);
+        dst.push(path);
         if let Some(name) = dst.file_name() {
             if let Some(name) = name.to_str() {
                 if name.starts_with(".wh.") {
@@ -325,6 +349,10 @@ impl ImageCompiler<'_> {
             } else if typ.is_char_device() {
                 let device = metadata.dev();
                 writer.push_char_device(device as u32, rel, header)?;
+            } else if typ.is_fifo() {
+                writer.push_fifo(rel, header)?;
+            } else if typ.is_socket() {
+                writer.push_socket(rel, header)?;
             } else {
                 return Err(anyhow!("invalid file type"));
             }
@@ -334,9 +362,10 @@ impl ImageCompiler<'_> {
             .to_str()
             .ok_or_else(|| anyhow!("failed to convert squashfs string"))?;
 
-        let mut file = File::create(squash_file)?;
+        let file = File::create(squash_file)?;
+        let mut bufwrite = BufWriter::new(file);
         trace!("squash generate: {}", squash_file_path);
-        writer.write(&mut file)?;
+        writer.write(&mut bufwrite)?;
         std::fs::remove_dir_all(image_dir)?;
         Ok(())
     }
