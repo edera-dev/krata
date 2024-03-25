@@ -1,0 +1,14 @@
+[package]
+name = "xengnt"
+version.workspace = true
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+log = { workspace = true }
+thiserror = { workspace = true }
+nix = { workspace = true, features = ["ioctl"] }
+tokio = { workspace = true }
+
+[lib]
+name = "xengnt"

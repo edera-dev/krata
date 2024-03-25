@@ -12,6 +12,7 @@ members = [
     "crates/xen/xencall",
     "crates/xen/xenclient",
     "crates/xen/xenevtchn",
+    "crates/xen/xengnt",
     "crates/xen/xenstore",
 ]
 resolver = "2"
