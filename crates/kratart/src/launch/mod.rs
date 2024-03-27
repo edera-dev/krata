@@ -9,7 +9,7 @@ use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
 };
 use uuid::Uuid;
-use xenclient::{DomainConfig, DomainDisk, DomainNetworkInterface};
+use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
 use xenstore::XsdInterface;
 
 use crate::cfgblk::ConfigBlock;
@@ -180,7 +180,10 @@ impl GuestLauncher {
                     writable: false,
                 },
             ],
-            consoles: vec![],
+            channels: vec![DomainChannel {
+                typ: "krata-channel".to_string(),
+                initialized: true,
+            }],
             vifs: vec![DomainNetworkInterface {
                 mac: &guest_mac_string,
                 mtu: 1500,
@@ -193,10 +196,10 @@ impl GuestLauncher {
             extra_rw_paths: vec!["krata/guest".to_string()],
         };
         match context.xen.create(&config).await {
-            Ok(domid) => Ok(GuestInfo {
+            Ok(created) => Ok(GuestInfo {
                 name: request.name.map(|x| x.to_string()),
                 uuid,
-                domid,
+                domid: created.domid,
                 image: request.image.to_string(),
                 loops: vec![],
                 guest_ipv4: Some(IpNetwork::new(

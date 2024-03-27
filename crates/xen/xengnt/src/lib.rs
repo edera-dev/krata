@@ -14,6 +14,7 @@ use sys::{
 
 use libc::{mmap, munmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 
+#[derive(Clone)]
 pub struct GrantDevice {
     handle: Arc<File>,
 }
@@ -142,6 +143,7 @@ impl GrantAlloc {
     }
 }
 
+#[derive(Clone)]
 pub struct GrantTab {
     device: GrantDevice,
 }

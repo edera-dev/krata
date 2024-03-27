@@ -58,7 +58,6 @@ pub struct BootState {
     pub kernel_segment: DomainSegment,
     pub start_info_segment: DomainSegment,
     pub xenstore_segment: DomainSegment,
-    pub console_segment: DomainSegment,
     pub boot_stack_segment: DomainSegment,
     pub p2m_segment: Option<DomainSegment>,
     pub page_table_segment: Option<DomainSegment>,
@@ -66,7 +65,7 @@ pub struct BootState {
     pub shared_info_frame: u64,
     pub initrd_segment: DomainSegment,
     pub store_evtchn: u32,
-    pub console_evtchn: u32,
+    pub consoles: Vec<(u32, DomainSegment)>,
 }
 
 impl BootSetup<'_> {
@@ -114,6 +113,7 @@ impl BootSetup<'_> {
         initrd: &[u8],
         max_vcpus: u32,
         mem_mb: u64,
+        console_count: usize,
     ) -> Result<BootState> {
         debug!("initialize max_vcpus={:?} mem_mb={:?}", max_vcpus, mem_mb);
 
@@ -145,7 +145,12 @@ impl BootSetup<'_> {
         }
         let start_info_segment = self.alloc_page(arch)?;
         let xenstore_segment = self.alloc_page(arch)?;
-        let console_segment = self.alloc_page(arch)?;
+        let mut consoles: Vec<(u32, DomainSegment)> = Vec::new();
+        for _ in 0..console_count {
+            let evtchn = self.call.evtchn_alloc_unbound(self.domid, 0)?;
+            let page = self.alloc_page(arch)?;
+            consoles.push((evtchn, page));
+        }
         let page_table_segment = arch.alloc_page_tables(self, &image_info)?;
         let boot_stack_segment = self.alloc_page(arch)?;
 
@@ -166,7 +171,6 @@ impl BootSetup<'_> {
 
         let initrd_segment = initrd_segment.unwrap();
         let store_evtchn = self.call.evtchn_alloc_unbound(self.domid, 0)?;
-        let console_evtchn = self.call.evtchn_alloc_unbound(self.domid, 0)?;
 
         let kernel_segment =
             kernel_segment.ok_or(Error::MemorySetupFailed("kernel_segment missing"))?;
@@ -175,14 +179,13 @@ impl BootSetup<'_> {
             kernel_segment,
             start_info_segment,
             xenstore_segment,
-            console_segment,
+            consoles,
             boot_stack_segment,
             p2m_segment,
             page_table_segment,
             image_info,
             initrd_segment,
             store_evtchn,
-            console_evtchn,
             shared_info_frame: 0,
         };
         debug!("initialize state={:?}", state);
@@ -210,7 +213,8 @@ impl BootSetup<'_> {
     }
 
     fn gnttab_seed(&mut self, state: &mut BootState) -> Result<()> {
-        let console_gfn = self.phys.p2m[state.console_segment.pfn as usize];
+        let console_gfn =
+            self.phys.p2m[state.consoles.first().map(|x| x.1.pfn).unwrap_or(0) as usize];
         let xenstore_gfn = self.phys.p2m[state.xenstore_segment.pfn as usize];
         let addr = self
             .call

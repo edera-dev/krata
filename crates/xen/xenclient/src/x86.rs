@@ -442,8 +442,9 @@ impl ArchBootSetup for X86BootSetup {
             (*info).flags = 0;
             (*info).store_evtchn = state.store_evtchn;
             (*info).store_mfn = setup.phys.p2m[state.xenstore_segment.pfn as usize];
-            (*info).console.mfn = setup.phys.p2m[state.console_segment.pfn as usize];
-            (*info).console.evtchn = state.console_evtchn;
+            let console = state.consoles.first().unwrap();
+            (*info).console.mfn = setup.phys.p2m[console.1.pfn as usize];
+            (*info).console.evtchn = console.0;
             (*info).mod_start = state.initrd_segment.vstart;
             (*info).mod_len = state.initrd_segment.size;
             for (i, c) in cmdline.chars().enumerate() {

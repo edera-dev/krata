@@ -19,6 +19,7 @@ use crate::arm64::Arm64BootSetup;
 use crate::boot::BootSetup;
 use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
+use boot::BootState;
 use log::{trace, warn};
 
 use std::fs::read;
@@ -67,7 +68,10 @@ pub struct DomainNetworkInterface<'a> {
 }
 
 #[derive(Debug)]
-pub struct DomainConsole {}
+pub struct DomainChannel {
+    pub typ: String,
+    pub initialized: bool,
+}
 
 #[derive(Debug)]
 pub struct DomainEventChannel<'a> {
@@ -84,12 +88,24 @@ pub struct DomainConfig<'a> {
     pub initrd_path: &'a str,
     pub cmdline: &'a str,
     pub disks: Vec<DomainDisk<'a>>,
-    pub consoles: Vec<DomainConsole>,
+    pub channels: Vec<DomainChannel>,
     pub vifs: Vec<DomainNetworkInterface<'a>>,
     pub filesystems: Vec<DomainFilesystem<'a>>,
     pub event_channels: Vec<DomainEventChannel<'a>>,
     pub extra_keys: Vec<(String, String)>,
     pub extra_rw_paths: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct CreatedChannel {
+    pub ring_ref: u64,
+    pub evtchn: u32,
+}
+
+#[derive(Debug)]
+pub struct CreatedDomain {
+    pub domid: u32,
+    pub channels: Vec<CreatedChannel>,
 }
 
 impl XenClient {
@@ -99,7 +115,7 @@ impl XenClient {
         Ok(XenClient { store, call })
     }
 
-    pub async fn create(&mut self, config: &DomainConfig<'_>) -> Result<u32> {
+    pub async fn create(&mut self, config: &DomainConfig<'_>) -> Result<CreatedDomain> {
         let mut domain = CreateDomain {
             max_vcpus: config.max_vcpus,
             ..Default::default()
@@ -111,7 +127,7 @@ impl XenClient {
 
         let domid = self.call.create_domain(domain)?;
         match self.init(domid, &domain, config).await {
-            Ok(_) => Ok(domid),
+            Ok(created) => Ok(created),
             Err(err) => {
                 // ignore since destroying a domain is best
                 // effort when an error occurs
@@ -126,7 +142,7 @@ impl XenClient {
         domid: u32,
         domain: &CreateDomain,
         config: &DomainConfig<'_>,
-    ) -> Result<()> {
+    ) -> Result<CreatedDomain> {
         trace!(
             "XenClient init domid={} domain={:?} config={:?}",
             domid,
@@ -241,11 +257,11 @@ impl XenClient {
         self.call.set_max_mem(domid, config.mem_mb * 1024)?;
         let image_loader = ElfImageLoader::load_file_kernel(config.kernel_path)?;
 
-        let console_evtchn: u32;
         let xenstore_evtchn: u32;
-        let console_mfn: u64;
         let xenstore_mfn: u64;
 
+        let p2m: Vec<u64>;
+        let mut state: BootState;
         {
             let mut boot = BootSetup::new(&self.call, domid);
             #[cfg(target_arch = "x86_64")]
@@ -253,18 +269,18 @@ impl XenClient {
             #[cfg(target_arch = "aarch64")]
             let mut arch = Arm64BootSetup::new();
             let initrd = read(config.initrd_path)?;
-            let mut state = boot.initialize(
+            state = boot.initialize(
                 &mut arch,
                 &image_loader,
                 initrd.as_slice(),
                 config.max_vcpus,
                 config.mem_mb,
+                1 + config.channels.len(),
             )?;
             boot.boot(&mut arch, &mut state, config.cmdline)?;
-            console_evtchn = state.console_evtchn;
             xenstore_evtchn = state.store_evtchn;
-            console_mfn = boot.phys.p2m[state.console_segment.pfn as usize];
             xenstore_mfn = boot.phys.p2m[state.xenstore_segment.pfn as usize];
+            p2m = boot.phys.p2m;
         }
 
         {
@@ -329,27 +345,38 @@ impl XenClient {
             return Err(Error::IntroduceDomainFailed);
         }
         self.console_device_add(
+            &DomainChannel {
+                typ: "xenconsoled".to_string(),
+                initialized: true,
+            },
+            &p2m,
+            &state,
             &dom_path,
             &backend_dom_path,
             config.backend_domid,
             domid,
             0,
-            Some(console_evtchn),
-            Some(console_mfn),
         )
         .await?;
 
-        for (index, _) in config.consoles.iter().enumerate() {
-            self.console_device_add(
-                &dom_path,
-                &backend_dom_path,
-                config.backend_domid,
-                domid,
-                index + 1,
-                None,
-                None,
-            )
-            .await?;
+        let mut channels: Vec<CreatedChannel> = Vec::new();
+        for (index, channel) in config.channels.iter().enumerate() {
+            let (Some(ring_ref), Some(evtchn)) = self
+                .console_device_add(
+                    channel,
+                    &p2m,
+                    &state,
+                    &dom_path,
+                    &backend_dom_path,
+                    config.backend_domid,
+                    domid,
+                    index + 1,
+                )
+                .await?
+            else {
+                continue;
+            };
+            channels.push(CreatedChannel { ring_ref, evtchn });
         }
 
         for (index, disk) in config.disks.iter().enumerate() {
@@ -402,7 +429,7 @@ impl XenClient {
         }
 
         self.call.unpause_domain(domid)?;
-        Ok(())
+        Ok(CreatedDomain { domid, channels })
     }
 
     async fn disk_device_add(
@@ -460,18 +487,22 @@ impl XenClient {
     #[allow(clippy::too_many_arguments, clippy::unnecessary_unwrap)]
     async fn console_device_add(
         &mut self,
+        channel: &DomainChannel,
+        p2m: &[u64],
+        state: &BootState,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
         domid: u32,
         index: usize,
-        port: Option<u32>,
-        ring: Option<u64>,
-    ) -> Result<()> {
+    ) -> Result<(Option<u64>, Option<u32>)> {
+        let console = state.consoles.get(index);
+        let port = console.map(|x| x.0);
+        let ring = console.map(|x| p2m[x.1.pfn as usize]);
+
         let mut backend_entries = vec![
             ("frontend-id", domid.to_string()),
             ("online", "1".to_string()),
-            ("state", "1".to_string()),
             ("protocol", "vt100".to_string()),
         ];
 
@@ -482,15 +513,14 @@ impl XenClient {
             ("tty", "".to_string()),
         ];
 
-        if index == 0 {
-            frontend_entries.push(("type", "xenconsoled".to_string()));
-        } else {
-            frontend_entries.push(("type", "ioemu".to_string()));
-            backend_entries.push(("connection", "pty".to_string()));
-            backend_entries.push(("output", "pty".to_string()));
-        }
+        frontend_entries.push(("type", channel.typ.clone()));
+        backend_entries.push(("type", channel.typ.clone()));
 
         if port.is_some() && ring.is_some() {
+            if channel.typ != "xenconsoled" {
+                frontend_entries.push(("state", "1".to_string()));
+            }
+
             frontend_entries.extend_from_slice(&[
                 ("port", port.unwrap().to_string()),
                 ("ring-ref", ring.unwrap().to_string()),
@@ -500,6 +530,12 @@ impl XenClient {
                 ("state", "1".to_string()),
                 ("protocol", "vt100".to_string()),
             ]);
+        }
+
+        if channel.initialized {
+            backend_entries.push(("state", "4".to_string()));
+        } else {
+            backend_entries.push(("state", "1".to_string()));
         }
 
         self.device_add(
@@ -513,7 +549,7 @@ impl XenClient {
             backend_entries,
         )
         .await?;
-        Ok(())
+        Ok((ring, port))
     }
 
     async fn fs_9p_device_add(

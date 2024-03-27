@@ -5,6 +5,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
+libc = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
 nix = { workspace = true, features = ["ioctl"] }

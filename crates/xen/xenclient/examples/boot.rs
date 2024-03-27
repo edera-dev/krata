@@ -23,14 +23,14 @@ async fn main() -> Result<()> {
         initrd_path: initrd_path.as_str(),
         cmdline: "debug elevator=noop",
         disks: vec![],
-        consoles: vec![],
+        channels: vec![],
         vifs: vec![],
         filesystems: vec![],
         extra_keys: vec![],
         extra_rw_paths: vec![],
         event_channels: vec![],
     };
-    let domid = client.create(&config).await?;
-    println!("created domain {}", domid);
+    let created = client.create(&config).await?;
+    println!("created domain {}", created.domid);
     Ok(())
 }
