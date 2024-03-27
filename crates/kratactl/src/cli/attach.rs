@@ -1,11 +1,11 @@
 use anyhow::Result;
 use clap::Parser;
-use krata::v1::control::control_service_client::ControlServiceClient;
+use krata::{events::EventStream, v1::control::control_service_client::ControlServiceClient};
 
 use tokio::select;
 use tonic::transport::Channel;
 
-use crate::{console::StdioConsoleStream, events::EventStream};
+use crate::console::StdioConsoleStream;
 
 use super::resolve_guest;
 

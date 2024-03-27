@@ -45,8 +45,12 @@ pub struct GuestInfo {
     pub domid: u32,
     pub image: String,
     pub loops: Vec<ContainerLoopInfo>,
-    pub ipv4: Option<IpNetwork>,
-    pub ipv6: Option<IpNetwork>,
+    pub guest_ipv4: Option<IpNetwork>,
+    pub guest_ipv6: Option<IpNetwork>,
+    pub guest_mac: Option<String>,
+    pub gateway_ipv4: Option<IpNetwork>,
+    pub gateway_ipv6: Option<IpNetwork>,
+    pub gateway_mac: Option<String>,
     pub state: GuestState,
 }
 
@@ -130,25 +134,57 @@ impl RuntimeContext {
                 .store
                 .read_string(&format!("{}/krata/loops", &dom_path))
                 .await?;
-            let ipv4 = self
+            let guest_ipv4 = self
                 .xen
                 .store
                 .read_string(&format!("{}/krata/network/guest/ipv4", &dom_path))
                 .await?;
-            let ipv6 = self
+            let guest_ipv6 = self
                 .xen
                 .store
                 .read_string(&format!("{}/krata/network/guest/ipv6", &dom_path))
                 .await?;
+            let guest_mac = self
+                .xen
+                .store
+                .read_string(&format!("{}/krata/network/guest/mac", &dom_path))
+                .await?;
+            let gateway_ipv4 = self
+                .xen
+                .store
+                .read_string(&format!("{}/krata/network/gateway/ipv4", &dom_path))
+                .await?;
+            let gateway_ipv6 = self
+                .xen
+                .store
+                .read_string(&format!("{}/krata/network/gateway/ipv6", &dom_path))
+                .await?;
+            let gateway_mac = self
+                .xen
+                .store
+                .read_string(&format!("{}/krata/network/gateway/mac", &dom_path))
+                .await?;
 
-            let ipv4 = if let Some(ipv4) = ipv4 {
-                IpNetwork::from_str(&ipv4).ok()
+            let guest_ipv4 = if let Some(guest_ipv4) = guest_ipv4 {
+                IpNetwork::from_str(&guest_ipv4).ok()
             } else {
                 None
             };
 
-            let ipv6 = if let Some(ipv6) = ipv6 {
-                IpNetwork::from_str(&ipv6).ok()
+            let guest_ipv6 = if let Some(guest_ipv6) = guest_ipv6 {
+                IpNetwork::from_str(&guest_ipv6).ok()
+            } else {
+                None
+            };
+
+            let gateway_ipv4 = if let Some(gateway_ipv4) = gateway_ipv4 {
+                IpNetwork::from_str(&gateway_ipv4).ok()
+            } else {
+                None
+            };
+
+            let gateway_ipv6 = if let Some(gateway_ipv6) = gateway_ipv6 {
+                IpNetwork::from_str(&gateway_ipv6).ok()
             } else {
                 None
             };
@@ -173,8 +209,12 @@ impl RuntimeContext {
                 domid,
                 image,
                 loops,
-                ipv4,
-                ipv6,
+                guest_ipv4,
+                guest_ipv6,
+                guest_mac,
+                gateway_ipv4,
+                gateway_ipv6,
+                gateway_mac,
                 state,
             });
         }

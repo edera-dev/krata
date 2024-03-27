@@ -1,15 +1,22 @@
+use std::str::FromStr;
+
 use anyhow::Result;
 use clap::Parser;
 use env_logger::Env;
+use krata::dial::ControlDialAddress;
 use kratanet::NetworkService;
 
 #[derive(Parser, Debug)]
-struct NetworkArgs {}
+struct NetworkArgs {
+    #[arg(short, long, default_value = "unix:///var/lib/krata/daemon.socket")]
+    connection: String,
+}
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 10)]
+#[tokio::main]
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
-    let _ = NetworkArgs::parse();
-    let mut service = NetworkService::new().await?;
+    let args = NetworkArgs::parse();
+    let control_dial_address = ControlDialAddress::from_str(&args.connection)?;
+    let mut service = NetworkService::new(control_dial_address).await?;
     service.watch().await
 }

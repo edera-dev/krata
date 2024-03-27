@@ -124,6 +124,7 @@ impl DaemonEventGenerator {
                 network: guest.state.clone().unwrap_or_default().network,
                 exit_info: Some(GuestExitInfo { code }),
                 error_info: None,
+                domid: guest.state.clone().map(|x| x.domid).unwrap_or(u32::MAX),
             });
 
             self.guests.update(id, entry).await?;

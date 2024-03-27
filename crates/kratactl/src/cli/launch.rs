@@ -2,20 +2,24 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use clap::Parser;
-use krata::v1::{
-    common::{
-        guest_image_spec::Image, GuestEnvVar, GuestImageSpec, GuestOciImageSpec, GuestSpec,
-        GuestStatus,
-    },
-    control::{
-        control_service_client::ControlServiceClient, watch_events_reply::Event, CreateGuestRequest,
+use krata::{
+    events::EventStream,
+    v1::{
+        common::{
+            guest_image_spec::Image, GuestImageSpec, GuestOciImageSpec, GuestSpec, GuestStatus,
+            GuestTaskSpec, GuestTaskSpecEnvVar,
+        },
+        control::{
+            control_service_client::ControlServiceClient, watch_events_reply::Event,
+            CreateGuestRequest,
+        },
     },
 };
 use log::error;
 use tokio::select;
 use tonic::{transport::Channel, Request};
 
-use crate::{console::StdioConsoleStream, events::EventStream};
+use crate::console::StdioConsoleStream;
 
 #[derive(Parser)]
 pub struct LauchCommand {
@@ -51,14 +55,17 @@ impl LauchCommand {
                 }),
                 vcpus: self.cpus,
                 mem: self.mem,
-                env: env_map(&self.env.unwrap_or_default())
-                    .iter()
-                    .map(|(key, value)| GuestEnvVar {
-                        key: key.clone(),
-                        value: value.clone(),
-                    })
-                    .collect(),
-                run: self.run,
+                task: Some(GuestTaskSpec {
+                    environment: env_map(&self.env.unwrap_or_default())
+                        .iter()
+                        .map(|(key, value)| GuestTaskSpecEnvVar {
+                            key: key.clone(),
+                            value: value.clone(),
+                        })
+                        .collect(),
+                    command: self.run,
+                }),
+                annotations: vec![],
             }),
         };
         let response = client

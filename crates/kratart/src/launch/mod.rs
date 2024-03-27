@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr};
 use std::{fs, net::Ipv4Addr, str::FromStr};
 
 use advmac::MacAddr6;
@@ -113,7 +113,7 @@ impl GuestLauncher {
         ];
         let cmdline = cmdline_options.join(" ");
 
-        let container_mac_string = container_mac.to_string().replace('-', ":");
+        let guest_mac_string = container_mac.to_string().replace('-', ":");
         let gateway_mac_string = gateway_mac.to_string().replace('-', ":");
 
         let mut extra_keys = vec![
@@ -140,7 +140,7 @@ impl GuestLauncher {
             ),
             (
                 "krata/network/guest/mac".to_string(),
-                container_mac_string.clone(),
+                guest_mac_string.clone(),
             ),
             (
                 "krata/network/gateway/ipv4".to_string(),
@@ -182,7 +182,7 @@ impl GuestLauncher {
             ],
             consoles: vec![],
             vifs: vec![DomainNetworkInterface {
-                mac: &container_mac_string,
+                mac: &guest_mac_string,
                 mtu: 1500,
                 bridge: None,
                 script: None,
@@ -199,14 +199,24 @@ impl GuestLauncher {
                 domid,
                 image: request.image.to_string(),
                 loops: vec![],
-                ipv4: Some(IpNetwork::new(
+                guest_ipv4: Some(IpNetwork::new(
                     IpAddr::V4(guest_ipv4),
                     ipv4_network_mask as u8,
                 )?),
-                ipv6: Some(IpNetwork::new(
+                guest_ipv6: Some(IpNetwork::new(
                     IpAddr::V6(guest_ipv6),
                     ipv6_network_mask as u8,
                 )?),
+                guest_mac: Some(guest_mac_string.clone()),
+                gateway_ipv4: Some(IpNetwork::new(
+                    IpAddr::V4(Ipv4Addr::from_str(gateway_ipv4)?),
+                    ipv4_network_mask as u8,
+                )?),
+                gateway_ipv6: Some(IpNetwork::new(
+                    IpAddr::V6(Ipv6Addr::from_str(gateway_ipv6)?),
+                    ipv4_network_mask as u8,
+                )?),
+                gateway_mac: Some(gateway_mac_string.clone()),
                 state: GuestState { exit_code: None },
             }),
             Err(error) => {

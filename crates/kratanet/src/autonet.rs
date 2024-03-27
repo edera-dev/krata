@@ -1,11 +1,24 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
+use krata::{
+    events::EventStream,
+    v1::{
+        common::Guest,
+        control::{
+            control_service_client::ControlServiceClient, watch_events_reply::Event,
+            ListGuestsRequest, WatchEventsRequest,
+        },
+    },
+};
+use log::warn;
 use smoltcp::wire::{EthernetAddress, Ipv4Cidr, Ipv6Cidr};
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, time::Duration};
+use tokio::{select, sync::broadcast::Receiver, time::sleep};
+use tonic::transport::Channel;
 use uuid::Uuid;
-use xenstore::{XsdClient, XsdInterface, XsdTransaction};
 
-pub struct AutoNetworkCollector {
-    client: XsdClient,
+pub struct AutoNetworkWatcher {
+    control: ControlServiceClient<Channel>,
+    pub events: EventStream,
     known: HashMap<Uuid, NetworkMetadata>,
 }
 
@@ -36,114 +49,86 @@ pub struct AutoNetworkChangeset {
     pub removed: Vec<NetworkMetadata>,
 }
 
-impl AutoNetworkCollector {
-    pub async fn new() -> Result<AutoNetworkCollector> {
-        Ok(AutoNetworkCollector {
-            client: XsdClient::open().await?,
+impl AutoNetworkWatcher {
+    pub async fn new(mut control: ControlServiceClient<Channel>) -> Result<AutoNetworkWatcher> {
+        let watch_events_response = control.watch_events(WatchEventsRequest {}).await?;
+
+        Ok(AutoNetworkWatcher {
+            control,
+            events: EventStream::open(watch_events_response.into_inner()).await?,
             known: HashMap::new(),
         })
     }
 
     pub async fn read(&mut self) -> Result<Vec<NetworkMetadata>> {
-        let mut networks = Vec::new();
-        let tx = self.client.transaction().await?;
-        for domid_string in tx.list("/local/domain").await? {
-            let Ok(domid) = domid_string.parse::<u32>() else {
+        let mut all_guests: HashMap<Uuid, Guest> = HashMap::new();
+        for guest in self
+            .control
+            .list_guests(ListGuestsRequest {})
+            .await?
+            .into_inner()
+            .guests
+        {
+            let Ok(uuid) = Uuid::from_str(&guest.id) else {
+                continue;
+            };
+            all_guests.insert(uuid, guest);
+        }
+
+        let mut networks: Vec<NetworkMetadata> = Vec::new();
+        for (uuid, guest) in &all_guests {
+            let Some(ref state) = guest.state else {
                 continue;
             };
 
-            let dom_path = format!("/local/domain/{}", domid_string);
-            let Some(uuid_string) = tx.read_string(&format!("{}/krata/uuid", dom_path)).await?
-            else {
+            if state.domid == u32::MAX {
+                continue;
+            }
+
+            let Some(ref network) = state.network else {
                 continue;
             };
 
-            let Ok(uuid) = uuid_string.parse::<Uuid>() else {
+            let Ok(guest_ipv4_cidr) = Ipv4Cidr::from_str(&network.guest_ipv4) else {
                 continue;
             };
 
-            let Ok(guest) =
-                AutoNetworkCollector::read_network_side(uuid, &tx, &dom_path, "guest").await
-            else {
+            let Ok(guest_ipv6_cidr) = Ipv6Cidr::from_str(&network.guest_ipv6) else {
                 continue;
             };
 
-            let Ok(gateway) =
-                AutoNetworkCollector::read_network_side(uuid, &tx, &dom_path, "gateway").await
-            else {
+            let Ok(guest_mac) = EthernetAddress::from_str(&network.guest_mac) else {
+                continue;
+            };
+
+            let Ok(gateway_ipv4_cidr) = Ipv4Cidr::from_str(&network.gateway_ipv4) else {
+                continue;
+            };
+
+            let Ok(gateway_ipv6_cidr) = Ipv6Cidr::from_str(&network.gateway_ipv6) else {
+                continue;
+            };
+
+            let Ok(gateway_mac) = EthernetAddress::from_str(&network.gateway_mac) else {
                 continue;
             };
 
             networks.push(NetworkMetadata {
-                domid,
-                uuid,
-                guest,
-                gateway,
+                domid: state.domid,
+                uuid: *uuid,
+                guest: NetworkSide {
+                    ipv4: guest_ipv4_cidr,
+                    ipv6: guest_ipv6_cidr,
+                    mac: guest_mac,
+                },
+                gateway: NetworkSide {
+                    ipv4: gateway_ipv4_cidr,
+                    ipv6: gateway_ipv6_cidr,
+                    mac: gateway_mac,
+                },
             });
         }
-        tx.commit().await?;
         Ok(networks)
-    }
-
-    async fn read_network_side(
-        uuid: Uuid,
-        tx: &XsdTransaction,
-        dom_path: &str,
-        side: &str,
-    ) -> Result<NetworkSide> {
-        let side_path = format!("{}/krata/network/{}", dom_path, side);
-        let Some(ipv4) = tx.read_string(&format!("{}/ipv4", side_path)).await? else {
-            return Err(anyhow!(
-                "krata domain {} is missing {} ipv4 network entry",
-                uuid,
-                side
-            ));
-        };
-
-        let Some(ipv6) = tx.read_string(&format!("{}/ipv6", side_path)).await? else {
-            return Err(anyhow!(
-                "krata domain {} is missing {} ipv6 network entry",
-                uuid,
-                side
-            ));
-        };
-
-        let Some(mac) = tx.read_string(&format!("{}/mac", side_path)).await? else {
-            return Err(anyhow!(
-                "krata domain {} is missing {} mac address entry",
-                uuid,
-                side
-            ));
-        };
-
-        let Ok(ipv4) = Ipv4Cidr::from_str(&ipv4) else {
-            return Err(anyhow!(
-                "krata domain {} has invalid {} ipv4 network cidr entry: {}",
-                uuid,
-                side,
-                ipv4
-            ));
-        };
-
-        let Ok(ipv6) = Ipv6Cidr::from_str(&ipv6) else {
-            return Err(anyhow!(
-                "krata domain {} has invalid {} ipv6 network cidr entry: {}",
-                uuid,
-                side,
-                ipv6
-            ));
-        };
-
-        let Ok(mac) = EthernetAddress::from_str(&mac) else {
-            return Err(anyhow!(
-                "krata domain {} has invalid {} mac address entry: {}",
-                uuid,
-                side,
-                mac
-            ));
-        };
-
-        Ok(NetworkSide { ipv4, ipv6, mac })
     }
 
     pub async fn read_changes(&mut self) -> Result<AutoNetworkChangeset> {
@@ -177,6 +162,27 @@ impl AutoNetworkCollector {
         }
 
         Ok(AutoNetworkChangeset { added, removed })
+    }
+
+    pub async fn wait(&mut self, receiver: &mut Receiver<Event>) -> Result<()> {
+        loop {
+            select! {
+                x = receiver.recv() => match x {
+                    Ok(Event::GuestChanged(_)) => {
+                        break;
+                    },
+
+                    Err(error) => {
+                        warn!("failed to receive event: {}", error);
+                    }
+                },
+
+                _ = sleep(Duration::from_secs(10)) => {
+                    break;
+                }
+            };
+        }
+        Ok(())
     }
 
     pub fn mark_unknown(&mut self, uuid: Uuid) -> Result<bool> {

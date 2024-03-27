@@ -17,8 +17,8 @@ message GuestSpec {
     GuestImageSpec image = 2;
     uint32 vcpus = 3;
     uint64 mem = 4;
-    repeated GuestEnvVar env = 5;
-    repeated string run = 6;
+    GuestTaskSpec task = 5;
+    repeated GuestSpecAnnotation annotations = 6;
 }
 
 message GuestImageSpec {
@@ -31,7 +31,17 @@ message GuestOciImageSpec {
     string image = 1;
 }
 
-message GuestEnvVar {
+message GuestTaskSpec {
+    repeated GuestTaskSpecEnvVar environment = 1;
+    repeated string command = 2;
+}
+
+message GuestTaskSpecEnvVar {
+    string key = 1;
+    string value = 2;
+}
+
+message GuestSpecAnnotation {
     string key = 1;
     string value = 2;
 }
@@ -41,6 +51,7 @@ message GuestState {
     GuestNetworkState network = 2;
     GuestExitInfo exit_info = 3;
     GuestErrorInfo error_info = 4;
+    uint32 domid = 5;
 }
 
 enum GuestStatus {
@@ -54,8 +65,12 @@ enum GuestStatus {
 }
 
 message GuestNetworkState {
-    string ipv4 = 1;
-    string ipv6 = 2;
+    string guest_ipv4 = 1;
+    string guest_ipv6 = 2;
+    string guest_mac = 3;
+    string gateway_ipv4 = 4;
+    string gateway_ipv6 = 5;
+    string gateway_mac = 6;
 }
 
 message GuestExitInfo {

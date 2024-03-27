@@ -7,12 +7,14 @@ pub mod watch;
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use krata::v1::control::{
-    control_service_client::ControlServiceClient, ResolveGuestRequest, WatchEventsRequest,
+use krata::{
+    client::ControlClientProvider,
+    events::EventStream,
+    v1::control::{
+        control_service_client::ControlServiceClient, ResolveGuestRequest, WatchEventsRequest,
+    },
 };
 use tonic::{transport::Channel, Request};
-
-use crate::{client::ControlClientProvider, events::EventStream};
 
 use self::{
     attach::AttachCommand, destroy::DestroyCommand, launch::LauchCommand, list::ListCommand,

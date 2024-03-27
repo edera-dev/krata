@@ -1,10 +1,10 @@
-use std::time::Duration;
-
-use crate::childwait::{ChildEvent, ChildWait};
+use crate::{
+    childwait::{ChildEvent, ChildWait},
+    death,
+};
 use anyhow::Result;
-use nix::{libc::c_int, unistd::Pid};
-use tokio::{select, time::sleep};
-use xenstore::{XsdClient, XsdInterface};
+use nix::unistd::Pid;
+use tokio::select;
 
 pub struct GuestBackground {
     child: Pid,
@@ -35,19 +35,8 @@ impl GuestBackground {
 
     async fn child_event(&mut self, event: ChildEvent) -> Result<()> {
         if event.pid == self.child {
-            self.death(event.status).await?;
+            death(event.status).await?;
         }
         Ok(())
-    }
-
-    async fn death(&mut self, code: c_int) -> Result<()> {
-        let store = XsdClient::open().await?;
-        store
-            .write_string("krata/guest/exit-code", &code.to_string())
-            .await?;
-        drop(store);
-        loop {
-            sleep(Duration::from_secs(1)).await;
-        }
     }
 }

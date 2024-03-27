@@ -105,6 +105,7 @@ impl ControlService for RuntimeControlService {
                             network: None,
                             exit_info: None,
                             error_info: None,
+                            domid: u32::MAX,
                         }),
                         spec: Some(spec),
                     }),

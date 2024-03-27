@@ -20,7 +20,7 @@ impl NatHandlerContext {
     }
 
     pub async fn reclaim(&self) -> Result<()> {
-        self.reclaim_sender.try_send(self.key)?;
+        let _ = self.reclaim_sender.try_send(self.key);
         Ok(())
     }
 }

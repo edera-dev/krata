@@ -1,11 +1,17 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
-use autonet::{AutoNetworkChangeset, AutoNetworkCollector, NetworkMetadata};
+use autonet::{AutoNetworkChangeset, AutoNetworkWatcher, NetworkMetadata};
 use futures::{future::join_all, TryFutureExt};
 use hbridge::HostBridge;
+use krata::{
+    client::ControlClientProvider,
+    dial::ControlDialAddress,
+    v1::{common::Guest, control::control_service_client::ControlServiceClient},
+};
 use log::warn;
 use tokio::{task::JoinHandle, time::sleep};
+use tonic::transport::Channel;
 use uuid::Uuid;
 use vbridge::VirtualBridge;
 
@@ -26,17 +32,22 @@ const HOST_BRIDGE_MTU: usize = 1500;
 pub const EXTRA_MTU: usize = 20;
 
 pub struct NetworkService {
+    pub control: ControlServiceClient<Channel>,
+    pub guests: HashMap<Uuid, Guest>,
     pub backends: HashMap<Uuid, JoinHandle<()>>,
     pub bridge: VirtualBridge,
     pub hbridge: HostBridge,
 }
 
 impl NetworkService {
-    pub async fn new() -> Result<NetworkService> {
+    pub async fn new(control_address: ControlDialAddress) -> Result<NetworkService> {
+        let control = ControlClientProvider::dial(control_address).await?;
         let bridge = VirtualBridge::new()?;
         let hbridge =
             HostBridge::new(HOST_BRIDGE_MTU + EXTRA_MTU, "krata0".to_string(), &bridge).await?;
         Ok(NetworkService {
+            control,
+            guests: HashMap::new(),
             backends: HashMap::new(),
             bridge,
             hbridge,
@@ -46,18 +57,19 @@ impl NetworkService {
 
 impl NetworkService {
     pub async fn watch(&mut self) -> Result<()> {
-        let mut collector = AutoNetworkCollector::new().await?;
+        let mut watcher = AutoNetworkWatcher::new(self.control.clone()).await?;
+        let mut receiver = watcher.events.subscribe();
         loop {
-            let changeset = collector.read_changes().await?;
-            self.process_network_changeset(&mut collector, changeset)
+            let changeset = watcher.read_changes().await?;
+            self.process_network_changeset(&mut watcher, changeset)
                 .await?;
-            sleep(Duration::from_secs(2)).await;
+            watcher.wait(&mut receiver).await?;
         }
     }
 
     async fn process_network_changeset(
         &mut self,
-        collector: &mut AutoNetworkCollector,
+        collector: &mut AutoNetworkWatcher,
         changeset: AutoNetworkChangeset,
     ) -> Result<()> {
         for removal in &changeset.removed {

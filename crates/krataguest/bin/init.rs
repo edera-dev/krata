@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use env_logger::Env;
-use krataguest::init::GuestInit;
+use krataguest::{death, init::GuestInit};
+use log::error;
 use std::env;
 
 #[tokio::main]
@@ -19,6 +20,9 @@ async fn main() -> Result<()> {
         }
     }
     let mut guest = GuestInit::new();
-    guest.init().await?;
+    if let Err(error) = guest.init().await {
+        error!("failed to initialize guest: {}", error);
+        death(127).await?;
+    }
     Ok(())
 }

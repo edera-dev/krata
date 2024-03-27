@@ -1,13 +1,13 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use krata::v1::{common::Guest, control::watch_events_reply::Event};
+use krata::{
+    events::EventStream,
+    v1::{common::Guest, control::watch_events_reply::Event},
+};
 use prost_reflect::ReflectMessage;
 use serde_json::Value;
 
-use crate::{
-    events::EventStream,
-    format::{guest_state_text, kv2line, proto2dynamic, proto2kv},
-};
+use crate::format::{guest_state_text, kv2line, proto2dynamic, proto2kv};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum WatchFormat {

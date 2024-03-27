@@ -266,6 +266,12 @@ impl AsyncRawSocketChannel {
                             if error.kind() == ErrorKind::WouldBlock {
                                 continue;
                             }
+
+                            // device no longer exists
+                            if error.raw_os_error() == Some(6) {
+                                break;
+                            }
+
                             return Err(anyhow!("failed to read from raw socket: {}", error));
                         }
                     };

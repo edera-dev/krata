@@ -23,7 +23,7 @@ build_and_run() {
   if [ "${KRATA_BUILD_INITRD}" = "1" ]
   then
     TARGET_ARCH="$(./hack/build/arch.sh)"
-    ./hack/initrd/build.sh -q
+    ./hack/initrd/build.sh ${CARGO_BUILD_FLAGS}
     sudo cp "target/initrd/initrd-${TARGET_ARCH}" "/var/lib/krata/guest/initrd"
   fi
   RUST_TARGET="$(./hack/build/target.sh)"

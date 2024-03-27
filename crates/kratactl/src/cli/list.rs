@@ -1,20 +1,20 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
 use cli_tables::Table;
-use krata::v1::{
-    common::{guest_image_spec::Image, Guest},
-    control::{
-        control_service_client::ControlServiceClient, ListGuestsRequest, ResolveGuestRequest,
+use krata::{
+    events::EventStream,
+    v1::{
+        common::{guest_image_spec::Image, Guest},
+        control::{
+            control_service_client::ControlServiceClient, ListGuestsRequest, ResolveGuestRequest,
+        },
     },
 };
 
 use serde_json::Value;
 use tonic::{transport::Channel, Request};
 
-use crate::{
-    events::EventStream,
-    format::{guest_state_text, kv2line, proto2dynamic, proto2kv},
-};
+use crate::format::{guest_state_text, kv2line, proto2dynamic, proto2kv};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum ListFormat {
@@ -106,13 +106,13 @@ impl ListCommand {
                 .state
                 .as_ref()
                 .and_then(|x| x.network.as_ref())
-                .map(|x| x.ipv4.as_str())
+                .map(|x| x.guest_ipv4.as_str())
                 .unwrap_or("unknown");
             let ipv6 = guest
                 .state
                 .as_ref()
                 .and_then(|x| x.network.as_ref())
-                .map(|x| x.ipv6.as_str())
+                .map(|x| x.guest_ipv6.as_str())
                 .unwrap_or("unknown");
             let Some(spec) = guest.spec else {
                 continue;

@@ -4,9 +4,12 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, is_raw_mode_enabled},
     tty::IsTty,
 };
-use krata::v1::{
-    common::GuestStatus,
-    control::{watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest},
+use krata::{
+    events::EventStream,
+    v1::{
+        common::GuestStatus,
+        control::{watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest},
+    },
 };
 use log::debug;
 use tokio::{
@@ -15,8 +18,6 @@ use tokio::{
 };
 use tokio_stream::{Stream, StreamExt};
 use tonic::Streaming;
-
-use crate::events::EventStream;
 
 pub struct StdioConsoleStream;
 

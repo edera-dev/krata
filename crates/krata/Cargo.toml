@@ -7,11 +7,15 @@ resolver = "2"
 [dependencies]
 anyhow = { workspace = true }
 libc = { workspace = true }
+log = { workspace = true }
 once_cell = { workspace = true }
 prost = { workspace = true }
 prost-reflect = { workspace = true }
 serde = { workspace = true }
 tonic = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tower = { workspace = true }
 url = { workspace = true }
 
 [build-dependencies]

@@ -1,17 +1,20 @@
 use anyhow::Result;
 use clap::Parser;
-use krata::v1::{
-    common::GuestStatus,
-    control::{
-        control_service_client::ControlServiceClient, watch_events_reply::Event,
-        DestroyGuestRequest,
+use krata::{
+    events::EventStream,
+    v1::{
+        common::GuestStatus,
+        control::{
+            control_service_client::ControlServiceClient, watch_events_reply::Event,
+            DestroyGuestRequest,
+        },
     },
 };
 
 use log::error;
 use tonic::{transport::Channel, Request};
 
-use crate::{cli::resolve_guest, events::EventStream};
+use crate::cli::resolve_guest;
 
 #[derive(Parser)]
 pub struct DestroyCommand {

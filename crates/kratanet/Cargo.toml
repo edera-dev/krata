@@ -13,15 +13,16 @@ clap = { workspace = true }
 env_logger = { workspace = true }
 etherparse = { workspace = true }
 futures = { workspace = true }
+krata = { path = "../krata" }
 libc = { workspace = true }
 log = { workspace = true }
 rtnetlink = { workspace = true }
 smoltcp = { workspace = true }
+tonic = { workspace = true }
 tokio = { workspace = true }
 tokio-tun = { workspace = true }
 udp-stream = { workspace = true }
 uuid = { workspace = true }
-xenstore = { path = "../xen/xenstore" }
 
 [lib]
 name = "kratanet"
@@ -33,7 +34,3 @@ path = "bin/network.rs"
 [[example]]
 name = "ping"
 path = "examples/ping.rs"
-
-[[example]]
-name = "autonet"
-path = "examples/autonet.rs"

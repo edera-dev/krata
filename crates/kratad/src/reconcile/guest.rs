@@ -8,7 +8,7 @@ use krata::v1::{
     },
     control::GuestChangedEvent,
 };
-use kratart::{launch::GuestLaunchRequest, Runtime};
+use kratart::{launch::GuestLaunchRequest, GuestInfo, Runtime};
 use log::{error, info, trace, warn};
 use tokio::{select, sync::mpsc::Receiver, task::JoinHandle, time::sleep};
 use uuid::Uuid;
@@ -92,10 +92,7 @@ impl GuestReconciler {
                     } else {
                         state.status = GuestStatus::Started.into();
                     }
-                    state.network = Some(GuestNetworkState {
-                        ipv4: runtime.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
-                        ipv6: runtime.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
-                    });
+                    state.network = Some(guestinfo_to_networkstate(runtime));
                     stored_guest.state = Some(state);
                 }
             }
@@ -187,6 +184,8 @@ impl GuestReconciler {
             }
         };
 
+        let task = spec.task.as_ref().cloned().unwrap_or_default();
+
         let info = self
             .runtime
             .launch(GuestLaunchRequest {
@@ -199,24 +198,22 @@ impl GuestReconciler {
                 image: &oci.image,
                 vcpus: spec.vcpus,
                 mem: spec.mem,
-                env: spec
-                    .env
+                env: task
+                    .environment
                     .iter()
                     .map(|x| (x.key.clone(), x.value.clone()))
                     .collect::<HashMap<_, _>>(),
-                run: empty_vec_optional(spec.run.clone()),
+                run: empty_vec_optional(task.command.clone()),
                 debug: false,
             })
             .await?;
         info!("started guest {}", uuid);
         guest.state = Some(GuestState {
             status: GuestStatus::Started.into(),
-            network: Some(GuestNetworkState {
-                ipv4: info.ipv4.map(|x| x.ip().to_string()).unwrap_or_default(),
-                ipv6: info.ipv6.map(|x| x.ip().to_string()).unwrap_or_default(),
-            }),
+            network: Some(guestinfo_to_networkstate(&info)),
             exit_info: None,
             error_info: None,
+            domid: info.domid,
         });
         Ok(true)
     }
@@ -232,6 +229,7 @@ impl GuestReconciler {
             network: None,
             exit_info: None,
             error_info: None,
+            domid: guest.state.as_ref().map(|x| x.domid).unwrap_or(u32::MAX),
         });
         Ok(true)
     }
@@ -242,5 +240,16 @@ fn empty_vec_optional<T>(value: Vec<T>) -> Option<Vec<T>> {
         None
     } else {
         Some(value)
+    }
+}
+
+fn guestinfo_to_networkstate(info: &GuestInfo) -> GuestNetworkState {
+    GuestNetworkState {
+        guest_ipv4: info.guest_ipv4.map(|x| x.to_string()).unwrap_or_default(),
+        guest_ipv6: info.guest_ipv6.map(|x| x.to_string()).unwrap_or_default(),
+        guest_mac: info.guest_mac.as_ref().cloned().unwrap_or_default(),
+        gateway_ipv4: info.gateway_ipv4.map(|x| x.to_string()).unwrap_or_default(),
+        gateway_ipv6: info.gateway_ipv6.map(|x| x.to_string()).unwrap_or_default(),
+        gateway_mac: info.gateway_mac.as_ref().cloned().unwrap_or_default(),
     }
 }
