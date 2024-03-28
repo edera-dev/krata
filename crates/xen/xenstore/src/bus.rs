@@ -1,10 +1,20 @@
-use std::{collections::HashMap, ffi::CString, io::ErrorKind, os::fd::AsRawFd, sync::Arc};
+use std::{
+    collections::HashMap,
+    ffi::CString,
+    io::ErrorKind,
+    os::{
+        fd::{AsRawFd, FromRawFd, IntoRawFd},
+        unix::fs::FileTypeExt,
+    },
+    sync::Arc,
+};
 
 use libc::{fcntl, F_GETFL, F_SETFL, O_NONBLOCK};
 use log::warn;
 use tokio::{
     fs::{metadata, File},
     io::{AsyncReadExt, AsyncWriteExt},
+    net::UnixStream,
     select,
     sync::{
         mpsc::{channel, Receiver, Sender},
@@ -19,14 +29,16 @@ use crate::{
     sys::{XsdMessageHeader, XSD_ERROR, XSD_UNWATCH, XSD_WATCH_EVENT},
 };
 
-const XEN_BUS_PATHS: &[&str] = &["/dev/xen/xenbus"];
+const XEN_BUS_PATHS: &[&str] = &["/var/run/xenstored/socket", "/dev/xen/xenbus"];
 const XEN_BUS_MAX_PAYLOAD_SIZE: usize = 4096;
 const XEN_BUS_MAX_PACKET_SIZE: usize = XsdMessageHeader::SIZE + XEN_BUS_MAX_PAYLOAD_SIZE;
 
-async fn find_bus_path() -> Option<&'static str> {
+async fn find_bus_path() -> Option<(&'static str, bool)> {
     for path in XEN_BUS_PATHS {
         match metadata(path).await {
-            Ok(_) => return Some(path),
+            Ok(metadata) => {
+                return Some((path, metadata.file_type().is_socket()));
+            }
             Err(_) => continue,
         }
     }
@@ -58,17 +70,25 @@ pub struct XsdSocket {
 
 impl XsdSocket {
     pub async fn open() -> Result<XsdSocket> {
-        let path = match find_bus_path().await {
+        let (path, socket) = match find_bus_path().await {
             Some(path) => path,
             None => return Err(Error::BusNotFound),
         };
 
-        let file = File::options()
-            .read(true)
-            .write(true)
-            .custom_flags(O_NONBLOCK)
-            .open(path)
-            .await?;
+        let file = if socket {
+            let stream = UnixStream::connect(path).await?;
+            let stream = stream.into_std()?;
+            stream.set_nonblocking(true)?;
+            unsafe { File::from_raw_fd(stream.into_raw_fd()) }
+        } else {
+            File::options()
+                .read(true)
+                .write(true)
+                .custom_flags(O_NONBLOCK)
+                .open(path)
+                .await?
+        };
+
         XsdSocket::from_handle(file).await
     }
 

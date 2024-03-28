@@ -275,7 +275,7 @@ impl XenClient {
                 initrd.as_slice(),
                 config.max_vcpus,
                 config.mem_mb,
-                1 + config.channels.len(),
+                1,
             )?;
             boot.boot(&mut arch, &mut state, config.cmdline)?;
             xenstore_evtchn = state.store_evtchn;

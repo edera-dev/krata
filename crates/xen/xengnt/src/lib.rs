@@ -2,10 +2,14 @@ pub mod error;
 pub mod sys;
 
 use error::{Error, Result};
+use nix::errno::Errno;
 use std::{
     fs::{File, OpenOptions},
+    marker::PhantomData,
     os::{fd::AsRawFd, raw::c_void},
     sync::Arc,
+    thread::sleep,
+    time::Duration,
 };
 use sys::{
     AllocGref, DeallocGref, GetOffsetForVaddr, GrantRef, MapGrantRef, SetMaxGrants, UnmapGrantRef,
@@ -151,24 +155,28 @@ pub struct GrantTab {
 const PAGE_SIZE: usize = 4096;
 
 #[allow(clippy::len_without_is_empty)]
-pub struct MappedMemory {
+pub struct MappedMemory<'a> {
+    gnttab: GrantTab,
     length: usize,
-    addr: *mut c_void,
+    addr: u64,
+    _ptr: PhantomData<&'a c_void>,
 }
 
-impl MappedMemory {
+unsafe impl Send for MappedMemory<'_> {}
+
+impl MappedMemory<'_> {
     pub fn len(&self) -> usize {
         self.length
     }
 
     pub fn ptr(&self) -> *mut c_void {
-        self.addr
+        self.addr as *mut c_void
     }
 }
 
-impl Drop for MappedMemory {
+impl Drop for MappedMemory<'_> {
     fn drop(&mut self) {
-        let _ = unsafe { munmap(self.addr, self.length) };
+        let _ = self.gnttab.unmap(self);
     }
 }
 
@@ -179,12 +187,12 @@ impl GrantTab {
         })
     }
 
-    pub fn map_grant_refs(
+    pub fn map_grant_refs<'a>(
         &self,
         refs: Vec<GrantRef>,
         read: bool,
         write: bool,
-    ) -> Result<MappedMemory> {
+    ) -> Result<MappedMemory<'a>> {
         let (index, refs) = self.device.map_grant_ref(refs)?;
         unsafe {
             let mut flags: i32 = 0;
@@ -196,21 +204,39 @@ impl GrantTab {
                 flags |= PROT_WRITE;
             }
 
-            let addr = mmap(
-                std::ptr::null_mut(),
-                PAGE_SIZE * refs.len(),
-                flags,
-                MAP_SHARED,
-                self.device.handle.as_raw_fd(),
-                index as i64,
-            );
-            if addr == MAP_FAILED {
-                return Err(Error::MmapFailed);
-            }
+            let addr = loop {
+                let addr = mmap(
+                    std::ptr::null_mut(),
+                    PAGE_SIZE * refs.len(),
+                    flags,
+                    MAP_SHARED,
+                    self.device.handle.as_raw_fd(),
+                    index as i64,
+                );
+                let errno = Errno::last();
+                if addr == MAP_FAILED {
+                    if errno == Errno::EAGAIN {
+                        sleep(Duration::from_micros(1000));
+                        continue;
+                    }
+                    return Err(Error::MmapFailed(errno));
+                }
+                break addr;
+            };
+
             Ok(MappedMemory {
-                addr,
+                gnttab: self.clone(),
+                addr: addr as u64,
                 length: PAGE_SIZE * refs.len(),
+                _ptr: PhantomData,
             })
         }
+    }
+
+    fn unmap(&self, memory: &MappedMemory<'_>) -> Result<()> {
+        let (offset, count) = self.device.get_offset_for_vaddr(memory.addr)?;
+        let _ = unsafe { munmap(memory.addr as *mut c_void, memory.length) };
+        self.device.unmap_grant_ref(offset, count)?;
+        Ok(())
     }
 }

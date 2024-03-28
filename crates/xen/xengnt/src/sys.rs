@@ -3,7 +3,7 @@ use std::mem::size_of;
 use nix::{ioc, ioctl_readwrite_bad};
 
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GrantRef {
     pub domid: u32,
     pub reference: u32,
@@ -33,7 +33,7 @@ impl MapGrantRef {
             return None;
         }
 
-        let index = (*data.get(2)? as u64) << 32 | *data.get(3)? as u64;
+        let index = (*data.get(2)? as u64) | (*data.get(3)? as u64) << 32;
         for i in (4..data.len()).step_by(2) {
             let Some(domid) = data.get(i) else {
                 break;
@@ -146,10 +146,10 @@ impl AllocGref {
             return None;
         }
 
-        let index = (*data.get(4)? as u64) << 48
-            | (*data.get(5)? as u64) << 32
-            | (*data.get(6)? as u64) << 16
-            | *data.get(7)? as u64;
+        let index = (*data.get(4)? as u64)
+            | (*data.get(5)? as u64) << 16
+            | (*data.get(6)? as u64) << 32
+            | (*data.get(7)? as u64) << 48;
         for i in (8..data.len()).step_by(2) {
             let Some(bits_low) = data.get(i) else {
                 break;
@@ -157,7 +157,7 @@ impl AllocGref {
             let Some(bits_high) = data.get(i + 1) else {
                 break;
             };
-            refs.push((*bits_low as u32) << 16 | *bits_high as u32);
+            refs.push((*bits_low as u32) | (*bits_high as u32) << 16);
         }
         Some((index, refs))
     }
