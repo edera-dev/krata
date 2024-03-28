@@ -8,6 +8,7 @@ resolver = "2"
 anyhow = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }

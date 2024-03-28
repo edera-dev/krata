@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use futures::stream::TryStreamExt;
 use ipnetwork::IpNetwork;
 use krata::ethtool::EthtoolHandle;
+use krata::idm::client::IdmClient;
 use krata::launchcfg::{LaunchInfo, LaunchNetwork};
 use libc::{setsid, TIOCSCTTY};
 use log::{trace, warn};
@@ -12,6 +13,7 @@ use path_absolutize::Absolutize;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::{File, OpenOptions, Permissions};
+use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
@@ -19,8 +21,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{chroot, symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::{fs, io};
 use sys_mount::{FilesystemType, Mount, MountFlags};
+use tokio::fs;
 use walkdir::WalkDir;
 
 use crate::background::GuestBackground;
@@ -64,7 +66,7 @@ impl GuestInit {
     }
 
     pub async fn init(&mut self) -> Result<()> {
-        self.early_init()?;
+        self.early_init().await?;
 
         trace!("opening console descriptor");
         match OpenOptions::new()
@@ -76,21 +78,28 @@ impl GuestInit {
             Err(error) => warn!("failed to open console: {}", error),
         };
 
-        self.mount_squashfs_images()?;
-        let config = self.parse_image_config()?;
-        let launch = self.parse_launch_config()?;
-        self.mount_new_root()?;
-        self.nuke_initrd()?;
-        self.bind_new_root()?;
+        let idm = IdmClient::open("/dev/hvc1")
+            .await
+            .map_err(|x| anyhow!("failed to open idm client: {}", x))?;
+        self.mount_squashfs_images().await?;
+
+        let config = self.parse_image_config().await?;
+        let launch = self.parse_launch_config().await?;
+
+        self.mount_new_root().await?;
+        self.nuke_initrd().await?;
+        self.bind_new_root().await?;
 
         if let Some(network) = &launch.network {
+            trace!("initializing network");
             if let Err(error) = self.network_setup(network).await {
                 warn!("failed to initialize network: {}", error);
             }
         }
 
         if let Some(cfg) = config.config() {
-            self.run(cfg, &launch).await?;
+            trace!("running guest task");
+            self.run(cfg, &launch, idm).await?;
         } else {
             return Err(anyhow!(
                 "unable to determine what to execute, image config doesn't tell us"
@@ -99,37 +108,38 @@ impl GuestInit {
         Ok(())
     }
 
-    fn early_init(&mut self) -> Result<()> {
+    async fn early_init(&mut self) -> Result<()> {
         trace!("early init");
-        self.create_dir("/dev", Some(0o0755))?;
-        self.create_dir("/proc", None)?;
-        self.create_dir("/sys", None)?;
-        self.create_dir("/root", Some(0o0700))?;
-        self.create_dir("/tmp", None)?;
-        self.mount_kernel_fs("devtmpfs", "/dev", "mode=0755")?;
-        self.mount_kernel_fs("proc", "/proc", "")?;
-        self.mount_kernel_fs("sysfs", "/sys", "")?;
+        self.create_dir("/dev", Some(0o0755)).await?;
+        self.create_dir("/proc", None).await?;
+        self.create_dir("/sys", None).await?;
+        self.create_dir("/root", Some(0o0700)).await?;
+        self.create_dir("/tmp", None).await?;
+        self.mount_kernel_fs("devtmpfs", "/dev", "mode=0755")
+            .await?;
+        self.mount_kernel_fs("proc", "/proc", "").await?;
+        self.mount_kernel_fs("sysfs", "/sys", "").await?;
         symlink("/proc/self/fd", "/dev/fd")?;
         Ok(())
     }
 
-    fn create_dir(&mut self, path: &str, mode: Option<u32>) -> Result<()> {
+    async fn create_dir(&mut self, path: &str, mode: Option<u32>) -> Result<()> {
         let path = Path::new(path);
         if !path.is_dir() {
             trace!("creating directory {:?}", path);
-            fs::create_dir(path)?;
+            fs::create_dir(path).await?;
         }
         if let Some(mode) = mode {
             let permissions = Permissions::from_mode(mode);
             trace!("setting directory {:?} permissions to {:?}", path, mode);
-            fs::set_permissions(path, permissions)?;
+            fs::set_permissions(path, permissions).await?;
         }
         Ok(())
     }
 
-    fn mount_kernel_fs(&mut self, fstype: &str, path: &str, data: &str) -> Result<()> {
-        let metadata = fs::metadata(path)?;
-        if metadata.st_dev() == fs::metadata("/")?.st_dev() {
+    async fn mount_kernel_fs(&mut self, fstype: &str, path: &str, data: &str) -> Result<()> {
+        let metadata = fs::metadata(path).await?;
+        if metadata.st_dev() == fs::metadata("/").await?.st_dev() {
             trace!("mounting kernel fs {} to {}", fstype, path);
             Mount::builder()
                 .fstype(FilesystemType::Manual(fstype))
@@ -148,19 +158,21 @@ impl GuestInit {
         Ok(())
     }
 
-    fn mount_squashfs_images(&mut self) -> Result<()> {
+    async fn mount_squashfs_images(&mut self) -> Result<()> {
         trace!("mounting squashfs images");
         let image_mount_path = Path::new(IMAGE_MOUNT_PATH);
         let config_mount_path = Path::new(CONFIG_MOUNT_PATH);
-        self.mount_squashfs(Path::new(IMAGE_BLOCK_DEVICE_PATH), image_mount_path)?;
-        self.mount_squashfs(Path::new(CONFIG_BLOCK_DEVICE_PATH), config_mount_path)?;
+        self.mount_squashfs(Path::new(IMAGE_BLOCK_DEVICE_PATH), image_mount_path)
+            .await?;
+        self.mount_squashfs(Path::new(CONFIG_BLOCK_DEVICE_PATH), config_mount_path)
+            .await?;
         Ok(())
     }
 
-    fn mount_squashfs(&mut self, from: &Path, to: &Path) -> Result<()> {
+    async fn mount_squashfs(&mut self, from: &Path, to: &Path) -> Result<()> {
         trace!("mounting squashfs image {:?} to {:?}", from, to);
         if !to.is_dir() {
-            fs::create_dir(to)?;
+            fs::create_dir(to).await?;
         }
         Mount::builder()
             .fstype(FilesystemType::Manual("squashfs"))
@@ -169,10 +181,10 @@ impl GuestInit {
         Ok(())
     }
 
-    fn mount_move_subtree(&mut self, from: &Path, to: &Path) -> Result<()> {
+    async fn mount_move_subtree(&mut self, from: &Path, to: &Path) -> Result<()> {
         trace!("moving subtree {:?} to {:?}", from, to);
         if !to.is_dir() {
-            fs::create_dir(to)?;
+            fs::create_dir(to).await?;
         }
         Mount::builder()
             .fstype(FilesystemType::Manual("none"))
@@ -181,28 +193,28 @@ impl GuestInit {
         Ok(())
     }
 
-    fn mount_new_root(&mut self) -> Result<()> {
+    async fn mount_new_root(&mut self) -> Result<()> {
         trace!("mounting new root");
-        self.mount_overlay_tmpfs()?;
-        self.bind_image_to_overlay_tmpfs()?;
-        self.mount_overlay_to_new_root()?;
+        self.mount_overlay_tmpfs().await?;
+        self.bind_image_to_overlay_tmpfs().await?;
+        self.mount_overlay_to_new_root().await?;
         std::env::set_current_dir(NEW_ROOT_PATH)?;
         trace!("mounted new root");
         Ok(())
     }
 
-    fn mount_overlay_tmpfs(&mut self) -> Result<()> {
-        fs::create_dir(OVERLAY_MOUNT_PATH)?;
+    async fn mount_overlay_tmpfs(&mut self) -> Result<()> {
+        fs::create_dir(OVERLAY_MOUNT_PATH).await?;
         Mount::builder()
             .fstype(FilesystemType::Manual("tmpfs"))
             .mount("tmpfs", OVERLAY_MOUNT_PATH)?;
-        fs::create_dir(OVERLAY_UPPER_PATH)?;
-        fs::create_dir(OVERLAY_WORK_PATH)?;
+        fs::create_dir(OVERLAY_UPPER_PATH).await?;
+        fs::create_dir(OVERLAY_WORK_PATH).await?;
         Ok(())
     }
 
-    fn bind_image_to_overlay_tmpfs(&mut self) -> Result<()> {
-        fs::create_dir(OVERLAY_IMAGE_BIND_PATH)?;
+    async fn bind_image_to_overlay_tmpfs(&mut self) -> Result<()> {
+        fs::create_dir(OVERLAY_IMAGE_BIND_PATH).await?;
         Mount::builder()
             .fstype(FilesystemType::Manual("none"))
             .flags(MountFlags::BIND | MountFlags::RDONLY)
@@ -210,8 +222,8 @@ impl GuestInit {
         Ok(())
     }
 
-    fn mount_overlay_to_new_root(&mut self) -> Result<()> {
-        fs::create_dir(NEW_ROOT_PATH)?;
+    async fn mount_overlay_to_new_root(&mut self) -> Result<()> {
+        fs::create_dir(NEW_ROOT_PATH).await?;
         Mount::builder()
             .fstype(FilesystemType::Manual("overlay"))
             .flags(MountFlags::NOATIME)
@@ -223,22 +235,23 @@ impl GuestInit {
         Ok(())
     }
 
-    fn parse_image_config(&mut self) -> Result<ImageConfiguration> {
-        trace!("parsing image config");
+    async fn parse_image_config(&mut self) -> Result<ImageConfiguration> {
         let image_config_path = Path::new(IMAGE_CONFIG_JSON_PATH);
-        let config = ImageConfiguration::from_file(image_config_path)?;
+        let content = fs::read_to_string(image_config_path).await?;
+        let config = serde_json::from_str(&content)?;
         Ok(config)
     }
 
-    fn parse_launch_config(&mut self) -> Result<LaunchInfo> {
+    async fn parse_launch_config(&mut self) -> Result<LaunchInfo> {
         trace!("parsing launch config");
         let launch_config = Path::new(LAUNCH_CONFIG_JSON_PATH);
-        Ok(serde_json::from_str(&fs::read_to_string(launch_config)?)?)
+        let content = fs::read_to_string(launch_config).await?;
+        Ok(serde_json::from_str(&content)?)
     }
 
-    fn nuke_initrd(&mut self) -> Result<()> {
+    async fn nuke_initrd(&mut self) -> Result<()> {
         trace!("nuking initrd");
-        let initrd_dev = fs::metadata("/")?.st_dev();
+        let initrd_dev = fs::metadata("/").await?.st_dev();
         for item in WalkDir::new("/")
             .same_file_system(true)
             .follow_links(false)
@@ -259,10 +272,10 @@ impl GuestInit {
             }
 
             if metadata.is_symlink() || metadata.is_file() {
-                let _ = fs::remove_file(item.path());
+                let _ = fs::remove_file(item.path()).await;
                 trace!("deleting file {:?}", item.path());
             } else if metadata.is_dir() {
-                let _ = fs::remove_dir(item.path());
+                let _ = fs::remove_dir(item.path()).await;
                 trace!("deleting directory {:?}", item.path());
             }
         }
@@ -270,10 +283,13 @@ impl GuestInit {
         Ok(())
     }
 
-    fn bind_new_root(&mut self) -> Result<()> {
-        self.mount_move_subtree(Path::new(SYS_PATH), Path::new(NEW_ROOT_SYS_PATH))?;
-        self.mount_move_subtree(Path::new(PROC_PATH), Path::new(NEW_ROOT_PROC_PATH))?;
-        self.mount_move_subtree(Path::new(DEV_PATH), Path::new(NEW_ROOT_DEV_PATH))?;
+    async fn bind_new_root(&mut self) -> Result<()> {
+        self.mount_move_subtree(Path::new(SYS_PATH), Path::new(NEW_ROOT_SYS_PATH))
+            .await?;
+        self.mount_move_subtree(Path::new(PROC_PATH), Path::new(NEW_ROOT_PROC_PATH))
+            .await?;
+        self.mount_move_subtree(Path::new(DEV_PATH), Path::new(NEW_ROOT_DEV_PATH))
+            .await?;
         trace!("binding new root");
         Mount::builder()
             .fstype(FilesystemType::Manual("none"))
@@ -291,7 +307,7 @@ impl GuestInit {
 
         let etc = PathBuf::from_str("/etc")?;
         if !etc.exists() {
-            fs::create_dir(etc)?;
+            fs::create_dir(etc).await?;
         }
         let resolv = PathBuf::from_str("/etc/resolv.conf")?;
         let mut lines = vec!["# krata resolver configuration".to_string()];
@@ -301,7 +317,7 @@ impl GuestInit {
 
         let mut conf = lines.join("\n");
         conf.push('\n');
-        fs::write(resolv, conf)?;
+        fs::write(resolv, conf).await?;
         self.network_configure_ethtool(network).await?;
         self.network_configure_link(network).await?;
         Ok(())
@@ -383,7 +399,7 @@ impl GuestInit {
         Ok(())
     }
 
-    async fn run(&mut self, config: &Config, launch: &LaunchInfo) -> Result<()> {
+    async fn run(&mut self, config: &Config, launch: &LaunchInfo, idm: IdmClient) -> Result<()> {
         let mut cmd = match config.cmd() {
             None => vec![],
             Some(value) => value.clone(),
@@ -423,7 +439,7 @@ impl GuestInit {
         cmd.insert(0, file_name.to_string());
         let env = GuestInit::env_list(env);
 
-        trace!("running container command: {}", cmd.join(" "));
+        trace!("running guest command: {}", cmd.join(" "));
 
         let path = CString::new(path.as_os_str().as_bytes())?;
         let cmd = GuestInit::strings_as_cstrings(cmd)?;
@@ -438,7 +454,7 @@ impl GuestInit {
             working_dir = "/".to_string();
         }
 
-        self.fork_and_exec(working_dir, path, cmd, env).await?;
+        self.fork_and_exec(idm, working_dir, path, cmd, env).await?;
         Ok(())
     }
 
@@ -489,13 +505,14 @@ impl GuestInit {
 
     async fn fork_and_exec(
         &mut self,
+        idm: IdmClient,
         working_dir: String,
         path: CString,
         cmd: Vec<CString>,
         env: Vec<CString>,
     ) -> Result<()> {
         match unsafe { fork()? } {
-            ForkResult::Parent { child } => self.background(child).await,
+            ForkResult::Parent { child } => self.background(idm, child).await,
             ForkResult::Child => self.foreground(working_dir, path, cmd, env).await,
         }
     }
@@ -521,8 +538,8 @@ impl GuestInit {
         Ok(())
     }
 
-    async fn background(&mut self, executed: Pid) -> Result<()> {
-        let mut background = GuestBackground::new(executed).await?;
+    async fn background(&mut self, idm: IdmClient, executed: Pid) -> Result<()> {
+        let mut background = GuestBackground::new(idm, executed).await?;
         background.run().await?;
         Ok(())
     }

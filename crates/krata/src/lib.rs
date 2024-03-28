@@ -6,6 +6,7 @@ pub mod v1;
 pub mod client;
 pub mod dial;
 pub mod events;
+pub mod idm;
 pub mod launchcfg;
 
 #[cfg(target_os = "linux")]

@@ -4,7 +4,7 @@ use anyhow::Result;
 use control::RuntimeControlService;
 use db::GuestStore;
 use event::{DaemonEventContext, DaemonEventGenerator};
-use idm::DaemonIdm;
+use idm::{DaemonIdm, DaemonIdmHandle};
 use krata::{dial::ControlDialAddress, v1::control::control_service_server::ControlServiceServer};
 use kratart::Runtime;
 use log::info;
@@ -32,7 +32,7 @@ pub struct Daemon {
     guest_reconciler_task: JoinHandle<()>,
     guest_reconciler_notify: Sender<Uuid>,
     generator_task: JoinHandle<()>,
-    idm_task: JoinHandle<()>,
+    _idm: DaemonIdmHandle,
 }
 
 const GUEST_RECONCILER_QUEUE_LEN: usize = 1000;
@@ -41,22 +41,18 @@ impl Daemon {
     pub async fn new(store: String, runtime: Runtime) -> Result<Self> {
         let guests_db_path = format!("{}/guests.db", store);
         let guests = GuestStore::open(&PathBuf::from(guests_db_path))?;
-        let runtime_for_events = runtime.dupe().await?;
         let (guest_reconciler_notify, guest_reconciler_receiver) =
             channel::<Uuid>(GUEST_RECONCILER_QUEUE_LEN);
-        let (events, generator) = DaemonEventGenerator::new(
-            guests.clone(),
-            guest_reconciler_notify.clone(),
-            runtime_for_events,
-        )
-        .await?;
+        let idm = DaemonIdm::new().await?;
+        let idm = idm.launch().await?;
+        let (events, generator) =
+            DaemonEventGenerator::new(guests.clone(), guest_reconciler_notify.clone(), idm.clone())
+                .await?;
         let runtime_for_reconciler = runtime.dupe().await?;
         let guest_reconciler =
             GuestReconciler::new(guests.clone(), events.clone(), runtime_for_reconciler)?;
 
         let guest_reconciler_task = guest_reconciler.launch(guest_reconciler_receiver).await?;
-        let idm = DaemonIdm::new().await?;
-        let idm_task = idm.launch().await?;
         let generator_task = generator.launch().await?;
         Ok(Self {
             store,
@@ -66,7 +62,7 @@ impl Daemon {
             guest_reconciler_task,
             guest_reconciler_notify,
             generator_task,
-            idm_task,
+            _idm: idm,
         })
     }
 
@@ -130,6 +126,5 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         self.guest_reconciler_task.abort();
         self.generator_task.abort();
-        self.idm_task.abort();
     }
 }

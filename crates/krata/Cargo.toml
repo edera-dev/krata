@@ -6,6 +6,7 @@ resolver = "2"
 
 [dependencies]
 anyhow = { workspace = true }
+bytes = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 once_cell = { workspace = true }
@@ -17,6 +18,9 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tower = { workspace = true }
 url = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, features = ["term"] }
 
 [build-dependencies]
 tonic-build = { workspace = true }
