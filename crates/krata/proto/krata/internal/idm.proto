@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package krata.internal.idm;
+
+option java_multiple_files = true;
+option java_package = "dev.krata.proto.internal.idm";
+option java_outer_classname = "IdmProto";
+
+message IdmExitMessage {
+    int32 code = 1;
+}
+
+message IdmPacket {
+    oneof message {
+        IdmExitMessage exit = 1;
+    }
+}

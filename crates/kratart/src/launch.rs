@@ -9,7 +9,7 @@ use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
 };
 use uuid::Uuid;
-use xenclient::{DomainConfig, DomainDisk, DomainNetworkInterface};
+use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
 use xenstore::XsdInterface;
 
 use crate::cfgblk::ConfigBlock;
@@ -180,11 +180,10 @@ impl GuestLauncher {
                     writable: false,
                 },
             ],
-            // channels: vec![DomainChannel {
-            //     typ: "krata-channel".to_string(),
-            //     initialized: false,
-            // }],
-            channels: vec![],
+            channels: vec![DomainChannel {
+                typ: "krata-channel".to_string(),
+                initialized: false,
+            }],
             vifs: vec![DomainNetworkInterface {
                 mac: &guest_mac_string,
                 mtu: 1500,

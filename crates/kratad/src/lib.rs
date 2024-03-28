@@ -4,6 +4,7 @@ use anyhow::Result;
 use control::RuntimeControlService;
 use db::GuestStore;
 use event::{DaemonEventContext, DaemonEventGenerator};
+use idm::DaemonIdm;
 use krata::{dial::ControlDialAddress, v1::control::control_service_server::ControlServiceServer};
 use kratart::Runtime;
 use log::info;
@@ -20,6 +21,7 @@ use uuid::Uuid;
 pub mod control;
 pub mod db;
 pub mod event;
+pub mod idm;
 pub mod reconcile;
 
 pub struct Daemon {
@@ -30,6 +32,7 @@ pub struct Daemon {
     guest_reconciler_task: JoinHandle<()>,
     guest_reconciler_notify: Sender<Uuid>,
     generator_task: JoinHandle<()>,
+    idm_task: JoinHandle<()>,
 }
 
 const GUEST_RECONCILER_QUEUE_LEN: usize = 1000;
@@ -50,14 +53,20 @@ impl Daemon {
         let runtime_for_reconciler = runtime.dupe().await?;
         let guest_reconciler =
             GuestReconciler::new(guests.clone(), events.clone(), runtime_for_reconciler)?;
+
+        let guest_reconciler_task = guest_reconciler.launch(guest_reconciler_receiver).await?;
+        let idm = DaemonIdm::new().await?;
+        let idm_task = idm.launch().await?;
+        let generator_task = generator.launch().await?;
         Ok(Self {
             store,
             runtime,
             guests,
             events,
-            guest_reconciler_task: guest_reconciler.launch(guest_reconciler_receiver).await?,
+            guest_reconciler_task,
             guest_reconciler_notify,
-            generator_task: generator.launch().await?,
+            generator_task,
+            idm_task,
         })
     }
 
@@ -121,5 +130,6 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         self.guest_reconciler_task.abort();
         self.generator_task.abort();
+        self.idm_task.abort();
     }
 }

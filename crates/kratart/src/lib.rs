@@ -26,7 +26,7 @@ use krataoci::cache::ImageCache;
 
 pub mod autoloop;
 pub mod cfgblk;
-pub mod chan;
+pub mod channel;
 pub mod console;
 pub mod launch;
 
