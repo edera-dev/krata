@@ -423,12 +423,12 @@ impl KrataChannelBackendProcessor {
                             if space > XenConsoleInterface::INPUT_SIZE {
                                 error!("channel for domid {} has an invalid input space of {}", self.domid, space);
                             }
-                            let free = XenConsoleInterface::INPUT_SIZE - space;
+                            let free = XenConsoleInterface::INPUT_SIZE.wrapping_sub(space);
                             let want = data.len().min(free);
                             let buffer = &data[index..want];
                             for b in buffer {
                                 unsafe { (*interface).input[prod as usize & (XenConsoleInterface::INPUT_SIZE - 1)] = *b; };
-                                prod += 1;
+                                prod = prod.wrapping_add(1);
                             }
                             fence(Ordering::Release);
                             unsafe { (*interface).in_prod = prod; };
@@ -478,7 +478,7 @@ impl KrataChannelBackendProcessor {
         let mut cons = (*interface).out_cons;
         let prod = (*interface).out_prod;
         fence(Ordering::Release);
-        let size = prod - cons;
+        let size = prod.wrapping_sub(cons);
         let mut data: Vec<u8> = Vec::new();
         if size == 0 || size as usize > XenConsoleInterface::OUTPUT_SIZE {
             return Ok(data);
@@ -488,7 +488,7 @@ impl KrataChannelBackendProcessor {
                 break;
             }
             data.push((*interface).output[cons as usize & (XenConsoleInterface::OUTPUT_SIZE - 1)]);
-            cons += 1;
+            cons = cons.wrapping_add(1);
         }
         fence(Ordering::AcqRel);
         (*interface).out_cons = cons;
