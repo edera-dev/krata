@@ -44,10 +44,11 @@ struct NetworkStack<'a> {
 impl NetworkStack<'_> {
     async fn poll(&mut self) -> Result<bool> {
         let what = select! {
+            biased;
             x = self.kdev.receiver.recv() => NetworkStackSelect::Receive(x),
+            x = self.tx.recv() => NetworkStackSelect::Send(x),
             x = self.bridge.from_bridge_receiver.recv() => NetworkStackSelect::Send(x),
             x = self.bridge.from_broadcast_receiver.recv() => NetworkStackSelect::Send(x.ok()),
-            x = self.tx.recv() => NetworkStackSelect::Send(x),
         };
 
         match what {

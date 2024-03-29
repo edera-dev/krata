@@ -1,4 +1,7 @@
-use std::net::{IpAddr, Ipv4Addr};
+use std::{
+    io::ErrorKind,
+    net::{IpAddr, Ipv4Addr},
+};
 
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
@@ -6,18 +9,18 @@ use bytes::BytesMut;
 use futures::TryStreamExt;
 use log::error;
 use smoltcp::wire::EthernetAddress;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    select,
-    sync::mpsc::channel,
-    task::JoinHandle,
-};
+use tokio::{select, task::JoinHandle};
 use tokio_tun::Tun;
 
 use crate::vbridge::{BridgeJoinHandle, VirtualBridge};
 
-const RX_BUFFER_QUEUE_LEN: usize = 100;
 const HOST_IPV4_ADDR: Ipv4Addr = Ipv4Addr::new(10, 75, 0, 1);
+
+#[derive(Debug)]
+enum HostBridgeProcessSelect {
+    Send(Option<BytesMut>),
+    Receive(std::io::Result<usize>),
+}
 
 pub struct HostBridge {
     task: JoinHandle<()>,
@@ -82,57 +85,58 @@ impl HostBridge {
     }
 
     async fn process(mtu: usize, tun: Tun, mut bridge_handle: BridgeJoinHandle) -> Result<()> {
-        let (rx_sender, mut rx_receiver) = channel::<BytesMut>(RX_BUFFER_QUEUE_LEN);
-        let (mut read, mut write) = tokio::io::split(tun);
-        tokio::task::spawn(async move {
-            let mut buffer = vec![0u8; mtu];
-            loop {
-                let size = match read.read(&mut buffer).await {
-                    Ok(size) => size,
-                    Err(error) => {
-                        error!("failed to read tap device: {}", error);
-                        break;
-                    }
-                };
-                match rx_sender.send(buffer[0..size].into()).await {
+        let tear_off_size = 100 * mtu;
+        let mut buffer: BytesMut = BytesMut::with_capacity(tear_off_size);
+        loop {
+            if buffer.capacity() < mtu {
+                buffer = BytesMut::with_capacity(tear_off_size);
+            }
+
+            buffer.resize(mtu, 0);
+            let selection = select! {
+                biased;
+                x = tun.recv(&mut buffer) => HostBridgeProcessSelect::Receive(x),
+                x = bridge_handle.from_bridge_receiver.recv() => HostBridgeProcessSelect::Send(x),
+                x = bridge_handle.from_broadcast_receiver.recv() => HostBridgeProcessSelect::Send(x.ok()),
+            };
+
+            match selection {
+                HostBridgeProcessSelect::Send(Some(bytes)) => match tun.try_send(&bytes) {
                     Ok(_) => {}
                     Err(error) => {
+                        if error.kind() == ErrorKind::WouldBlock {
+                            continue;
+                        }
+                        return Err(error.into());
+                    }
+                },
+
+                HostBridgeProcessSelect::Send(None) => {
+                    break;
+                }
+
+                HostBridgeProcessSelect::Receive(result) => match result {
+                    Ok(len) => {
+                        if len == 0 {
+                            continue;
+                        }
+                        let packet = buffer.split_to(len);
+                        let _ = bridge_handle.to_bridge_sender.try_send(packet);
+                    }
+
+                    Err(error) => {
+                        if error.kind() == ErrorKind::WouldBlock {
+                            continue;
+                        }
+
                         error!(
-                            "failed to send data from tap device to processor: {}",
+                            "failed to receive data from tap device to bridge: {}",
                             error
                         );
                         break;
                     }
-                }
+                },
             }
-        });
-        loop {
-            select! {
-                x = bridge_handle.from_bridge_receiver.recv() => match x {
-                    Some(bytes) => {
-                        write.write_all(&bytes).await?;
-                    },
-                    None => {
-                        break;
-                    }
-                },
-                x = bridge_handle.from_broadcast_receiver.recv() => match x {
-                    Ok(bytes) => {
-                        write.write_all(&bytes).await?;
-                    },
-                    Err(error) => {
-                        return Err(error.into());
-                    }
-                },
-                x = rx_receiver.recv() => match x {
-                    Some(bytes) => {
-                        bridge_handle.to_bridge_sender.send(bytes).await?;
-                    },
-                    None => {
-                        break;
-                    }
-                }
-            };
         }
         Ok(())
     }

@@ -133,8 +133,8 @@ impl VirtualBridge {
         loop {
             let selection = select! {
                 biased;
-                _ = from_broadcast_receiver.recv() => VirtualBridgeSelect::BroadcastSent,
                 x = to_bridge_receiver.recv() => VirtualBridgeSelect::PacketReceived(x),
+                _ = from_broadcast_receiver.recv() => VirtualBridgeSelect::BroadcastSent,
                 x = member_leave_reciever.recv() => VirtualBridgeSelect::MemberLeave(x),
             };
 
@@ -158,10 +158,8 @@ impl VirtualBridge {
                             let (mut tcp, payload) = TcpHeader::from_slice(payload)?;
                             tcp.checksum = tcp.calc_checksum_ipv4(&ipv4, payload)?;
                             let tcp_header_offset = Ethernet2Header::LEN + ipv4.header_len();
-                            let tcp_header_bytes = tcp.to_bytes();
-                            for (i, b) in tcp_header_bytes.iter().enumerate() {
-                                packet[tcp_header_offset + i] = *b;
-                            }
+                            let mut header = &mut packet[tcp_header_offset..];
+                            tcp.write(&mut header)?;
                         }
                     } else if header.ether_type == EtherType::IPV6 {
                         let (ipv6, payload) = Ipv6Header::from_slice(payload)?;
@@ -169,10 +167,8 @@ impl VirtualBridge {
                             let (mut tcp, payload) = TcpHeader::from_slice(payload)?;
                             tcp.checksum = tcp.calc_checksum_ipv6(&ipv6, payload)?;
                             let tcp_header_offset = Ethernet2Header::LEN + ipv6.header_len();
-                            let tcp_header_bytes = tcp.to_bytes();
-                            for (i, b) in tcp_header_bytes.iter().enumerate() {
-                                packet[tcp_header_offset + i] = *b;
-                            }
+                            let mut header = &mut packet[tcp_header_offset..];
+                            tcp.write(&mut header)?;
                         }
                     }
 

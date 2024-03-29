@@ -239,8 +239,13 @@ impl AsyncRawSocketChannel {
         let socket = unsafe { std::net::UdpSocket::from_raw_fd(socket.into_raw_fd()) };
         let socket = UdpSocket::from_std(socket)?;
 
-        let mut buffer = vec![0; mtu];
+        let tear_off_size = 100 * mtu;
+        let mut buffer: BytesMut = BytesMut::with_capacity(tear_off_size);
         loop {
+            if buffer.capacity() < mtu {
+                buffer = BytesMut::with_capacity(tear_off_size);
+            }
+
             let selection = select! {
                 x = transmit_receiver.recv() => AsyncRawSocketChannelSelect::TransmitPacket(x),
                 x = socket.readable() => AsyncRawSocketChannelSelect::Readable(x?),
@@ -248,13 +253,14 @@ impl AsyncRawSocketChannel {
 
             match selection {
                 AsyncRawSocketChannelSelect::Readable(_) => {
+                    buffer.resize(mtu, 0);
                     match socket.try_recv(&mut buffer) {
                         Ok(len) => {
                             if len == 0 {
                                 continue;
                             }
-                            let buffer = (&buffer[0..len]).into();
-                            if let Err(error) = receive_sender.try_send(buffer) {
+                            let packet = buffer.split_to(len);
+                            if let Err(error) = receive_sender.try_send(packet) {
                                 debug!(
                                     "failed to process received packet from raw socket: {}",
                                     error
