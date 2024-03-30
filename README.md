@@ -11,7 +11,6 @@ The Edera Hypervisor
 
 - [Frequently Asked Questions](FAQ.md)
 - [Development Guide](DEV.md)
-- [Licensing Guide](LICENSING.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security Policy](SECURITY.md)
 
