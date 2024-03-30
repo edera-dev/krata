@@ -1,5 +1,5 @@
 [package]
-name = "xenclient"
+name = "krata-xenclient"
 version.workspace = true
 edition = "2021"
 resolver = "2"
@@ -9,14 +9,14 @@ elf = { workspace = true }
 flate2 = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
+krata-xencall = { path = "../xencall" }
+krata-xenstore = { path = "../xenstore" }
 memchr = { workspace = true }
 slice-copy = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }
 xz2 = { workspace = true }
-xencall = { path = "../xencall" }
-xenstore = { path = "../xenstore" }
 
 [dev-dependencies]
 env_logger = { workspace = true }

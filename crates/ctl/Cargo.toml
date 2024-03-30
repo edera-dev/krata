@@ -1,5 +1,5 @@
 [package]
-name = "kratactl"
+name = "krata-ctl"
 version.workspace = true
 edition = "2021"
 resolver = "2"

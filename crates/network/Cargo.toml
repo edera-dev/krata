@@ -1,11 +1,11 @@
 [package]
-name = "kratanet"
+name = "krata-network"
 version.workspace = true
 edition = "2021"
 resolver = "2"
 
 [dependencies]
-advmac = { path = "../vendor/advmac" }
+advmac = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }

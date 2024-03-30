@@ -1,5 +1,5 @@
 [package]
-name = "krataguest"
+name = "krata-guest"
 version.workspace = true
 edition = "2021"
 resolver = "2"
@@ -10,6 +10,7 @@ env_logger = { workspace = true }
 futures = { workspace = true }
 ipnetwork = { workspace = true }
 krata = { path = "../krata" }
+krata-xenstore = { path = "../xen/xenstore" }
 libc = { workspace = true }
 log = { workspace = true }
 nix = { workspace = true, features = ["process"] }
@@ -21,7 +22,6 @@ serde_json = { workspace = true }
 sys-mount = { workspace = true }
 tokio = { workspace = true }
 walkdir = { workspace = true }
-xenstore = { path = "../xen/xenstore" }
 
 [lib]
 name = "krataguest"

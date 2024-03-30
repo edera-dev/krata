@@ -1,5 +1,5 @@
 [package]
-name = "kratad"
+name = "krata-daemon"
 version.workspace = true
 edition = "2021"
 resolver = "2"
@@ -13,7 +13,7 @@ clap = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
 krata = { path = "../krata" }
-kratart = { path = "../kratart" }
+krata-runtime = { path = "../runtime" }
 log = { workspace = true }
 prost = { workspace = true }
 redb = { workspace = true }

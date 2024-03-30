@@ -6,10 +6,10 @@ krata is composed of four major executables:
 
 | Executable | Runs On | User Interaction | Dev Runner               | Code Path         |
 | ---------- | ------- | ---------------- | ------------------------ | ----------------- |
-| kratad     | host    | backend daemon   | ./hack/debug/kratad.sh   | crates/kratad     |
-| kratanet   | host    | backend daemon   | ./hack/debug/kratanet.sh | crates/kratanet   |
-| kratactl   | host    | CLI tool         | ./hack/debug/kratactl.sh | crates/kratactl   |
-| krataguest | guest   | none, guest init | N/A                      | crates/krataguest |
+| kratad     | host    | backend daemon   | ./hack/debug/kratad.sh   | crates/daemon     |
+| kratanet   | host    | backend daemon   | ./hack/debug/kratanet.sh | crates/network    |
+| kratactl   | host    | CLI tool         | ./hack/debug/kratactl.sh | crates/ctl        |
+| krataguest | guest   | none, guest init | N/A                      | crates/guest      |
 
 You will find the code to each executable available in the bin/ and src/ directories inside
 it's corresponding code path from the above table.

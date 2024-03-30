@@ -1,5 +1,5 @@
 [package]
-name = "krataoci"
+name = "krata-oci"
 version.workspace = true
 edition = "2021"
 resolver = "2"

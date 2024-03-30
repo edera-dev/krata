@@ -1,5 +1,5 @@
 [package]
-name = "xenstore"
+name = "krata-xenstore"
 version.workspace = true
 edition = "2021"
 resolver = "2"

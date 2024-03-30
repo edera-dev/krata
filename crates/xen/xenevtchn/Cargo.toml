@@ -1,5 +1,5 @@
 [package]
-name = "xenevtchn"
+name = "krata-xenevtchn"
 version.workspace = true
 edition = "2021"
 resolver = "2"
