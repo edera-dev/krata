@@ -2,7 +2,7 @@
 name = "krata-guest"
 description = "Guest services for the krata hypervisor."
 license.workspace = true
-version.workspace = true
+version= "0.0.3"
 homepage.workspace = true
 repository.workspace = true
 edition = "2021"
@@ -13,8 +13,8 @@ anyhow = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
 ipnetwork = { workspace = true }
-krata = { path = "../krata", version = "0.0.3" }
-krata-xenstore = { path = "../xen/xenstore", version = "0.0.3" }
+krata = { path = "../krata", version = "^0.0.3" }
+krata-xenstore = { path = "../xen/xenstore", version = "^0.0.3" }
 libc = { workspace = true }
 log = { workspace = true }
 nix = { workspace = true, features = ["ioctl", "process", "fs"] }
