@@ -340,6 +340,14 @@ impl GuestInit {
         let (connection, handle, _) = rtnetlink::new_connection()?;
         tokio::spawn(connection);
 
+        let mut links = handle.link().get().match_name("lo".to_string()).execute();
+        let Some(link) = links.try_next().await? else {
+            warn!("unable to find link named lo");
+            return Ok(());
+        };
+
+        handle.link().set(link.header.index).up().execute().await?;
+
         let ipv4_network: IpNetwork = network.ipv4.address.parse()?;
         let ipv4_gateway: Ipv4Addr = network.ipv4.gateway.parse()?;
         let ipv6_network: IpNetwork = network.ipv6.address.parse()?;
