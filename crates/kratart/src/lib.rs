@@ -7,15 +7,11 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use ipnetwork::IpNetwork;
-use log::error;
 use loopdev::LoopControl;
-use tokio::{
-    sync::{mpsc::Sender, Mutex},
-    task::JoinHandle,
-};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 use xenclient::XenClient;
-use xenstore::{XsdClient, XsdInterface, XsdWatchHandle};
+use xenstore::{XsdClient, XsdInterface};
 
 use self::{
     autoloop::AutoLoop,
@@ -30,7 +26,7 @@ pub mod channel;
 pub mod console;
 pub mod launch;
 
-pub struct ContainerLoopInfo {
+pub struct GuestLoopInfo {
     pub device: String,
     pub file: String,
     pub delete: Option<String>,
@@ -45,7 +41,7 @@ pub struct GuestInfo {
     pub uuid: Uuid,
     pub domid: u32,
     pub image: String,
-    pub loops: Vec<ContainerLoopInfo>,
+    pub loops: Vec<GuestLoopInfo>,
     pub guest_ipv4: Option<IpNetwork>,
     pub guest_ipv6: Option<IpNetwork>,
     pub guest_mac: Option<String>,
@@ -231,7 +227,7 @@ impl RuntimeContext {
         Ok(None)
     }
 
-    fn parse_loop_set(input: &Option<String>) -> Vec<ContainerLoopInfo> {
+    fn parse_loop_set(input: &Option<String>) -> Vec<GuestLoopInfo> {
         let Some(input) = input else {
             return Vec::new();
         };
@@ -242,7 +238,7 @@ impl RuntimeContext {
             .map(|x| (x[0].clone(), x[1].clone(), x[2].clone()))
             .collect::<Vec<(String, String, String)>>();
         sets.iter()
-            .map(|(device, file, delete)| ContainerLoopInfo {
+            .map(|(device, file, delete)| GuestLoopInfo {
                 device: device.clone(),
                 file: file.clone(),
                 delete: if delete == "none" {
@@ -251,7 +247,7 @@ impl RuntimeContext {
                     Some(delete.clone())
                 },
             })
-            .collect::<Vec<ContainerLoopInfo>>()
+            .collect::<Vec<GuestLoopInfo>>()
     }
 }
 
@@ -274,29 +270,6 @@ impl Runtime {
         let mut context = self.context.lock().await;
         let mut launcher = GuestLauncher::new()?;
         launcher.launch(&mut context, request).await
-    }
-
-    pub async fn subscribe_exit_code(
-        &self,
-        uuid: Uuid,
-        sender: Sender<(Uuid, i32)>,
-    ) -> Result<JoinHandle<()>> {
-        let mut context = self.context.lock().await;
-        let info = context
-            .resolve(uuid)
-            .await?
-            .ok_or_else(|| anyhow!("unable to resolve guest: {}", uuid))?;
-        let path = format!("/local/domain/{}/krata/guest/exit-code", info.domid);
-        let handle = context.xen.store.create_watch().await?;
-        context.xen.store.bind_watch(&handle, &path).await?;
-        let watch = ExitCodeWatch {
-            handle,
-            sender,
-            store: context.xen.store.clone(),
-            uuid,
-            path,
-        };
-        watch.launch().await
     }
 
     pub async fn destroy(&self, uuid: Uuid) -> Result<Uuid> {
@@ -371,45 +344,4 @@ fn path_as_string(path: &Path) -> Result<String> {
     path.to_str()
         .ok_or_else(|| anyhow!("unable to convert path to string"))
         .map(|x| x.to_string())
-}
-
-struct ExitCodeWatch {
-    store: XsdClient,
-    handle: XsdWatchHandle,
-    uuid: Uuid,
-    sender: Sender<(Uuid, i32)>,
-    path: String,
-}
-
-impl ExitCodeWatch {
-    pub async fn launch(mut self) -> Result<JoinHandle<()>> {
-        Ok(tokio::task::spawn(async move {
-            if let Err(error) = self.process().await {
-                error!("failed to watch exit for guest {}: {}", self.uuid, error);
-            }
-        }))
-    }
-
-    async fn process(&mut self) -> Result<()> {
-        loop {
-            match self.handle.receiver.recv().await {
-                Some(_) => {
-                    let exit_code_string = self.store.read_string(&self.path).await?;
-                    if let Some(exit_code) = exit_code_string.and_then(|x| i32::from_str(&x).ok()) {
-                        match self.sender.try_send((self.uuid, exit_code)) {
-                            Ok(_) => {}
-                            Err(error) => {
-                                return Err(error.into());
-                            }
-                        }
-                        return Ok(());
-                    }
-                }
-
-                None => {
-                    return Ok(());
-                }
-            }
-        }
-    }
 }

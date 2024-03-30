@@ -291,6 +291,12 @@ impl AsyncRawSocketChannel {
                                 debug!("failed to transmit: would block");
                                 continue;
                             }
+
+                            // device no longer exists
+                            if error.raw_os_error() == Some(6) {
+                                break;
+                            }
+
                             return Err(anyhow!(
                                 "failed to write {} bytes to raw socket: {}",
                                 packet.len(),

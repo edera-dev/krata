@@ -65,7 +65,7 @@ pub struct XsdSocket {
     next_watch_id: Arc<Mutex<u32>>,
     processor_task: Arc<JoinHandle<()>>,
     rx_task: Arc<JoinHandle<()>>,
-    unwatch_sender: Sender<u32>,
+    unwatch_sender: Sender<(u32, String)>,
 }
 
 impl XsdSocket {
@@ -100,7 +100,7 @@ impl XsdSocket {
 
         let (rx_sender, rx_receiver) = channel::<XsdMessage>(10);
         let (tx_sender, tx_receiver) = channel::<XsdMessage>(10);
-        let (unwatch_sender, unwatch_receiver) = channel::<u32>(1000);
+        let (unwatch_sender, unwatch_receiver) = channel::<(u32, String)>(1000);
         let read: File = handle.try_clone().await?;
 
         let mut processor = XsdSocketProcessor {
@@ -141,7 +141,7 @@ impl XsdSocket {
         let req = {
             let mut guard = self.next_request_id.lock().await;
             let req = *guard;
-            *guard = req + 1;
+            *guard = req.wrapping_add(1);
             req
         };
         let (sender, receiver) = oneshot_channel::<XsdMessage>();
@@ -177,12 +177,12 @@ impl XsdSocket {
         self.send_buf(tx, typ, &buf).await
     }
 
-    pub async fn add_watch(&self) -> Result<(u32, Receiver<String>, Sender<u32>)> {
+    pub async fn add_watch(&self) -> Result<(u32, Receiver<String>, Sender<(u32, String)>)> {
         let id = {
             let mut guard = self.next_watch_id.lock().await;
-            let req = *guard;
-            *guard = req + 1;
-            req
+            let watch = *guard;
+            *guard = watch.wrapping_add(1);
+            watch
         };
         let (sender, receiver) = channel(10);
         self.watches.lock().await.insert(id, WatchState { sender });
@@ -197,7 +197,7 @@ struct XsdSocketProcessor {
     next_request_id: Arc<Mutex<u32>>,
     tx_receiver: Receiver<XsdMessage>,
     rx_receiver: Receiver<XsdMessage>,
-    unwatch_receiver: Receiver<u32>,
+    unwatch_receiver: Receiver<(u32, String)>,
 }
 
 impl XsdSocketProcessor {
@@ -326,15 +326,17 @@ impl XsdSocketProcessor {
                 },
 
                 x = self.unwatch_receiver.recv() => match x {
-                    Some(id) => {
+                    Some((id, path)) => {
                         let req = {
                             let mut guard = self.next_request_id.lock().await;
                             let req = *guard;
-                            *guard = req + 1;
+                            *guard = req.wrapping_add(1);
                             req
                         };
 
                         let mut payload = id.to_string().as_bytes().to_vec();
+                        payload.push(0);
+                        payload.extend_from_slice(path.to_string().as_bytes());
                         payload.push(0);
                         let header = XsdMessageHeader {
                             typ: XSD_UNWATCH,

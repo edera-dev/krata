@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Result;
 use krata::{
-    idm::protocol::{idm_packet::Message, IdmPacket},
+    idm::protocol::{idm_event::Event, IdmPacket},
     v1::common::{GuestExitInfo, GuestState, GuestStatus},
 };
 use log::error;
@@ -117,7 +117,7 @@ impl DaemonEventGenerator {
     }
 
     async fn handle_idm_packet(&mut self, id: Uuid, packet: IdmPacket) -> Result<()> {
-        if let Some(Message::Exit(exit)) = packet.message {
+        if let Some(Event::Exit(exit)) = packet.event.and_then(|x| x.event) {
             self.handle_exit_code(id, exit.code).await?;
         }
         Ok(())

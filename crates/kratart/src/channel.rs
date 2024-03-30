@@ -79,10 +79,11 @@ impl ChannelService {
 
     async fn process(&mut self) -> Result<()> {
         self.scan_all_backends().await?;
-        let mut watch_handle = self.store.create_watch().await?;
-        self.store
-            .bind_watch(&watch_handle, "/local/domain/0/backend/console".to_string())
+        let mut watch_handle = self
+            .store
+            .create_watch("/local/domain/0/backend/console")
             .await?;
+        self.store.bind_watch(&watch_handle).await?;
         loop {
             select! {
                 x = watch_handle.receiver.recv() => match x {
@@ -310,10 +311,11 @@ impl KrataChannelBackendProcessor {
         mut receiver: Receiver<Vec<u8>>,
     ) -> Result<()> {
         self.init().await?;
-        let mut frontend_state_change = self.store.create_watch().await?;
-        self.store
-            .bind_watch(&frontend_state_change, format!("{}/state", self.frontend))
+        let mut frontend_state_change = self
+            .store
+            .create_watch(format!("{}/state", self.frontend))
             .await?;
+        self.store.bind_watch(&frontend_state_change).await?;
 
         let (ring_ref, port) = loop {
             match frontend_state_change.receiver.recv().await {
@@ -382,10 +384,11 @@ impl KrataChannelBackendProcessor {
             }
         };
 
-        let mut self_state_change = self.store.create_watch().await?;
-        self.store
-            .bind_watch(&self_state_change, format!("{}/state", self.backend))
+        let mut self_state_change = self
+            .store
+            .create_watch(format!("{}/state", self.backend))
             .await?;
+        self.store.bind_watch(&self_state_change).await?;
         loop {
             select! {
                 x = self_state_change.receiver.recv() => match x {

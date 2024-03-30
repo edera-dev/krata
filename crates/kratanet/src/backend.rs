@@ -153,7 +153,7 @@ impl NetworkBackend {
     pub async fn launch(self) -> Result<JoinHandle<()>> {
         Ok(tokio::task::spawn(async move {
             info!(
-                "lauched network backend for krata guest {}",
+                "launched network backend for krata guest {}",
                 self.metadata.uuid
             );
             if let Err(error) = self.run().await {

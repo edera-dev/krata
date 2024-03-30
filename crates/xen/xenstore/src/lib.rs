@@ -43,14 +43,15 @@ impl XsPermission {
 }
 
 pub struct XsdWatchHandle {
+    pub path: String,
     pub id: u32,
-    unwatch_sender: Sender<u32>,
+    unwatch_sender: Sender<(u32, String)>,
     pub receiver: Receiver<String>,
 }
 
 impl Drop for XsdWatchHandle {
     fn drop(&mut self) {
-        let _ = self.unwatch_sender.try_send(self.id);
+        let _ = self.unwatch_sender.try_send((self.id, self.path.clone()));
     }
 }
 
@@ -192,17 +193,18 @@ impl XsdClient {
         response.parse_bool()
     }
 
-    pub async fn create_watch(&self) -> Result<XsdWatchHandle> {
+    pub async fn create_watch<P: AsRef<str>>(&self, path: P) -> Result<XsdWatchHandle> {
         let (id, receiver, unwatch_sender) = self.socket.add_watch().await?;
         Ok(XsdWatchHandle {
+            path: path.as_ref().to_string(),
             id,
             receiver,
             unwatch_sender,
         })
     }
 
-    pub async fn bind_watch<P: AsRef<str>>(&self, handle: &XsdWatchHandle, path: P) -> Result<()> {
-        self.bind_watch_id(handle.id, path).await
+    pub async fn bind_watch(&self, handle: &XsdWatchHandle) -> Result<()> {
+        self.bind_watch_id(handle.id, &handle.path).await
     }
 
     pub async fn bind_watch_id<P: AsRef<str>>(&self, id: u32, path: P) -> Result<()> {

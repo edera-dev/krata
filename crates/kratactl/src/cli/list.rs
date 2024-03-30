@@ -4,7 +4,7 @@ use cli_tables::Table;
 use krata::{
     events::EventStream,
     v1::{
-        common::{guest_image_spec::Image, Guest},
+        common::{guest_image_spec::Image, Guest, GuestStatus},
         control::{
             control_service_client::ControlServiceClient, ListGuestsRequest, ResolveGuestRequest,
         },
@@ -14,7 +14,7 @@ use krata::{
 use serde_json::Value;
 use tonic::{transport::Channel, Request};
 
-use crate::format::{guest_state_text, kv2line, proto2dynamic, proto2kv};
+use crate::format::{guest_state_text, guest_status_text, kv2line, proto2dynamic, proto2kv};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum ListFormat {
@@ -24,6 +24,7 @@ enum ListFormat {
     Jsonl,
     Yaml,
     KeyValue,
+    Simple,
 }
 
 #[derive(Parser)]
@@ -40,7 +41,7 @@ impl ListCommand {
         mut client: ControlServiceClient<Channel>,
         _events: EventStream,
     ) -> Result<()> {
-        let guests = if let Some(ref guest) = self.guest {
+        let mut guests = if let Some(ref guest) = self.guest {
             let reply = client
                 .resolve_guest(Request::new(ResolveGuestRequest {
                     name: guest.clone(),
@@ -60,9 +61,34 @@ impl ListCommand {
                 .guests
         };
 
+        guests.sort_by(|a, b| {
+            a.spec
+                .as_ref()
+                .map(|x| x.name.as_str())
+                .unwrap_or("")
+                .cmp(b.spec.as_ref().map(|x| x.name.as_str()).unwrap_or(""))
+        });
+
         match self.format {
             ListFormat::CliTable => {
                 self.print_guest_table(guests)?;
+            }
+
+            ListFormat::Simple => {
+                for guest in guests {
+                    let state = guest_status_text(
+                        guest
+                            .state
+                            .as_ref()
+                            .map(|x| x.status())
+                            .unwrap_or(GuestStatus::Unknown),
+                    );
+                    let name = guest.spec.as_ref().map(|x| x.name.as_str()).unwrap_or("");
+                    let network = guest.state.as_ref().and_then(|x| x.network.as_ref());
+                    let ipv4 = network.map(|x| x.guest_ipv4.as_str()).unwrap_or("");
+                    let ipv6 = network.map(|x| x.guest_ipv6.as_str()).unwrap_or("");
+                    println!("{}\t{}\t{}\t{}\t{}", guest.id, state, name, ipv4, ipv6);
+                }
             }
 
             ListFormat::Json | ListFormat::JsonPretty | ListFormat::Yaml => {

@@ -20,12 +20,12 @@ use crate::boot::BootSetup;
 use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
 use boot::BootState;
-use log::{trace, warn};
+use log::{debug, trace, warn};
+use tokio::time::timeout;
 
 use std::fs::read;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
 use xencall::sys::{CreateDomain, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST};
@@ -759,6 +759,7 @@ impl XenClient {
 
         for backend in &backend_paths {
             let state_path = format!("{}/state", backend);
+            let mut watch = self.store.create_watch(&state_path).await?;
             let online_path = format!("{}/online", backend);
             let tx = self.store.transaction().await?;
             let state = tx.read_string(&state_path).await?.unwrap_or(String::new());
@@ -769,22 +770,25 @@ impl XenClient {
             if !state.is_empty() && u32::from_str(&state).unwrap_or(0) != 6 {
                 tx.write_string(&state_path, "5").await?;
             }
+            self.store.bind_watch(&watch).await?;
             tx.commit().await?;
 
             let mut count: u32 = 0;
             loop {
-                if count >= 100 {
-                    warn!("unable to safely destroy backend: {}", backend);
+                if count >= 3 {
+                    debug!("unable to safely destroy backend: {}", backend);
                     break;
                 }
-                let Some(state) = self.store.read_string(&state_path).await? else {
-                    break;
-                };
+                let _ = timeout(Duration::from_secs(1), watch.receiver.recv()).await;
+                let state = self
+                    .store
+                    .read_string(&state_path)
+                    .await?
+                    .unwrap_or_else(|| "6".to_string());
                 let state = i64::from_str(&state).unwrap_or(-1);
                 if state == 6 {
                     break;
                 }
-                thread::sleep(Duration::from_millis(100));
                 count += 1;
             }
         }
@@ -818,7 +822,7 @@ impl XenClient {
             if tty.is_some() {
                 break;
             }
-            thread::sleep(Duration::from_millis(200));
+            tokio::time::sleep(Duration::from_millis(200)).await;
         }
         let Some(tty) = tty else {
             return Err(Error::TtyNotFound);
