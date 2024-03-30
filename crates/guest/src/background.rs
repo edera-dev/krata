@@ -3,6 +3,7 @@ use crate::{
     death,
 };
 use anyhow::Result;
+use cgroups_rs::Cgroup;
 use krata::idm::{
     client::IdmClient,
     protocol::{idm_event::Event, IdmEvent, IdmExitEvent, IdmPacket},
@@ -14,14 +15,16 @@ use tokio::select;
 pub struct GuestBackground {
     idm: IdmClient,
     child: Pid,
+    _cgroup: Cgroup,
     wait: ChildWait,
 }
 
 impl GuestBackground {
-    pub async fn new(idm: IdmClient, child: Pid) -> Result<GuestBackground> {
+    pub async fn new(idm: IdmClient, cgroup: Cgroup, child: Pid) -> Result<GuestBackground> {
         Ok(GuestBackground {
             idm,
             child,
+            _cgroup: cgroup,
             wait: ChildWait::new()?,
         })
     }

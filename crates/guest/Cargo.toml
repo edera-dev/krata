@@ -10,6 +10,7 @@ resolver = "2"
 
 [dependencies]
 anyhow = { workspace = true }
+cgroups-rs = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
 ipnetwork = { workspace = true }

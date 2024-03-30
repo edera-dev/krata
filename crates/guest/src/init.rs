@@ -1,4 +1,7 @@
 use anyhow::{anyhow, Result};
+use cgroups_rs::cgroup_builder::CgroupBuilder;
+use cgroups_rs::devices::DeviceType;
+use cgroups_rs::{Cgroup, CgroupPid};
 use futures::stream::TryStreamExt;
 use ipnetwork::IpNetwork;
 use krata::ethtool::EthtoolHandle;
@@ -7,6 +10,7 @@ use krata::launchcfg::{LaunchInfo, LaunchNetwork};
 use libc::{setsid, TIOCSCTTY};
 use log::{trace, warn};
 use nix::ioctl_write_int_bad;
+use nix::sys::stat::{major, minor};
 use nix::unistd::{dup2, execve, fork, ForkResult, Pid};
 use oci_spec::image::{Config, ImageConfiguration};
 use path_absolutize::Absolutize;
@@ -18,7 +22,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{chroot, symlink, PermissionsExt};
+use std::os::unix::fs::{chroot, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use sys_mount::{FilesystemType, Mount, MountFlags};
@@ -112,14 +116,20 @@ impl GuestInit {
         trace!("early init");
         self.create_dir("/dev", Some(0o0755)).await?;
         self.create_dir("/proc", None).await?;
-        self.create_dir("/sys", None).await?;
+        self.create_dir("/sys", Some(0o0555)).await?;
         self.create_dir("/root", Some(0o0700)).await?;
         self.create_dir("/tmp", None).await?;
-        self.mount_kernel_fs("devtmpfs", "/dev", "mode=0755")
+        self.create_dir("/run", Some(0o0755)).await?;
+        self.mount_kernel_fs("devtmpfs", "/dev", "mode=0755", None)
             .await?;
-        self.mount_kernel_fs("proc", "/proc", "").await?;
-        self.mount_kernel_fs("sysfs", "/sys", "").await?;
-        symlink("/proc/self/fd", "/dev/fd")?;
+        self.mount_kernel_fs("proc", "/proc", "", None).await?;
+        self.mount_kernel_fs("sysfs", "/sys", "", None).await?;
+        fs::symlink("/proc/self/fd", "/dev/fd").await?;
+        fs::symlink("/proc/self/fd/0", "/dev/stdin").await?;
+        fs::symlink("/proc/self/fd/1", "/dev/stdout").await?;
+        fs::symlink("/proc/self/fd/2", "/dev/stderr").await?;
+        self.mount_kernel_fs("cgroup2", "/sys/fs/cgroup", "", Some(MountFlags::RELATIME))
+            .await?;
         Ok(())
     }
 
@@ -137,16 +147,19 @@ impl GuestInit {
         Ok(())
     }
 
-    async fn mount_kernel_fs(&mut self, fstype: &str, path: &str, data: &str) -> Result<()> {
-        let metadata = fs::metadata(path).await?;
-        if metadata.st_dev() == fs::metadata("/").await?.st_dev() {
-            trace!("mounting kernel fs {} to {}", fstype, path);
-            Mount::builder()
-                .fstype(FilesystemType::Manual(fstype))
-                .flags(MountFlags::NOEXEC | MountFlags::NOSUID)
-                .data(data)
-                .mount(fstype, path)?;
-        }
+    async fn mount_kernel_fs(
+        &mut self,
+        fstype: &str,
+        path: &str,
+        data: &str,
+        flags: Option<MountFlags>,
+    ) -> Result<()> {
+        trace!("mounting kernel fs {} to {}", fstype, path);
+        Mount::builder()
+            .fstype(FilesystemType::Manual(fstype))
+            .flags(MountFlags::NOEXEC | MountFlags::NOSUID | flags.unwrap_or(MountFlags::empty()))
+            .data(data)
+            .mount(fstype, path)?;
         Ok(())
     }
 
@@ -454,8 +467,42 @@ impl GuestInit {
             working_dir = "/".to_string();
         }
 
-        self.fork_and_exec(idm, working_dir, path, cmd, env).await?;
+        let cgroup = self.init_cgroup().await?;
+        self.fork_and_exec(idm, cgroup, working_dir, path, cmd, env)
+            .await?;
         Ok(())
+    }
+
+    async fn init_cgroup(&self) -> Result<Cgroup> {
+        trace!("initializing cgroup");
+        let hierarchy = cgroups_rs::hierarchies::auto();
+        let cgroup = CgroupBuilder::new("krata-guest-task");
+
+        let idm_device = fs::metadata("/dev/hvc1").await?.st_rdev();
+        let config_block = fs::metadata(CONFIG_BLOCK_DEVICE_PATH).await?.st_rdev();
+
+        let cgroup = cgroup
+            .devices()
+            .device(
+                major(idm_device) as i64,
+                minor(idm_device) as i64,
+                DeviceType::All,
+                false,
+                Vec::new(),
+            )
+            .device(
+                major(config_block) as i64,
+                minor(config_block) as i64,
+                DeviceType::All,
+                false,
+                Vec::new(),
+            )
+            .done();
+
+        let cgroup = cgroup.build(hierarchy)?;
+        cgroup.set_cgroup_type("threaded")?;
+        trace!("initialized cgroup");
+        Ok(cgroup)
     }
 
     fn strings_as_cstrings(values: Vec<String>) -> Result<Vec<CString>> {
@@ -506,19 +553,21 @@ impl GuestInit {
     async fn fork_and_exec(
         &mut self,
         idm: IdmClient,
+        cgroup: Cgroup,
         working_dir: String,
         path: CString,
         cmd: Vec<CString>,
         env: Vec<CString>,
     ) -> Result<()> {
         match unsafe { fork()? } {
-            ForkResult::Parent { child } => self.background(idm, child).await,
-            ForkResult::Child => self.foreground(working_dir, path, cmd, env).await,
+            ForkResult::Parent { child } => self.background(idm, cgroup, child).await,
+            ForkResult::Child => self.foreground(cgroup, working_dir, path, cmd, env).await,
         }
     }
 
     async fn foreground(
         &mut self,
+        cgroup: Cgroup,
         working_dir: String,
         path: CString,
         cmd: Vec<CString>,
@@ -526,6 +575,7 @@ impl GuestInit {
     ) -> Result<()> {
         GuestInit::set_controlling_terminal()?;
         std::env::set_current_dir(working_dir)?;
+        cgroup.add_task(CgroupPid::from(std::process::id() as u64))?;
         execve(&path, &cmd, &env)?;
         Ok(())
     }
@@ -538,8 +588,8 @@ impl GuestInit {
         Ok(())
     }
 
-    async fn background(&mut self, idm: IdmClient, executed: Pid) -> Result<()> {
-        let mut background = GuestBackground::new(idm, executed).await?;
+    async fn background(&mut self, idm: IdmClient, cgroup: Cgroup, executed: Pid) -> Result<()> {
+        let mut background = GuestBackground::new(idm, cgroup, executed).await?;
         background.run().await?;
         Ok(())
     }
