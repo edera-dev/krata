@@ -2,7 +2,7 @@
 name = "krata-xenstore"
 description = "A client that interacts with xenstore for krata."
 license.workspace = true
-version= "0.0.1"
+version.workspace = true
 homepage.workspace = true
 repository.workspace = true
 edition = "2021"

@@ -2,7 +2,7 @@
 name = "krata-xenclient"
 description = "An implementation of Xen userspace for krata."
 license.workspace = true
-version= "0.0.1"
+version.workspace = true
 homepage.workspace = true
 repository.workspace = true
 edition = "2021"
@@ -13,8 +13,8 @@ elf = { workspace = true }
 flate2 = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
-krata-xencall = { path = "../xencall", version = "^0.0.1" }
-krata-xenstore = { path = "../xenstore", version = "^0.0.1" }
+krata-xencall = { path = "../xencall", version = "0.0.1" }
+krata-xenstore = { path = "../xenstore", version = "0.0.1" }
 memchr = { workspace = true }
 slice-copy = { workspace = true }
 thiserror = { workspace = true }
