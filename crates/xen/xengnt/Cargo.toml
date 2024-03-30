@@ -1,6 +1,10 @@
 [package]
 name = "krata-xengnt"
+description = "An implementation of xen grant interfaces for krata."
+license.workspace = true
 version.workspace = true
+homepage.workspace = true
+repository.workspace = true
 edition = "2021"
 resolver = "2"
 

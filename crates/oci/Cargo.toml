@@ -1,6 +1,10 @@
 [package]
 name = "krata-oci"
+description = "OCI services for the krata hypervisor."
+license.workspace = true
 version.workspace = true
+homepage.workspace = true
+repository.workspace = true
 edition = "2021"
 resolver = "2"
 

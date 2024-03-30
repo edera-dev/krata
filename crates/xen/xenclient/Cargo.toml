@@ -1,6 +1,10 @@
 [package]
 name = "krata-xenclient"
+description = "An implementation of Xen userspace for krata."
+license.workspace = true
 version.workspace = true
+homepage.workspace = true
+repository.workspace = true
 edition = "2021"
 resolver = "2"
 

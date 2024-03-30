@@ -1,6 +1,10 @@
 [package]
 name = "krata-xenstore"
+description = "A client that interacts with xenstore for krata."
+license.workspace = true
 version.workspace = true
+homepage.workspace = true
+repository.workspace = true
 edition = "2021"
 resolver = "2"
 
