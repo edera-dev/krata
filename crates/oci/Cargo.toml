@@ -10,6 +10,7 @@ async-compression = { workspace = true, features = ["tokio", "gzip", "zstd"] }
 async-trait = { workspace = true }
 backhand = { workspace = true }
 bytes = { workspace = true }
+krata-tokio-tar = { workspace = true }
 log = { workspace = true }
 oci-spec = { workspace = true }
 path-clean = { workspace = true }
@@ -19,7 +20,6 @@ serde_json = { workspace = true }
 sha256 = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
-tokio-tar = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 walkdir = { workspace = true }
