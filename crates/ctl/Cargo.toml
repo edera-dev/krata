@@ -2,7 +2,7 @@
 name = "krata-ctl"
 description = "Command-line tool to control the krata hypervisor"
 license.workspace = true
-version.workspace = true
+version= "0.0.1"
 homepage.workspace = true
 repository.workspace = true
 edition = "2021"
@@ -16,7 +16,7 @@ cli-tables = { workspace = true }
 crossterm = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 env_logger = { workspace = true }
-krata = { path = "../krata", version = "0.0.1" }
+krata = { path = "../krata", version = "^0.0.1" }
 log = { workspace = true }
 prost-reflect = { workspace = true, features = ["serde"] }
 serde_json = { workspace = true }

@@ -2,7 +2,7 @@
 name = "krata-xencall"
 description = "An implementation of direct interfacing to xen privcmd for krata."
 license.workspace = true
-version.workspace = true
+version= "0.0.1"
 homepage.workspace = true
 repository.workspace = true
 edition = "2021"
