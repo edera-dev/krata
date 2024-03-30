@@ -21,10 +21,7 @@ use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
-use crate::{
-    db::{proto::GuestEntry, GuestStore},
-    event::DaemonEventContext,
-};
+use crate::{db::GuestStore, event::DaemonEventContext};
 
 pub struct ApiError {
     message: String,
@@ -96,19 +93,16 @@ impl ControlService for RuntimeControlService {
         self.guests
             .update(
                 uuid,
-                GuestEntry {
+                Guest {
                     id: uuid.to_string(),
-                    guest: Some(Guest {
-                        id: uuid.to_string(),
-                        state: Some(GuestState {
-                            status: GuestStatus::Starting.into(),
-                            network: None,
-                            exit_info: None,
-                            error_info: None,
-                            domid: u32::MAX,
-                        }),
-                        spec: Some(spec),
+                    state: Some(GuestState {
+                        status: GuestStatus::Starting.into(),
+                        network: None,
+                        exit_info: None,
+                        error_info: None,
+                        domid: u32::MAX,
                     }),
+                    spec: Some(spec),
                 },
             )
             .await
@@ -132,13 +126,7 @@ impl ControlService for RuntimeControlService {
         let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
             message: error.to_string(),
         })?;
-        let Some(mut entry) = self.guests.read(uuid).await.map_err(ApiError::from)? else {
-            return Err(ApiError {
-                message: "guest not found".to_string(),
-            }
-            .into());
-        };
-        let Some(ref mut guest) = entry.guest else {
+        let Some(mut guest) = self.guests.read(uuid).await.map_err(ApiError::from)? else {
             return Err(ApiError {
                 message: "guest not found".to_string(),
             }
@@ -156,7 +144,7 @@ impl ControlService for RuntimeControlService {
 
         guest.state.as_mut().unwrap().status = GuestStatus::Destroying.into();
         self.guests
-            .update(uuid, entry)
+            .update(uuid, guest)
             .await
             .map_err(ApiError::from)?;
         self.guest_reconciler_notify
@@ -174,10 +162,7 @@ impl ControlService for RuntimeControlService {
     ) -> Result<Response<ListGuestsReply>, Status> {
         let _ = request.into_inner();
         let guests = self.guests.list().await.map_err(ApiError::from)?;
-        let guests = guests
-            .into_values()
-            .filter_map(|entry| entry.guest)
-            .collect::<Vec<Guest>>();
+        let guests = guests.into_values().collect::<Vec<Guest>>();
         Ok(Response::new(ListGuestsReply { guests }))
     }
 
@@ -189,7 +174,6 @@ impl ControlService for RuntimeControlService {
         let guests = self.guests.list().await.map_err(ApiError::from)?;
         let guests = guests
             .into_values()
-            .filter_map(|entry| entry.guest)
             .filter(|x| {
                 let comparison_spec = x.spec.as_ref().cloned().unwrap_or_default();
                 (!request.name.is_empty() && comparison_spec.name == request.name)

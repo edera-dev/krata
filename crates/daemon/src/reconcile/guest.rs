@@ -67,12 +67,7 @@ impl GuestReconciler {
         trace!("reconciling runtime");
         let runtime_guests = self.runtime.list().await?;
         let stored_guests = self.guests.list().await?;
-        for (uuid, mut stored_guest_entry) in stored_guests {
-            let Some(ref mut stored_guest) = stored_guest_entry.guest else {
-                warn!("removing unpopulated guest entry for guest {}", uuid);
-                self.guests.remove(uuid).await?;
-                continue;
-            };
+        for (uuid, mut stored_guest) in stored_guests {
             let previous_guest = stored_guest.clone();
             let runtime_guest = runtime_guests.iter().find(|x| x.uuid == uuid);
             match runtime_guest {
@@ -97,10 +92,10 @@ impl GuestReconciler {
                 }
             }
 
-            let changed = *stored_guest != previous_guest;
+            let changed = stored_guest != previous_guest;
 
             if changed || initial {
-                self.guests.update(uuid, stored_guest_entry).await?;
+                self.guests.update(uuid, stored_guest).await?;
                 if let Err(error) = self.reconcile(uuid).await {
                     error!("failed to reconcile guest {}: {}", uuid, error);
                 }
@@ -110,7 +105,7 @@ impl GuestReconciler {
     }
 
     pub async fn reconcile(&self, uuid: Uuid) -> Result<()> {
-        let Some(mut entry) = self.guests.read(uuid).await? else {
+        let Some(mut guest) = self.guests.read(uuid).await? else {
             warn!(
                 "notified of reconcile for guest {} but it didn't exist",
                 uuid
@@ -120,18 +115,14 @@ impl GuestReconciler {
 
         info!("reconciling guest {}", uuid);
 
-        let Some(ref mut guest) = entry.guest else {
-            return Ok(());
-        };
-
         self.events
             .send(DaemonEvent::GuestChanged(GuestChangedEvent {
                 guest: Some(guest.clone()),
             }))?;
 
         let result = match guest.state.as_ref().map(|x| x.status()).unwrap_or_default() {
-            GuestStatus::Starting => self.start(uuid, guest).await,
-            GuestStatus::Destroying | GuestStatus::Exited => self.destroy(uuid, guest).await,
+            GuestStatus::Starting => self.start(uuid, &mut guest).await,
+            GuestStatus::Destroying | GuestStatus::Exited => self.destroy(uuid, &mut guest).await,
             _ => Ok(false),
         };
 
@@ -160,7 +151,7 @@ impl GuestReconciler {
             if destroyed {
                 self.guests.remove(uuid).await?;
             } else {
-                self.guests.update(uuid, entry.clone()).await?;
+                self.guests.update(uuid, guest.clone()).await?;
             }
 
             self.events.send(event)?;

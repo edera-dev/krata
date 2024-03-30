@@ -1,9 +1,7 @@
-pub mod proto;
-
 use std::{collections::HashMap, path::Path, sync::Arc};
 
-use self::proto::GuestEntry;
 use anyhow::Result;
+use krata::v1::common::Guest;
 use log::error;
 use prost::Message;
 use redb::{Database, ReadableTable, TableDefinition};
@@ -27,24 +25,24 @@ impl GuestStore {
         })
     }
 
-    pub async fn read(&self, id: Uuid) -> Result<Option<GuestEntry>> {
+    pub async fn read(&self, id: Uuid) -> Result<Option<Guest>> {
         let read = self.database.begin_read()?;
         let table = read.open_table(GUESTS)?;
         let Some(entry) = table.get(id.to_u128_le())? else {
             return Ok(None);
         };
         let bytes = entry.value();
-        Ok(Some(GuestEntry::decode(bytes)?))
+        Ok(Some(Guest::decode(bytes)?))
     }
 
-    pub async fn list(&self) -> Result<HashMap<Uuid, GuestEntry>> {
-        let mut guests: HashMap<Uuid, GuestEntry> = HashMap::new();
+    pub async fn list(&self) -> Result<HashMap<Uuid, Guest>> {
+        let mut guests: HashMap<Uuid, Guest> = HashMap::new();
         let read = self.database.begin_read()?;
         let table = read.open_table(GUESTS)?;
         for result in table.iter()? {
             let (key, value) = result?;
             let uuid = Uuid::from_u128_le(key.value());
-            let state = match GuestEntry::decode(value.value()) {
+            let state = match Guest::decode(value.value()) {
                 Ok(state) => state,
                 Err(error) => {
                     error!(
@@ -59,7 +57,7 @@ impl GuestStore {
         Ok(guests)
     }
 
-    pub async fn update(&self, id: Uuid, entry: GuestEntry) -> Result<()> {
+    pub async fn update(&self, id: Uuid, entry: Guest) -> Result<()> {
         let write = self.database.begin_write()?;
         {
             let mut table = write.open_table(GUESTS)?;

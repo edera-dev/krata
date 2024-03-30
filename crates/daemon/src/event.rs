@@ -124,11 +124,7 @@ impl DaemonEventGenerator {
     }
 
     async fn handle_exit_code(&mut self, id: Uuid, code: i32) -> Result<()> {
-        if let Some(mut entry) = self.guests.read(id).await? {
-            let Some(ref mut guest) = entry.guest else {
-                return Ok(());
-            };
-
+        if let Some(mut guest) = self.guests.read(id).await? {
             guest.state = Some(GuestState {
                 status: GuestStatus::Exited.into(),
                 network: guest.state.clone().unwrap_or_default().network,
@@ -137,7 +133,7 @@ impl DaemonEventGenerator {
                 domid: guest.state.clone().map(|x| x.domid).unwrap_or(u32::MAX),
             });
 
-            self.guests.update(id, entry).await?;
+            self.guests.update(id, guest).await?;
             self.guest_reconciler_notify.send(id).await?;
         }
         Ok(())
