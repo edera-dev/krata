@@ -7,18 +7,18 @@ fn main() -> Result<()> {
         .configure(
             &mut config,
             &[
-                "../../proto/krata/v1/control.proto",
+                "proto/krata/v1/control.proto",
                 "proto/krata/internal/idm.proto",
             ],
-            &["../../proto/", "proto/"],
+            &["proto/"],
         )?;
     tonic_build::configure().compile_with_config(
         config,
         &[
-            "../../proto/krata/v1/control.proto",
+            "proto/krata/v1/control.proto",
             "proto/krata/internal/idm.proto",
         ],
-        &["../../proto/", "proto/"],
+        &["proto/"],
     )?;
     Ok(())
 }
