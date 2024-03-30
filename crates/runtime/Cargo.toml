@@ -5,11 +5,11 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-advmac = { workspace = true }
 anyhow = { workspace = true }
 backhand = { workspace = true }
 ipnetwork = { workspace = true }
 krata = { path = "../krata" }
+krata-advmac = { workspace = true }
 krata-oci = { path = "../oci" }
 log = { workspace = true }
 loopdev-3 = { workspace = true }

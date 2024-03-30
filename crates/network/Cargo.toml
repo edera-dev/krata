@@ -5,7 +5,6 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-advmac = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
@@ -14,6 +13,7 @@ env_logger = { workspace = true }
 etherparse = { workspace = true }
 futures = { workspace = true }
 krata = { path = "../krata" }
+krata-advmac = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 rtnetlink = { workspace = true }
