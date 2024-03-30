@@ -16,8 +16,8 @@ bytes = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
-krata = { path = "../krata", version = "0.0.1" }
-krata-runtime = { path = "../runtime", version = "0.0.1" }
+krata = { path = "../krata", version = "0.0.2" }
+krata-runtime = { path = "../runtime", version = "0.0.2" }
 log = { workspace = true }
 prost = { workspace = true }
 redb = { workspace = true }

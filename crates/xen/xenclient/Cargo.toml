@@ -13,8 +13,8 @@ elf = { workspace = true }
 flate2 = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
-krata-xencall = { path = "../xencall", version = "0.0.1" }
-krata-xenstore = { path = "../xenstore", version = "0.0.1" }
+krata-xencall = { path = "../xencall", version = "0.0.2" }
+krata-xenstore = { path = "../xenstore", version = "0.0.2" }
 memchr = { workspace = true }
 slice-copy = { workspace = true }
 thiserror = { workspace = true }
