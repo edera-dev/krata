@@ -134,6 +134,7 @@ impl GuestReconciler {
                 guest.state.as_mut().unwrap().error_info = Some(GuestErrorInfo {
                     message: error.to_string(),
                 });
+                warn!("failed to start guest {}: {}", guest.id, error);
                 true
             }
         };

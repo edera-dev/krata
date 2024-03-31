@@ -87,6 +87,13 @@ impl XenCall {
             if ptr == MAP_FAILED {
                 None
             } else {
+                trace!(
+                    "call fd={} mmap addr={:#x} len={} = {:#x}",
+                    self.handle.as_raw_fd(),
+                    addr,
+                    len,
+                    ptr as u64,
+                );
                 Some(ptr as u64)
             }
         }
