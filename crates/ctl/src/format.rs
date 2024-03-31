@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use krata::v1::common::{GuestState, GuestStatus};
+use krata::v1::common::{Guest, GuestState, GuestStatus};
 use prost_reflect::{DynamicMessage, ReflectMessage, Value};
 
 pub fn proto2dynamic(proto: impl ReflectMessage) -> Result<DynamicMessage> {
@@ -83,4 +83,19 @@ pub fn guest_state_text(state: Option<&GuestState>) -> String {
         text.push_str(&format!(" (error: {})", error.message));
     }
     text
+}
+
+pub fn guest_simple_line(guest: &Guest) -> String {
+    let state = guest_status_text(
+        guest
+            .state
+            .as_ref()
+            .map(|x| x.status())
+            .unwrap_or(GuestStatus::Unknown),
+    );
+    let name = guest.spec.as_ref().map(|x| x.name.as_str()).unwrap_or("");
+    let network = guest.state.as_ref().and_then(|x| x.network.as_ref());
+    let ipv4 = network.map(|x| x.guest_ipv4.as_str()).unwrap_or("");
+    let ipv6 = network.map(|x| x.guest_ipv6.as_str()).unwrap_or("");
+    format!("{}\t{}\t{}\t{}\t{}", guest.id, state, name, ipv4, ipv6)
 }

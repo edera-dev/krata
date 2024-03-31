@@ -4,7 +4,7 @@ use cli_tables::Table;
 use krata::{
     events::EventStream,
     v1::{
-        common::{guest_image_spec::Image, Guest, GuestStatus},
+        common::{guest_image_spec::Image, Guest},
         control::{
             control_service_client::ControlServiceClient, ListGuestsRequest, ResolveGuestRequest,
         },
@@ -14,7 +14,7 @@ use krata::{
 use serde_json::Value;
 use tonic::{transport::Channel, Request};
 
-use crate::format::{guest_state_text, guest_status_text, kv2line, proto2dynamic, proto2kv};
+use crate::format::{guest_simple_line, guest_state_text, kv2line, proto2dynamic, proto2kv};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum ListFormat {
@@ -76,18 +76,7 @@ impl ListCommand {
 
             ListFormat::Simple => {
                 for guest in guests {
-                    let state = guest_status_text(
-                        guest
-                            .state
-                            .as_ref()
-                            .map(|x| x.status())
-                            .unwrap_or(GuestStatus::Unknown),
-                    );
-                    let name = guest.spec.as_ref().map(|x| x.name.as_str()).unwrap_or("");
-                    let network = guest.state.as_ref().and_then(|x| x.network.as_ref());
-                    let ipv4 = network.map(|x| x.guest_ipv4.as_str()).unwrap_or("");
-                    let ipv6 = network.map(|x| x.guest_ipv6.as_str()).unwrap_or("");
-                    println!("{}\t{}\t{}\t{}\t{}", guest.id, state, name, ipv4, ipv6);
+                    println!("{}", guest_simple_line(&guest));
                 }
             }
 

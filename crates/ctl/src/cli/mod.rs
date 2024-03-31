@@ -10,9 +10,7 @@ use clap::{Parser, Subcommand};
 use krata::{
     client::ControlClientProvider,
     events::EventStream,
-    v1::control::{
-        control_service_client::ControlServiceClient, ResolveGuestRequest, WatchEventsRequest,
-    },
+    v1::control::{control_service_client::ControlServiceClient, ResolveGuestRequest},
 };
 use tonic::{transport::Channel, Request};
 
@@ -43,14 +41,8 @@ pub enum Commands {
 
 impl ControlCommand {
     pub async fn run(self) -> Result<()> {
-        let mut client = ControlClientProvider::dial(self.connection.parse()?).await?;
-        let events = EventStream::open(
-            client
-                .watch_events(WatchEventsRequest {})
-                .await?
-                .into_inner(),
-        )
-        .await?;
+        let client = ControlClientProvider::dial(self.connection.parse()?).await?;
+        let events = EventStream::open(client.clone()).await?;
 
         match self.command {
             Commands::Launch(launch) => {

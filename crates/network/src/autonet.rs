@@ -5,7 +5,7 @@ use krata::{
         common::Guest,
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
-            ListGuestsRequest, WatchEventsRequest,
+            ListGuestsRequest,
         },
     },
 };
@@ -50,12 +50,11 @@ pub struct AutoNetworkChangeset {
 }
 
 impl AutoNetworkWatcher {
-    pub async fn new(mut control: ControlServiceClient<Channel>) -> Result<AutoNetworkWatcher> {
-        let watch_events_response = control.watch_events(WatchEventsRequest {}).await?;
-
+    pub async fn new(control: ControlServiceClient<Channel>) -> Result<AutoNetworkWatcher> {
+        let client = control.clone();
         Ok(AutoNetworkWatcher {
             control,
-            events: EventStream::open(watch_events_response.into_inner()).await?,
+            events: EventStream::open(client).await?,
             known: HashMap::new(),
         })
     }
@@ -136,7 +135,15 @@ impl AutoNetworkWatcher {
         let mut added: Vec<NetworkMetadata> = Vec::new();
         let mut removed: Vec<NetworkMetadata> = Vec::new();
 
-        for network in self.read().await? {
+        let networks = match self.read().await {
+            Ok(networks) => networks,
+            Err(error) => {
+                warn!("failed to read network changes: {}", error);
+                return Ok(AutoNetworkChangeset { added, removed });
+            }
+        };
+
+        for network in networks {
             seen.push(network.uuid);
             if self.known.contains_key(&network.uuid) {
                 continue;

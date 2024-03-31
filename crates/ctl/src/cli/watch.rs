@@ -7,7 +7,7 @@ use krata::{
 use prost_reflect::ReflectMessage;
 use serde_json::Value;
 
-use crate::format::{guest_state_text, kv2line, proto2dynamic, proto2kv};
+use crate::format::{guest_simple_line, kv2line, proto2dynamic, proto2kv};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum WatchFormat {
@@ -45,12 +45,7 @@ impl WatchCommand {
         match self.format {
             WatchFormat::Simple => {
                 if let Some(guest) = guest {
-                    println!(
-                        "{} guest={} status=\"{}\"",
-                        typ,
-                        guest.id,
-                        guest_state_text(guest.state.as_ref()).replace('"', "\\\"")
-                    );
+                    println!("{}", guest_simple_line(&guest));
                 }
             }
 
