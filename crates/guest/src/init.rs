@@ -1,6 +1,4 @@
 use anyhow::{anyhow, Result};
-use cgroups_rs::cgroup_builder::CgroupBuilder;
-use cgroups_rs::devices::DeviceType;
 use cgroups_rs::{Cgroup, CgroupPid};
 use futures::stream::TryStreamExt;
 use ipnetwork::IpNetwork;
@@ -10,7 +8,6 @@ use krata::launchcfg::{LaunchInfo, LaunchNetwork};
 use libc::{setsid, TIOCSCTTY};
 use log::{trace, warn};
 use nix::ioctl_write_int_bad;
-use nix::sys::stat::{major, minor};
 use nix::unistd::{dup2, execve, fork, ForkResult, Pid};
 use oci_spec::image::{Config, ImageConfiguration};
 use path_absolutize::Absolutize;
@@ -484,30 +481,7 @@ impl GuestInit {
     async fn init_cgroup(&self) -> Result<Cgroup> {
         trace!("initializing cgroup");
         let hierarchy = cgroups_rs::hierarchies::auto();
-        let cgroup = CgroupBuilder::new("krata-guest-task");
-
-        let idm_device = fs::metadata("/dev/hvc1").await?.st_rdev();
-        let config_block = fs::metadata(CONFIG_BLOCK_DEVICE_PATH).await?.st_rdev();
-
-        let cgroup = cgroup
-            .devices()
-            .device(
-                major(idm_device) as i64,
-                minor(idm_device) as i64,
-                DeviceType::All,
-                false,
-                Vec::new(),
-            )
-            .device(
-                major(config_block) as i64,
-                minor(config_block) as i64,
-                DeviceType::All,
-                false,
-                Vec::new(),
-            )
-            .done();
-
-        let cgroup = cgroup.build(hierarchy)?;
+        let cgroup = Cgroup::new(hierarchy, "krata-guest-task")?;
         cgroup.set_cgroup_type("threaded")?;
         trace!("initialized cgroup");
         Ok(cgroup)
