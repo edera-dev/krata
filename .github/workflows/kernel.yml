@@ -21,6 +21,8 @@ jobs:
     name: build ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - uses: dtolnay/rust-toolchain@stable
     - run: ./hack/ci/install-linux-deps.sh
     - run: ./hack/kernel/build.sh

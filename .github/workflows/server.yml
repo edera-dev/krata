@@ -60,6 +60,8 @@ jobs:
     name: initrd ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"

@@ -74,6 +74,8 @@ jobs:
         shell: bash
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - uses: dtolnay/rust-toolchain@stable
       if: ${{ matrix.platform.os != 'darwin' }}
     - uses: dtolnay/rust-toolchain@stable
