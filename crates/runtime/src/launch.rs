@@ -64,6 +64,12 @@ impl GuestLauncher {
         let ipv6_network_mask: u32 = 10;
 
         let launch_config = LaunchInfo {
+            hostname: Some(
+                request
+                    .name
+                    .map(|x| x.to_string())
+                    .unwrap_or_else(|| format!("krata-{}", uuid)),
+            ),
             network: Some(LaunchNetwork {
                 link: "eth0".to_string(),
                 ipv4: LaunchNetworkIpv4 {

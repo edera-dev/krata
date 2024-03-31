@@ -29,6 +29,7 @@ pub struct LaunchNetwork {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LaunchInfo {
+    pub hostname: Option<String>,
     pub network: Option<LaunchNetwork>,
     pub env: HashMap<String, String>,
     pub run: Option<Vec<String>>,

@@ -5,7 +5,7 @@ use ipnetwork::IpNetwork;
 use krata::ethtool::EthtoolHandle;
 use krata::idm::client::IdmClient;
 use krata::launchcfg::{LaunchInfo, LaunchNetwork};
-use libc::{setsid, TIOCSCTTY};
+use libc::{sethostname, setsid, TIOCSCTTY};
 use log::{trace, warn};
 use nix::ioctl_write_int_bad;
 use nix::unistd::{dup2, execve, fork, ForkResult, Pid};
@@ -90,6 +90,18 @@ impl GuestInit {
         self.mount_new_root().await?;
         self.nuke_initrd().await?;
         self.bind_new_root().await?;
+
+        if let Some(hostname) = launch.hostname.clone() {
+            let result = unsafe {
+                sethostname(
+                    hostname.as_bytes().as_ptr() as *mut libc::c_char,
+                    hostname.len(),
+                )
+            };
+            if result != 0 {
+                warn!("failed to set hostname: {}", result);
+            }
+        }
 
         if let Some(network) = &launch.network {
             trace!("initializing network");
