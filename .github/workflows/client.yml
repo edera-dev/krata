@@ -21,6 +21,8 @@ jobs:
       run:
         shell: bash
     steps:
+    - runs: git config --global core.autocrlf false && git config --global core.eol lf
+      if: ${{ matrix.platform.os == 'windows' }}
     - uses: actions/checkout@v4
       with:
         submodules: recursive
