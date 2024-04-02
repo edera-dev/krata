@@ -3,6 +3,7 @@ use crate::sys::{XEN_PAGE_SHIFT, XEN_PAGE_SIZE};
 use crate::Error;
 use libc::munmap;
 use log::debug;
+use nix::errno::Errno;
 use std::ffi::c_void;
 
 #[cfg(target_arch = "aarch64")]
@@ -45,7 +46,7 @@ impl PhysicalPages<'_> {
         self.p2m.len() as u64
     }
 
-    pub fn pfn_to_ptr(&mut self, pfn: u64, count: u64) -> Result<u64> {
+    pub async fn pfn_to_ptr(&mut self, pfn: u64, count: u64) -> Result<u64> {
         for page in &self.pages {
             if pfn >= page.pfn + page.count {
                 continue;
@@ -76,10 +77,10 @@ impl PhysicalPages<'_> {
             return Err(Error::MemorySetupFailed("page count is zero"));
         }
 
-        self.pfn_alloc(pfn, count)
+        self.pfn_alloc(pfn, count).await
     }
 
-    fn pfn_alloc(&mut self, pfn: u64, count: u64) -> Result<u64> {
+    async fn pfn_alloc(&mut self, pfn: u64, count: u64) -> Result<u64> {
         let mut entries = vec![MmapEntry::default(); count as usize];
         for (i, entry) in entries.iter_mut().enumerate() {
             entry.mfn = self.p2m[pfn as usize + i];
@@ -98,9 +99,13 @@ impl PhysicalPages<'_> {
         let addr = self
             .call
             .mmap(0, actual_mmap_len)
+            .await
             .ok_or(Error::MmapFailed)?;
         debug!("mapped {:#x} foreign bytes at {:#x}", actual_mmap_len, addr);
-        let result = self.call.mmap_batch(self.domid, num as u64, addr, pfns)?;
+        let result = self
+            .call
+            .mmap_batch(self.domid, num as u64, addr, pfns)
+            .await?;
         if result != 0 {
             return Err(Error::MmapFailed);
         }
@@ -117,7 +122,7 @@ impl PhysicalPages<'_> {
         Ok(addr)
     }
 
-    pub fn map_foreign_pages(&mut self, mfn: u64, size: u64) -> Result<u64> {
+    pub async fn map_foreign_pages(&mut self, mfn: u64, size: u64) -> Result<u64> {
         let num = ((size + XEN_PAGE_SIZE - 1) >> XEN_PAGE_SHIFT) as usize;
         let mut pfns = vec![u64::MAX; num];
         for (i, item) in pfns.iter_mut().enumerate().take(num) {
@@ -128,9 +133,13 @@ impl PhysicalPages<'_> {
         let addr = self
             .call
             .mmap(0, actual_mmap_len)
+            .await
             .ok_or(Error::MmapFailed)?;
         debug!("mapped {:#x} foreign bytes at {:#x}", actual_mmap_len, addr);
-        let result = self.call.mmap_batch(self.domid, num as u64, addr, pfns)?;
+        let result = self
+            .call
+            .mmap_batch(self.domid, num as u64, addr, pfns)
+            .await?;
         if result != 0 {
             return Err(Error::MmapFailed);
         }
@@ -155,7 +164,7 @@ impl PhysicalPages<'_> {
                     (page.count << ARCH_PAGE_SHIFT) as usize,
                 );
                 if err != 0 {
-                    return Err(Error::UnmapFailed);
+                    return Err(Error::UnmapFailed(Errno::from_raw(err)));
                 }
             }
         }
@@ -181,7 +190,7 @@ impl PhysicalPages<'_> {
                 page.ptr
             );
             if err != 0 {
-                return Err(Error::UnmapFailed);
+                return Err(Error::UnmapFailed(Errno::from_raw(err)));
             }
             self.pages.remove(i);
         }

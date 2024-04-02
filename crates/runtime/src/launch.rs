@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr};
+use std::sync::Arc;
 use std::{fs, net::Ipv4Addr, str::FromStr};
 
 use advmac::MacAddr6;
@@ -8,6 +9,7 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
 };
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
 use xenstore::XsdInterface;
@@ -33,16 +35,18 @@ pub struct GuestLaunchRequest<'a> {
     pub debug: bool,
 }
 
-pub struct GuestLauncher {}
+pub struct GuestLauncher {
+    pub launch_semaphore: Arc<Semaphore>,
+}
 
 impl GuestLauncher {
-    pub fn new() -> Result<Self> {
-        Ok(Self {})
+    pub fn new(launch_semaphore: Arc<Semaphore>) -> Result<Self> {
+        Ok(Self { launch_semaphore })
     }
 
     pub async fn launch<'r>(
         &mut self,
-        context: &mut RuntimeContext,
+        context: &RuntimeContext,
         request: GuestLaunchRequest<'r>,
     ) -> Result<GuestInfo> {
         let uuid = request.uuid.unwrap_or_else(Uuid::new_v4);
@@ -56,6 +60,7 @@ impl GuestLauncher {
         container_mac.set_local(true);
         container_mac.set_multicast(false);
 
+        let _launch_permit = self.launch_semaphore.acquire().await?;
         let guest_ipv4 = self.allocate_ipv4(context).await?;
         let guest_ipv6 = container_mac.to_link_local_ipv6();
         let gateway_ipv4 = "10.75.70.1";
@@ -223,14 +228,14 @@ impl GuestLauncher {
                 )?),
                 gateway_ipv6: Some(IpNetwork::new(
                     IpAddr::V6(Ipv6Addr::from_str(gateway_ipv6)?),
-                    ipv4_network_mask as u8,
+                    ipv6_network_mask as u8,
                 )?),
                 gateway_mac: Some(gateway_mac_string.clone()),
                 state: GuestState { exit_code: None },
             }),
             Err(error) => {
-                let _ = context.autoloop.unloop(&image_squashfs_loop.path);
-                let _ = context.autoloop.unloop(&cfgblk_squashfs_loop.path);
+                let _ = context.autoloop.unloop(&image_squashfs_loop.path).await;
+                let _ = context.autoloop.unloop(&cfgblk_squashfs_loop.path).await;
                 let _ = fs::remove_dir(&cfgblk.dir);
                 Err(error.into())
             }
@@ -243,7 +248,7 @@ impl GuestLauncher {
         compiler.compile(&image).await
     }
 
-    async fn allocate_ipv4(&mut self, context: &mut RuntimeContext) -> Result<Ipv4Addr> {
+    async fn allocate_ipv4(&self, context: &RuntimeContext) -> Result<Ipv4Addr> {
         let network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
         let mut used: Vec<Ipv4Addr> = vec![];
         for domid_candidate in context.xen.store.list("/local/domain").await? {
@@ -270,7 +275,7 @@ impl GuestLauncher {
 
         if found.is_none() {
             return Err(anyhow!(
-                "unable to find ipv4 to allocate to container, ipv4 addresses are exhausted"
+                "unable to find ipv4 to allocate to guest, ipv4 addresses are exhausted"
             ));
         }
 

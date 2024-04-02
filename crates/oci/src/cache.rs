@@ -5,6 +5,7 @@ use oci_spec::image::{ImageConfiguration, ImageManifest};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
+#[derive(Clone)]
 pub struct ImageCache {
     cache_dir: PathBuf,
 }

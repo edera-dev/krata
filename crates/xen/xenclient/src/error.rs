@@ -22,8 +22,8 @@ pub enum Error {
     ElfParseFailed(#[from] elf::ParseError),
     #[error("mmap failed")]
     MmapFailed,
-    #[error("munmap failed")]
-    UnmapFailed,
+    #[error("munmap failed: {0}")]
+    UnmapFailed(nix::errno::Errno),
     #[error("memory setup failed: {0}")]
     MemorySetupFailed(&'static str),
     #[error("populate physmap failed: wanted={0}, received={1}, input_extents={2}")]

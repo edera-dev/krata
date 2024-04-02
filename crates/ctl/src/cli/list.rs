@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
-use cli_tables::Table;
+use comfy_table::{presets::UTF8_FULL_CONDENSED, Cell, Color, Table};
 use krata::{
     events::EventStream,
     v1::{
-        common::{guest_image_spec::Image, Guest},
+        common::{Guest, GuestStatus},
         control::{
             control_service_client::ControlServiceClient, ListGuestsRequest, ResolveGuestRequest,
         },
@@ -14,11 +14,11 @@ use krata::{
 use serde_json::Value;
 use tonic::{transport::Channel, Request};
 
-use crate::format::{guest_simple_line, guest_state_text, kv2line, proto2dynamic, proto2kv};
+use crate::format::{guest_simple_line, guest_status_text, kv2line, proto2dynamic, proto2kv};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum ListFormat {
-    CliTable,
+    Table,
     Json,
     JsonPretty,
     Jsonl,
@@ -29,7 +29,7 @@ enum ListFormat {
 
 #[derive(Parser)]
 pub struct ListCommand {
-    #[arg(short, long, default_value = "cli-table")]
+    #[arg(short, long, default_value = "table")]
     format: ListFormat,
     #[arg()]
     guest: Option<String>,
@@ -70,7 +70,7 @@ impl ListCommand {
         });
 
         match self.format {
-            ListFormat::CliTable => {
+            ListFormat::Table => {
                 self.print_guest_table(guests)?;
             }
 
@@ -114,49 +114,51 @@ impl ListCommand {
 
     fn print_guest_table(&self, guests: Vec<Guest>) -> Result<()> {
         let mut table = Table::new();
-        let header = vec!["name", "uuid", "state", "ipv4", "ipv6", "image"];
-        table.push_row(&header)?;
+        table.load_preset(UTF8_FULL_CONDENSED);
+        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+        table.set_header(vec!["name", "uuid", "status", "ipv4", "ipv6"]);
         for guest in guests {
             let ipv4 = guest
                 .state
                 .as_ref()
                 .and_then(|x| x.network.as_ref())
                 .map(|x| x.guest_ipv4.as_str())
-                .unwrap_or("unknown");
+                .unwrap_or("n/a");
             let ipv6 = guest
                 .state
                 .as_ref()
                 .and_then(|x| x.network.as_ref())
                 .map(|x| x.guest_ipv6.as_str())
-                .unwrap_or("unknown");
+                .unwrap_or("n/a");
             let Some(spec) = guest.spec else {
                 continue;
             };
-            let image = spec
-                .image
-                .map(|x| {
-                    x.image
-                        .map(|y| match y {
-                            Image::Oci(oci) => oci.image,
-                        })
-                        .unwrap_or("unknown".to_string())
-                })
-                .unwrap_or("unknown".to_string());
-            table.push_row_string(&vec![
-                spec.name,
-                guest.id,
-                format!("{}", guest_state_text(guest.state.as_ref())),
-                ipv4.to_string(),
-                ipv6.to_string(),
-                image,
-            ])?;
+            let status = guest.state.as_ref().cloned().unwrap_or_default().status();
+            let status_text = guest_status_text(status);
+
+            let status_color = match status {
+                GuestStatus::Destroyed | GuestStatus::Failed => Color::Red,
+                GuestStatus::Destroying | GuestStatus::Exited | GuestStatus::Starting => {
+                    Color::Yellow
+                }
+                GuestStatus::Started => Color::Green,
+                _ => Color::Reset,
+            };
+
+            table.add_row(vec![
+                Cell::new(spec.name),
+                Cell::new(guest.id),
+                Cell::new(status_text).fg(status_color),
+                Cell::new(ipv4.to_string()),
+                Cell::new(ipv6.to_string()),
+            ]);
         }
-        if table.num_records() == 1 {
+        if table.is_empty() {
             if self.guest.is_none() {
                 println!("no guests have been launched");
             }
         } else {
-            println!("{}", table.to_string());
+            println!("{}", table);
         }
         Ok(())
     }

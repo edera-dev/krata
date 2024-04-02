@@ -16,7 +16,7 @@ pub mod arm64;
 #[cfg(target_arch = "aarch64")]
 use crate::arm64::Arm64BootSetup;
 
-use crate::boot::BootSetup;
+use crate::boot::{ArchBootSetup, BootSetup};
 use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
 use boot::BootState;
@@ -34,6 +34,7 @@ use xenstore::{
     XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
 };
 
+#[derive(Clone)]
 pub struct XenClient {
     pub store: XsdClient,
     call: XenCall,
@@ -115,7 +116,7 @@ impl XenClient {
         Ok(XenClient { store, call })
     }
 
-    pub async fn create(&mut self, config: &DomainConfig<'_>) -> Result<CreatedDomain> {
+    pub async fn create(&self, config: &DomainConfig<'_>) -> Result<CreatedDomain> {
         let mut domain = CreateDomain {
             max_vcpus: config.max_vcpus,
             ..Default::default()
@@ -125,7 +126,7 @@ impl XenClient {
             domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP;
         }
 
-        let domid = self.call.create_domain(domain)?;
+        let domid = self.call.create_domain(domain).await?;
         match self.init(domid, &domain, config).await {
             Ok(created) => Ok(created),
             Err(err) => {
@@ -138,7 +139,7 @@ impl XenClient {
     }
 
     async fn init(
-        &mut self,
+        &self,
         domid: u32,
         domain: &CreateDomain,
         config: &DomainConfig<'_>,
@@ -253,8 +254,8 @@ impl XenClient {
             tx.commit().await?;
         }
 
-        self.call.set_max_vcpus(domid, config.max_vcpus)?;
-        self.call.set_max_mem(domid, config.mem_mb * 1024)?;
+        self.call.set_max_vcpus(domid, config.max_vcpus).await?;
+        self.call.set_max_mem(domid, config.mem_mb * 1024).await?;
         let image_loader = ElfImageLoader::load_file_kernel(config.kernel_path)?;
 
         let xenstore_evtchn: u32;
@@ -265,19 +266,21 @@ impl XenClient {
         {
             let mut boot = BootSetup::new(&self.call, domid);
             #[cfg(target_arch = "x86_64")]
-            let mut arch = X86BootSetup::new();
+            let mut arch = Box::new(X86BootSetup::new()) as Box<dyn ArchBootSetup + Send + Sync>;
             #[cfg(target_arch = "aarch64")]
-            let mut arch = Arm64BootSetup::new();
+            let mut arch = Box::new(Arm64BootSetup::new()) as Box<dyn ArchBootSetup + Send + Sync>;
             let initrd = read(config.initrd_path)?;
-            state = boot.initialize(
-                &mut arch,
-                &image_loader,
-                initrd.as_slice(),
-                config.max_vcpus,
-                config.mem_mb,
-                1,
-            )?;
-            boot.boot(&mut arch, &mut state, config.cmdline)?;
+            state = boot
+                .initialize(
+                    &mut arch,
+                    &image_loader,
+                    initrd.as_slice(),
+                    config.max_vcpus,
+                    config.mem_mb,
+                    1,
+                )
+                .await?;
+            boot.boot(&mut arch, &mut state, config.cmdline).await?;
             xenstore_evtchn = state.store_evtchn;
             xenstore_mfn = boot.phys.p2m[state.xenstore_segment.pfn as usize];
             p2m = boot.phys.p2m;
@@ -418,7 +421,8 @@ impl XenClient {
         for channel in &config.event_channels {
             let id = self
                 .call
-                .evtchn_alloc_unbound(domid, config.backend_domid)?;
+                .evtchn_alloc_unbound(domid, config.backend_domid)
+                .await?;
             let channel_path = format!("{}/evtchn/{}", dom_path, channel.name);
             self.store
                 .write_string(&format!("{}/name", channel_path), channel.name)
@@ -428,12 +432,12 @@ impl XenClient {
                 .await?;
         }
 
-        self.call.unpause_domain(domid)?;
+        self.call.unpause_domain(domid).await?;
         Ok(CreatedDomain { domid, channels })
     }
 
     async fn disk_device_add(
-        &mut self,
+        &self,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
@@ -486,7 +490,7 @@ impl XenClient {
 
     #[allow(clippy::too_many_arguments, clippy::unnecessary_unwrap)]
     async fn console_device_add(
-        &mut self,
+        &self,
         channel: &DomainChannel,
         p2m: &[u64],
         state: &BootState,
@@ -553,7 +557,7 @@ impl XenClient {
     }
 
     async fn fs_9p_device_add(
-        &mut self,
+        &self,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
@@ -591,7 +595,7 @@ impl XenClient {
     }
 
     async fn vif_device_add(
-        &mut self,
+        &self,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
@@ -650,7 +654,7 @@ impl XenClient {
 
     #[allow(clippy::too_many_arguments)]
     async fn device_add(
-        &mut self,
+        &self,
         typ: &str,
         id: u64,
         dom_path: &str,
@@ -713,15 +717,15 @@ impl XenClient {
         Ok(())
     }
 
-    pub async fn destroy(&mut self, domid: u32) -> Result<()> {
+    pub async fn destroy(&self, domid: u32) -> Result<()> {
         if let Err(err) = self.destroy_store(domid).await {
             warn!("failed to destroy store for domain {}: {}", domid, err);
         }
-        self.call.destroy_domain(domid)?;
+        self.call.destroy_domain(domid).await?;
         Ok(())
     }
 
-    async fn destroy_store(&mut self, domid: u32) -> Result<()> {
+    async fn destroy_store(&self, domid: u32) -> Result<()> {
         let dom_path = self.store.get_domain_path(domid).await?;
         let vm_path = self.store.read_string(&format!("{}/vm", dom_path)).await?;
         if vm_path.is_none() {
@@ -813,7 +817,7 @@ impl XenClient {
         Ok(())
     }
 
-    pub async fn get_console_path(&mut self, domid: u32) -> Result<String> {
+    pub async fn get_console_path(&self, domid: u32) -> Result<String> {
         let dom_path = self.store.get_domain_path(domid).await?;
         let console_tty_path = format!("{}/console/tty", dom_path);
         let mut tty: Option<String> = None;

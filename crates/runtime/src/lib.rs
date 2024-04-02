@@ -8,7 +8,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use ipnetwork::IpNetwork;
 use loopdev::LoopControl;
-use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 use xenclient::XenClient;
 use xenstore::{XsdClient, XsdInterface};
@@ -51,6 +51,7 @@ pub struct GuestInfo {
     pub state: GuestState,
 }
 
+#[derive(Clone)]
 pub struct RuntimeContext {
     pub image_cache: ImageCache,
     pub autoloop: AutoLoop,
@@ -94,7 +95,7 @@ impl RuntimeContext {
         Err(anyhow!("unable to find required guest file: {}", name))
     }
 
-    pub async fn list(&mut self) -> Result<Vec<GuestInfo>> {
+    pub async fn list(&self) -> Result<Vec<GuestInfo>> {
         let mut guests: Vec<GuestInfo> = Vec::new();
         for domid_candidate in self.xen.store.list("/local/domain").await? {
             if domid_candidate == "0" {
@@ -218,7 +219,7 @@ impl RuntimeContext {
         Ok(guests)
     }
 
-    pub async fn resolve(&mut self, uuid: Uuid) -> Result<Option<GuestInfo>> {
+    pub async fn resolve(&self, uuid: Uuid) -> Result<Option<GuestInfo>> {
         for guest in self.list().await? {
             if guest.uuid == uuid {
                 return Ok(Some(guest));
@@ -254,7 +255,8 @@ impl RuntimeContext {
 #[derive(Clone)]
 pub struct Runtime {
     store: Arc<String>,
-    context: Arc<Mutex<RuntimeContext>>,
+    context: RuntimeContext,
+    launch_semaphore: Arc<Semaphore>,
 }
 
 impl Runtime {
@@ -262,24 +264,24 @@ impl Runtime {
         let context = RuntimeContext::new(store.clone()).await?;
         Ok(Self {
             store: Arc::new(store),
-            context: Arc::new(Mutex::new(context)),
+            context,
+            launch_semaphore: Arc::new(Semaphore::new(1)),
         })
     }
 
     pub async fn launch<'a>(&self, request: GuestLaunchRequest<'a>) -> Result<GuestInfo> {
-        let mut context = self.context.lock().await;
-        let mut launcher = GuestLauncher::new()?;
-        launcher.launch(&mut context, request).await
+        let mut launcher = GuestLauncher::new(self.launch_semaphore.clone())?;
+        launcher.launch(&self.context, request).await
     }
 
     pub async fn destroy(&self, uuid: Uuid) -> Result<Uuid> {
-        let mut context = self.context.lock().await;
-        let info = context
+        let info = self
+            .context
             .resolve(uuid)
             .await?
             .ok_or_else(|| anyhow!("unable to resolve guest: {}", uuid))?;
         let domid = info.domid;
-        let mut store = XsdClient::open().await?;
+        let store = XsdClient::open().await?;
         let dom_path = store.get_domain_path(domid).await?;
         let uuid = match store
             .read_string(format!("{}/krata/uuid", dom_path).as_str())
@@ -301,9 +303,9 @@ impl Runtime {
             .read_string(format!("{}/krata/loops", dom_path).as_str())
             .await?;
         let loops = RuntimeContext::parse_loop_set(&loops);
-        context.xen.destroy(domid).await?;
+        self.context.xen.destroy(domid).await?;
         for info in &loops {
-            context.autoloop.unloop(&info.device)?;
+            self.context.autoloop.unloop(&info.device).await?;
             match &info.delete {
                 None => {}
                 Some(delete) => {
@@ -320,19 +322,18 @@ impl Runtime {
     }
 
     pub async fn console(&self, uuid: Uuid) -> Result<XenConsole> {
-        let mut context = self.context.lock().await;
-        let info = context
+        let info = self
+            .context
             .resolve(uuid)
             .await?
             .ok_or_else(|| anyhow!("unable to resolve guest: {}", uuid))?;
         let domid = info.domid;
-        let tty = context.xen.get_console_path(domid).await?;
+        let tty = self.context.xen.get_console_path(domid).await?;
         XenConsole::new(&tty).await
     }
 
     pub async fn list(&self) -> Result<Vec<GuestInfo>> {
-        let mut context = self.context.lock().await;
-        context.list().await
+        self.context.list().await
     }
 
     pub async fn dupe(&self) -> Result<Runtime> {

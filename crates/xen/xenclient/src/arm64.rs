@@ -41,9 +41,9 @@ impl Arm64BootSetup {
         Arm64BootSetup {}
     }
 
-    fn populate_one_size(
-        &mut self,
-        setup: &mut BootSetup,
+    async fn populate_one_size(
+        &self,
+        setup: &mut BootSetup<'_>,
         pfn_shift: u64,
         base_pfn: u64,
         pfn_count: u64,
@@ -78,20 +78,23 @@ impl Arm64BootSetup {
             extents[i as usize] = base_pfn + (i << pfn_shift);
         }
 
-        let result_extents = setup.call.populate_physmap(
-            setup.domid,
-            count,
-            pfn_shift as u32,
-            0,
-            &extents[0usize..count as usize],
-        )?;
+        let result_extents = setup
+            .call
+            .populate_physmap(
+                setup.domid,
+                count,
+                pfn_shift as u32,
+                0,
+                &extents[0usize..count as usize],
+            )
+            .await?;
         slice_copy::copy(extents, &result_extents);
         Ok((result_extents.len() as u64) << pfn_shift)
     }
 
-    fn populate_guest_memory(
+    async fn populate_guest_memory(
         &mut self,
-        setup: &mut BootSetup,
+        setup: &mut BootSetup<'_>,
         base_pfn: u64,
         pfn_count: u64,
     ) -> Result<()> {
@@ -99,43 +102,51 @@ impl Arm64BootSetup {
 
         for pfn in 0..extents.len() {
             let mut allocsz = (1024 * 1024).min(pfn_count - pfn as u64);
-            allocsz = self.populate_one_size(
-                setup,
-                PFN_512G_SHIFT,
-                base_pfn + pfn as u64,
-                allocsz,
-                &mut extents,
-            )?;
+            allocsz = self
+                .populate_one_size(
+                    setup,
+                    PFN_512G_SHIFT,
+                    base_pfn + pfn as u64,
+                    allocsz,
+                    &mut extents,
+                )
+                .await?;
             if allocsz > 0 {
                 continue;
             }
-            allocsz = self.populate_one_size(
-                setup,
-                PFN_1G_SHIFT,
-                base_pfn + pfn as u64,
-                allocsz,
-                &mut extents,
-            )?;
+            allocsz = self
+                .populate_one_size(
+                    setup,
+                    PFN_1G_SHIFT,
+                    base_pfn + pfn as u64,
+                    allocsz,
+                    &mut extents,
+                )
+                .await?;
             if allocsz > 0 {
                 continue;
             }
-            allocsz = self.populate_one_size(
-                setup,
-                PFN_2M_SHIFT,
-                base_pfn + pfn as u64,
-                allocsz,
-                &mut extents,
-            )?;
+            allocsz = self
+                .populate_one_size(
+                    setup,
+                    PFN_2M_SHIFT,
+                    base_pfn + pfn as u64,
+                    allocsz,
+                    &mut extents,
+                )
+                .await?;
             if allocsz > 0 {
                 continue;
             }
-            allocsz = self.populate_one_size(
-                setup,
-                PFN_4K_SHIFT,
-                base_pfn + pfn as u64,
-                allocsz,
-                &mut extents,
-            )?;
+            allocsz = self
+                .populate_one_size(
+                    setup,
+                    PFN_4K_SHIFT,
+                    base_pfn + pfn as u64,
+                    allocsz,
+                    &mut extents,
+                )
+                .await?;
             if allocsz == 0 {
                 return Err(Error::MemorySetupFailed("allocsz is zero"));
             }
@@ -145,6 +156,7 @@ impl Arm64BootSetup {
     }
 }
 
+#[async_trait::async_trait]
 impl ArchBootSetup for Arm64BootSetup {
     fn page_size(&mut self) -> u64 {
         ARM_PAGE_SIZE
@@ -158,15 +170,15 @@ impl ArchBootSetup for Arm64BootSetup {
         true
     }
 
-    fn setup_shared_info(&mut self, _: &mut BootSetup, _: u64) -> Result<()> {
+    async fn setup_shared_info(&mut self, _: &mut BootSetup, _: u64) -> Result<()> {
         Ok(())
     }
 
-    fn setup_start_info(&mut self, _: &mut BootSetup, _: &BootState, _: &str) -> Result<()> {
+    async fn setup_start_info(&mut self, _: &mut BootSetup, _: &BootState, _: &str) -> Result<()> {
         Ok(())
     }
 
-    fn meminit(
+    async fn meminit(
         &mut self,
         setup: &mut BootSetup,
         total_pages: u64,
@@ -176,7 +188,7 @@ impl ArchBootSetup for Arm64BootSetup {
         let kernel_segment = kernel_segment
             .as_ref()
             .ok_or(Error::MemorySetupFailed("kernel_segment missing"))?;
-        setup.call.claim_pages(setup.domid, total_pages)?;
+        setup.call.claim_pages(setup.domid, total_pages).await?;
         let mut ramsize = total_pages << XEN_PAGE_SHIFT;
 
         let bankbase = GUEST_RAM_BANK_BASES;
@@ -214,7 +226,8 @@ impl ArchBootSetup for Arm64BootSetup {
         }
 
         for i in 0..2 {
-            self.populate_guest_memory(setup, bankbase[i] >> XEN_PAGE_SHIFT, rambank_size[i])?;
+            self.populate_guest_memory(setup, bankbase[i] >> XEN_PAGE_SHIFT, rambank_size[i])
+                .await?;
         }
 
         let bank0end = bankbase[0] + (rambank_size[0] << XEN_PAGE_SHIFT);
@@ -227,15 +240,15 @@ impl ArchBootSetup for Arm64BootSetup {
         } else {
             return Err(Error::MemorySetupFailed("unable to determine modbase"));
         };
-        setup.call.claim_pages(setup.domid, 0)?;
+        setup.call.claim_pages(setup.domid, 0).await?;
         Ok(())
     }
 
-    fn bootlate(&mut self, _: &mut BootSetup, _: &mut BootState) -> Result<()> {
+    async fn bootlate(&mut self, _: &mut BootSetup, _: &mut BootState) -> Result<()> {
         Ok(())
     }
 
-    fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
+    async fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
         let mut vcpu = VcpuGuestContext::default();
         vcpu.user_regs.pc = state.image_info.virt_entry;
         vcpu.user_regs.x0 = 0xffffffff;
@@ -249,11 +262,11 @@ impl ArchBootSetup for Arm64BootSetup {
         vcpu.user_regs.cpsr = PSR_GUEST64_INIT;
         vcpu.flags = 1 << 0; // VGCF_ONLINE
         trace!("vcpu context: {:?}", vcpu);
-        setup.call.set_vcpu_context(setup.domid, 0, &vcpu)?;
+        setup.call.set_vcpu_context(setup.domid, 0, &vcpu).await?;
         Ok(())
     }
 
-    fn alloc_p2m_segment(
+    async fn alloc_p2m_segment(
         &mut self,
         _: &mut BootSetup,
         _: &BootImageInfo,
@@ -261,7 +274,7 @@ impl ArchBootSetup for Arm64BootSetup {
         Ok(None)
     }
 
-    fn alloc_page_tables(
+    async fn alloc_page_tables(
         &mut self,
         _: &mut BootSetup,
         _: &BootImageInfo,
@@ -269,7 +282,7 @@ impl ArchBootSetup for Arm64BootSetup {
         Ok(None)
     }
 
-    fn setup_page_tables(&mut self, _: &mut BootSetup, _: &mut BootState) -> Result<()> {
+    async fn setup_page_tables(&mut self, _: &mut BootSetup, _: &mut BootState) -> Result<()> {
         Ok(())
     }
 }

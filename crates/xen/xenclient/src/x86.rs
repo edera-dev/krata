@@ -275,6 +275,7 @@ impl X86BootSetup {
     }
 }
 
+#[async_trait::async_trait]
 impl ArchBootSetup for X86BootSetup {
     fn page_size(&mut self) -> u64 {
         X86_PAGE_SIZE
@@ -288,7 +289,7 @@ impl ArchBootSetup for X86BootSetup {
         false
     }
 
-    fn alloc_p2m_segment(
+    async fn alloc_p2m_segment(
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
@@ -310,11 +311,13 @@ impl ArchBootSetup for X86BootSetup {
         }
         self.table.mappings_count += 1;
         p2m_alloc_size += (pgtables << X86_PAGE_SHIFT) as u64;
-        let p2m_segment = setup.alloc_segment(self, 0, p2m_alloc_size)?;
+        let p2m_segment = setup
+            .alloc_segment(self.page_size(), 0, p2m_alloc_size)
+            .await?;
         Ok(Some(p2m_segment))
     }
 
-    fn alloc_page_tables(
+    async fn alloc_page_tables(
         &mut self,
         setup: &mut BootSetup,
         image_info: &BootImageInfo,
@@ -341,7 +344,7 @@ impl ArchBootSetup for X86BootSetup {
         self.table.mappings_count += 1;
         setup.virt_pgtab_end = try_virt_end + 1;
         let size = self.table.mappings[m].area.pgtables as u64 * X86_PAGE_SIZE;
-        let segment = setup.alloc_segment(self, 0, size)?;
+        let segment = setup.alloc_segment(self.page_size(), 0, size).await?;
         debug!(
             "alloc_page_tables table={:?} segment={:?}",
             self.table, segment
@@ -349,7 +352,11 @@ impl ArchBootSetup for X86BootSetup {
         Ok(Some(segment))
     }
 
-    fn setup_page_tables(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
+    async fn setup_page_tables(
+        &mut self,
+        setup: &mut BootSetup,
+        state: &mut BootState,
+    ) -> Result<()> {
         let p2m_segment = state
             .p2m_segment
             .as_ref()
@@ -364,7 +371,7 @@ impl ArchBootSetup for X86BootSetup {
                 let map1 = &self.table.mappings[m1];
                 let from = map1.levels[l].from;
                 let to = map1.levels[l].to;
-                let pg_ptr = setup.phys.pfn_to_ptr(map1.levels[l].pfn, 0)? as *mut u64;
+                let pg_ptr = setup.phys.pfn_to_ptr(map1.levels[l].pfn, 0).await? as *mut u64;
                 for m2 in 0usize..self.table.mappings_count {
                     let map2 = &self.table.mappings[m2];
                     let lvl = if l > 0 {
@@ -407,13 +414,16 @@ impl ArchBootSetup for X86BootSetup {
         Ok(())
     }
 
-    fn setup_start_info(
+    async fn setup_start_info(
         &mut self,
         setup: &mut BootSetup,
         state: &BootState,
         cmdline: &str,
     ) -> Result<()> {
-        let ptr = setup.phys.pfn_to_ptr(state.start_info_segment.pfn, 1)?;
+        let ptr = setup
+            .phys
+            .pfn_to_ptr(state.start_info_segment.pfn, 1)
+            .await?;
         let byte_slice =
             unsafe { slice::from_raw_parts_mut(ptr as *mut u8, X86_PAGE_SIZE as usize) };
         byte_slice.fill(0);
@@ -456,11 +466,15 @@ impl ArchBootSetup for X86BootSetup {
         Ok(())
     }
 
-    fn setup_shared_info(&mut self, setup: &mut BootSetup, shared_info_frame: u64) -> Result<()> {
+    async fn setup_shared_info(
+        &mut self,
+        setup: &mut BootSetup,
+        shared_info_frame: u64,
+    ) -> Result<()> {
         let info = setup
             .phys
-            .map_foreign_pages(shared_info_frame, X86_PAGE_SIZE)?
-            as *mut SharedInfo;
+            .map_foreign_pages(shared_info_frame, X86_PAGE_SIZE)
+            .await? as *mut SharedInfo;
         unsafe {
             let size = size_of::<SharedInfo>();
             let info_as_buff = slice::from_raw_parts_mut(info as *mut u8, size);
@@ -473,14 +487,14 @@ impl ArchBootSetup for X86BootSetup {
         Ok(())
     }
 
-    fn meminit(
+    async fn meminit(
         &mut self,
         setup: &mut BootSetup,
         total_pages: u64,
         _: &Option<DomainSegment>,
         _: &Option<DomainSegment>,
     ) -> Result<()> {
-        setup.call.claim_pages(setup.domid, total_pages)?;
+        setup.call.claim_pages(setup.domid, total_pages).await?;
         let mut vmemranges: Vec<VmemRange> = Vec::new();
         let stub = VmemRange {
             start: 0,
@@ -530,13 +544,16 @@ impl ArchBootSetup for X86BootSetup {
                 }
 
                 let extents_init_slice = extents_init.as_slice();
-                let extents = setup.call.populate_physmap(
-                    setup.domid,
-                    count,
-                    SUPERPAGE_2MB_SHIFT as u32,
-                    0,
-                    &extents_init_slice[0usize..count as usize],
-                )?;
+                let extents = setup
+                    .call
+                    .populate_physmap(
+                        setup.domid,
+                        count,
+                        SUPERPAGE_2MB_SHIFT as u32,
+                        0,
+                        &extents_init_slice[0usize..count as usize],
+                    )
+                    .await?;
 
                 pfn = pfn_base_idx;
                 for mfn in extents {
@@ -558,10 +575,10 @@ impl ArchBootSetup for X86BootSetup {
                 let p2m_idx = (pfn_base + j) as usize;
                 let p2m_end_idx = p2m_idx + allocsz as usize;
                 let input_extent_starts = &p2m[p2m_idx..p2m_end_idx];
-                let result =
-                    setup
-                        .call
-                        .populate_physmap(setup.domid, allocsz, 0, 0, input_extent_starts)?;
+                let result = setup
+                    .call
+                    .populate_physmap(setup.domid, allocsz, 0, 0, input_extent_starts)
+                    .await?;
 
                 if result.len() != allocsz as usize {
                     return Err(Error::PopulatePhysmapFailed(
@@ -581,11 +598,11 @@ impl ArchBootSetup for X86BootSetup {
         }
 
         setup.phys.load_p2m(p2m);
-        setup.call.claim_pages(setup.domid, 0)?;
+        setup.call.claim_pages(setup.domid, 0).await?;
         Ok(())
     }
 
-    fn bootlate(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
+    async fn bootlate(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
         let p2m_segment = state
             .p2m_segment
             .as_ref()
@@ -600,11 +617,12 @@ impl ArchBootSetup for X86BootSetup {
         setup.phys.unmap(p2m_segment.pfn)?;
         setup
             .call
-            .mmuext(setup.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)?;
+            .mmuext(setup.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)
+            .await?;
         Ok(())
     }
 
-    fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
+    async fn vcpu(&mut self, setup: &mut BootSetup, state: &mut BootState) -> Result<()> {
         let page_table_segment = state
             .page_table_segment
             .as_ref()
@@ -633,7 +651,7 @@ impl ArchBootSetup for X86BootSetup {
         vcpu.kernel_ss = vcpu.user_regs.ss as u64;
         vcpu.kernel_sp = vcpu.user_regs.rsp;
         trace!("vcpu context: {:?}", vcpu);
-        setup.call.set_vcpu_context(setup.domid, 0, &vcpu)?;
+        setup.call.set_vcpu_context(setup.domid, 0, &vcpu).await?;
         Ok(())
     }
 }

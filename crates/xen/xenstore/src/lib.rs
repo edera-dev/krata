@@ -168,7 +168,7 @@ impl XsdClient {
         })
     }
 
-    pub async fn get_domain_path(&mut self, domid: u32) -> Result<String> {
+    pub async fn get_domain_path(&self, domid: u32) -> Result<String> {
         let response = self
             .socket
             .send(0, XSD_GET_DOMAIN_PATH, &[&domid.to_string()])
@@ -176,7 +176,7 @@ impl XsdClient {
         response.parse_string()
     }
 
-    pub async fn introduce_domain(&mut self, domid: u32, mfn: u64, evtchn: u32) -> Result<bool> {
+    pub async fn introduce_domain(&self, domid: u32, mfn: u64, evtchn: u32) -> Result<bool> {
         trace!("introduce domain domid={domid} mfn={mfn} evtchn={evtchn}");
         let response = self
             .socket

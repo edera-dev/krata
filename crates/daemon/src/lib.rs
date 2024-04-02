@@ -49,8 +49,12 @@ impl Daemon {
             DaemonEventGenerator::new(guests.clone(), guest_reconciler_notify.clone(), idm.clone())
                 .await?;
         let runtime_for_reconciler = runtime.dupe().await?;
-        let guest_reconciler =
-            GuestReconciler::new(guests.clone(), events.clone(), runtime_for_reconciler)?;
+        let guest_reconciler = GuestReconciler::new(
+            guests.clone(),
+            events.clone(),
+            runtime_for_reconciler,
+            guest_reconciler_notify.clone(),
+        )?;
 
         let guest_reconciler_task = guest_reconciler.launch(guest_reconciler_receiver).await?;
         let generator_task = generator.launch().await?;
