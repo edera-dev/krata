@@ -2,7 +2,7 @@
 name = "krata-runtime"
 description = "Runtime for running guests on the krata hypervisor."
 license.workspace = true
-version= "0.0.3"
+version.workspace = true
 homepage.workspace = true
 repository.workspace = true
 edition = "2021"

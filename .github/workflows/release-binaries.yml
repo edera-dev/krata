@@ -1,8 +1,17 @@
-name: nightly
+name: release-binaries
+permissions:
+  contents: write
 on:
-  workflow_dispatch:
-  schedule:
-  - cron: "0 10 * * *"
+  release:
+    types:
+    - published
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+  CARGO_NET_RETRY: 10
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTUP_MAX_RETRIES: 10
 jobs:
   server:
     runs-on: ubuntu-latest
@@ -26,35 +35,19 @@ jobs:
     - run: ./hack/dist/bundle.sh
       env:
         KRATA_KERNEL_BUILD_JOBS: "5"
-    - uses: actions/upload-artifact@v4
-      with:
-        name: krata-bundle-systemd-${{ matrix.arch }}
-        path: "target/dist/bundle-systemd-${{ matrix.arch }}.tgz"
-        compression-level: 0
+    - run: "./hack/ci/assemble-release-assets.sh bundle-systemd ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/dist/bundle-systemd-${{ matrix.arch }}.tgz"
     - run: ./hack/dist/deb.sh
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
-    - uses: actions/upload-artifact@v4
-      with:
-        name: krata-debian-${{ matrix.arch }}
-        path: "target/dist/*.deb"
-        compression-level: 0
+    - run: "./hack/ci/assemble-release-assets.sh debian ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/dist/*.deb"
     - run: ./hack/dist/apk.sh
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
-    - uses: actions/upload-artifact@v4
-      with:
-        name: krata-alpine-${{ matrix.arch }}
-        path: "target/dist/*_${{ matrix.arch }}.apk"
-        compression-level: 0
+    - run: "./hack/ci/assemble-release-assets.sh alpine ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/dist/*_${{ matrix.arch }}.apk"
     - run: ./hack/os/build.sh
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
-    - uses: actions/upload-artifact@v4
-      with:
-        name: krata-os-${{ matrix.arch }}
-        path: "target/os/krata-${{ matrix.arch }}.qcow2"
-        compression-level: 0
+    - run: "./hack/ci/assemble-release-assets.sh os ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/os/krata-${{ matrix.arch }}.qcow2"
   client:
     strategy:
       fail-fast: false
@@ -74,9 +67,8 @@ jobs:
     defaults:
       run:
         shell: bash
+    timeout-minutes: 60
     steps:
-    - run: git config --global core.autocrlf false && git config --global core.eol lf
-      if: ${{ matrix.platform.os == 'windows' }}
     - uses: actions/checkout@v4
       with:
         submodules: recursive
@@ -90,13 +82,10 @@ jobs:
       if: ${{ matrix.platform.os == 'darwin' }}
     - run: ./hack/ci/install-${{ matrix.platform.deps }}-deps.sh
     - run: ./hack/build/cargo.sh build --release --bin kratactl
-    - uses: actions/upload-artifact@v4
-      with:
-        name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
-        path: "target/*/release/kratactl"
+    - run: "./hack/ci/assemble-release-assets.sh kratactl ${{ github.event.release.tag_name }} ${{ matrix.platform.os }}-${{ matrix.platform.arch }} target/*/release/kratactl"
       if: ${{ matrix.platform.os != 'windows' }}
-    - uses: actions/upload-artifact@v4
-      with:
-        name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
-        path: "target/*/release/kratactl.exe"
+    - run: "./hack/ci/assemble-release-assets.sh kratactl ${{ github.event.release.tag_name }} ${{ matrix.platform.os }}-${{ matrix.platform.arch }} target/*/release/kratactl.exe"
       if: ${{ matrix.platform.os == 'windows' }}
+    - run: "./hack/ci/upload-release-assets.sh ${{ github.event.release.tag_name }}"
+      env:
+        GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"

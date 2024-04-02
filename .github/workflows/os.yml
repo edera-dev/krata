@@ -10,6 +10,7 @@ on:
     - "os/**"
     - "hack/os/**"
     - "hack/ci/**"
+  merge_group:
 jobs:
   build:
     runs-on: ubuntu-latest

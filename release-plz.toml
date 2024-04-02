@@ -1,0 +1,21 @@
+[workspace]
+git_release_enable = false
+git_tag_enable = false
+changelog_update = false
+publish = false
+
+[[package]]
+name = "krata"
+git_tag_name = "v${version}"
+git_tag_enable = true
+git_release_enable = true
+changelog_update = true
+changelog_path = "./CHANGELOG.md"
+changelog_include = [
+    "krata-daemon",
+    "krata-ctl",
+    "krata-guest",
+    "krata-network",
+    "krata-runtime",
+    "krata-oci"
+]

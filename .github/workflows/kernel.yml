@@ -8,6 +8,8 @@ on:
     paths:
     - "kernel/**"
     - "hack/ci/**"
+  merge_group:
+
 jobs:
   build:
     runs-on: ubuntu-latest
