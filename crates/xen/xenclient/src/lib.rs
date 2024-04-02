@@ -89,6 +89,7 @@ pub struct DomainConfig<'a> {
     pub initrd_path: &'a str,
     pub cmdline: &'a str,
     pub disks: Vec<DomainDisk<'a>>,
+    pub use_console_backend: Option<&'a str>,
     pub channels: Vec<DomainChannel>,
     pub vifs: Vec<DomainNetworkInterface<'a>>,
     pub filesystems: Vec<DomainFilesystem<'a>>,
@@ -349,7 +350,10 @@ impl XenClient {
         }
         self.console_device_add(
             &DomainChannel {
-                typ: "xenconsoled".to_string(),
+                typ: config
+                    .use_console_backend
+                    .unwrap_or("xenconsoled")
+                    .to_string(),
                 initialized: true,
             },
             &p2m,

@@ -2,6 +2,7 @@ pub mod attach;
 pub mod destroy;
 pub mod launch;
 pub mod list;
+pub mod logs;
 pub mod resolve;
 pub mod watch;
 
@@ -16,7 +17,7 @@ use tonic::{transport::Channel, Request};
 
 use self::{
     attach::AttachCommand, destroy::DestroyCommand, launch::LauchCommand, list::ListCommand,
-    resolve::ResolveCommand, watch::WatchCommand,
+    logs::LogsCommand, resolve::ResolveCommand, watch::WatchCommand,
 };
 
 #[derive(Parser)]
@@ -35,6 +36,7 @@ pub enum Commands {
     Destroy(DestroyCommand),
     List(ListCommand),
     Attach(AttachCommand),
+    Logs(LogsCommand),
     Watch(WatchCommand),
     Resolve(ResolveCommand),
 }
@@ -55,6 +57,10 @@ impl ControlCommand {
 
             Commands::Attach(attach) => {
                 attach.run(client, events).await?;
+            }
+
+            Commands::Logs(logs) => {
+                logs.run(client, events).await?;
             }
 
             Commands::List(list) => {

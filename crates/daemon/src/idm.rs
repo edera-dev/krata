@@ -67,7 +67,7 @@ pub struct DaemonIdm {
 
 impl DaemonIdm {
     pub async fn new() -> Result<DaemonIdm> {
-        let (service, receiver) = ChannelService::new("krata-channel".to_string()).await?;
+        let (service, _, receiver) = ChannelService::new("krata-channel".to_string(), None).await?;
         let task = service.launch().await?;
         let listeners = Arc::new(Mutex::new(HashMap::new()));
         Ok(DaemonIdm {

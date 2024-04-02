@@ -179,6 +179,7 @@ impl GuestLauncher {
             kernel_path: &context.kernel,
             initrd_path: &context.initrd,
             cmdline: &cmdline,
+            use_console_backend: Some("krata-console"),
             disks: vec![
                 DomainDisk {
                     vdev: "xvda",

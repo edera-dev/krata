@@ -1,7 +1,5 @@
 /// Handwritten protocol definitions for XenStore.
 /// Used xen/include/public/io/xs_wire.h as a reference.
-use libc;
-
 use crate::error::Result;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::Cursor;

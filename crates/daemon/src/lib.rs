@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, path::PathBuf, str::FromStr};
 
 use anyhow::Result;
+use console::{DaemonConsole, DaemonConsoleHandle};
 use control::RuntimeControlService;
 use db::GuestStore;
 use event::{DaemonEventContext, DaemonEventGenerator};
@@ -18,6 +19,7 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 use uuid::Uuid;
 
+pub mod console;
 pub mod control;
 pub mod db;
 pub mod event;
@@ -26,13 +28,13 @@ pub mod reconcile;
 
 pub struct Daemon {
     store: String,
-    runtime: Runtime,
     guests: GuestStore,
     events: DaemonEventContext,
     guest_reconciler_task: JoinHandle<()>,
     guest_reconciler_notify: Sender<Uuid>,
     generator_task: JoinHandle<()>,
     _idm: DaemonIdmHandle,
+    console: DaemonConsoleHandle,
 }
 
 const GUEST_RECONCILER_QUEUE_LEN: usize = 1000;
@@ -45,6 +47,8 @@ impl Daemon {
             channel::<Uuid>(GUEST_RECONCILER_QUEUE_LEN);
         let idm = DaemonIdm::new().await?;
         let idm = idm.launch().await?;
+        let console = DaemonConsole::new().await?;
+        let console = console.launch().await?;
         let (events, generator) =
             DaemonEventGenerator::new(guests.clone(), guest_reconciler_notify.clone(), idm.clone())
                 .await?;
@@ -60,20 +64,20 @@ impl Daemon {
         let generator_task = generator.launch().await?;
         Ok(Self {
             store,
-            runtime,
             guests,
             events,
             guest_reconciler_task,
             guest_reconciler_notify,
             generator_task,
             _idm: idm,
+            console,
         })
     }
 
     pub async fn listen(&mut self, addr: ControlDialAddress) -> Result<()> {
         let control_service = RuntimeControlService::new(
             self.events.clone(),
-            self.runtime.clone(),
+            self.console.clone(),
             self.guests.clone(),
             self.guest_reconciler_notify.clone(),
         );

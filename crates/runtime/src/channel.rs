@@ -41,6 +41,7 @@ impl XenConsoleInterface {
 
 pub struct ChannelService {
     typ: String,
+    use_reserved_ref: Option<u64>,
     backends: HashMap<u32, ChannelBackend>,
     evtchn: EventChannel,
     store: XsdClient,
@@ -51,20 +52,29 @@ pub struct ChannelService {
 }
 
 impl ChannelService {
-    pub async fn new(typ: String) -> Result<(ChannelService, Receiver<(u32, Vec<u8>)>)> {
+    pub async fn new(
+        typ: String,
+        use_reserved_ref: Option<u64>,
+    ) -> Result<(
+        ChannelService,
+        Sender<(u32, Vec<u8>)>,
+        Receiver<(u32, Vec<u8>)>,
+    )> {
         let (input_sender, input_receiver) = channel(GROUPED_CHANNEL_QUEUE_LEN);
         let (output_sender, output_receiver) = channel(GROUPED_CHANNEL_QUEUE_LEN);
         Ok((
             ChannelService {
                 typ,
+                use_reserved_ref,
                 backends: HashMap::new(),
                 evtchn: EventChannel::open().await?,
                 store: XsdClient::open().await?,
                 gnttab: GrantTab::open()?,
-                input_sender,
+                input_sender: input_sender.clone(),
                 input_receiver,
                 output_sender,
             },
+            input_sender,
             output_receiver,
         ))
     }
@@ -148,6 +158,7 @@ impl ChannelService {
             self.evtchn.clone(),
             self.gnttab.clone(),
             self.output_sender.clone(),
+            self.use_reserved_ref,
         )
         .await?;
         self.backends.insert(domid, backend);
@@ -216,6 +227,7 @@ impl ChannelBackend {
         evtchn: EventChannel,
         gnttab: GrantTab,
         output_sender: Sender<(u32, Vec<u8>)>,
+        use_reserved_ref: Option<u64>,
     ) -> Result<ChannelBackend> {
         let processor = KrataChannelBackendProcessor {
             backend,
@@ -225,6 +237,7 @@ impl ChannelBackend {
             store,
             evtchn,
             gnttab,
+            use_reserved_ref,
         };
 
         let (input_sender, input_receiver) = channel(SINGLE_CHANNEL_QUEUE_LEN);
@@ -241,6 +254,7 @@ impl ChannelBackend {
 
 #[derive(Clone)]
 pub struct KrataChannelBackendProcessor {
+    use_reserved_ref: Option<u64>,
     backend: String,
     frontend: String,
     id: u32,
@@ -347,13 +361,15 @@ impl KrataChannelBackendProcessor {
                             return Err(anyhow!("frontend did not give ring-ref and port"));
                         }
 
-                        let Ok(ring_ref) = ring_ref.unwrap().parse::<u64>() else {
+                        let Ok(mut ring_ref) = ring_ref.unwrap().parse::<u64>() else {
                             return Err(anyhow!("frontend gave invalid ring-ref"));
                         };
 
                         let Ok(port) = port.unwrap().parse::<u32>() else {
                             return Err(anyhow!("frontend gave invalid port"));
                         };
+
+                        ring_ref = self.use_reserved_ref.unwrap_or(ring_ref);
 
                         break (ring_ref, port);
                     }

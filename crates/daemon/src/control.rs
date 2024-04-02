@@ -1,4 +1,4 @@
-use std::{io, pin::Pin, str::FromStr};
+use std::{pin::Pin, str::FromStr};
 
 use async_stream::try_stream;
 use futures::Stream;
@@ -11,17 +11,15 @@ use krata::v1::{
         WatchEventsReply, WatchEventsRequest,
     },
 };
-use kratart::Runtime;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
     select,
-    sync::mpsc::Sender,
+    sync::mpsc::{channel, Sender},
 };
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
-use crate::{db::GuestStore, event::DaemonEventContext};
+use crate::{console::DaemonConsoleHandle, db::GuestStore, event::DaemonEventContext};
 
 pub struct ApiError {
     message: String,
@@ -44,7 +42,7 @@ impl From<ApiError> for Status {
 #[derive(Clone)]
 pub struct RuntimeControlService {
     events: DaemonEventContext,
-    runtime: Runtime,
+    console: DaemonConsoleHandle,
     guests: GuestStore,
     guest_reconciler_notify: Sender<Uuid>,
 }
@@ -52,13 +50,13 @@ pub struct RuntimeControlService {
 impl RuntimeControlService {
     pub fn new(
         events: DaemonEventContext,
-        runtime: Runtime,
+        console: DaemonConsoleHandle,
         guests: GuestStore,
         guest_reconciler_notify: Sender<Uuid>,
     ) -> Self {
         Self {
             events,
-            runtime,
+            console,
             guests,
             guest_reconciler_notify,
         }
@@ -66,7 +64,7 @@ impl RuntimeControlService {
 }
 
 enum ConsoleDataSelect {
-    Read(io::Result<usize>),
+    Read(Option<Vec<u8>>),
     Write(Option<Result<ConsoleDataRequest, tonic::Status>>),
 }
 
@@ -200,27 +198,64 @@ impl ControlService for RuntimeControlService {
         let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
             message: error.to_string(),
         })?;
-        let mut console = self.runtime.console(uuid).await.map_err(ApiError::from)?;
+        let guest = self
+            .guests
+            .read(uuid)
+            .await
+            .map_err(|error| ApiError {
+                message: error.to_string(),
+            })?
+            .ok_or_else(|| ApiError {
+                message: "guest did not exist in the database".to_string(),
+            })?;
+
+        let Some(ref state) = guest.state else {
+            return Err(ApiError {
+                message: "guest did not have state".to_string(),
+            }
+            .into());
+        };
+
+        let domid = state.domid;
+        if domid == 0 {
+            return Err(ApiError {
+                message: "invalid domid on the guest".to_string(),
+            }
+            .into());
+        }
+
+        let (sender, mut receiver) = channel(100);
+        let console = self
+            .console
+            .attach(domid, sender)
+            .await
+            .map_err(|error| ApiError {
+                message: format!("failed to attach to console: {}", error),
+            })?;
 
         let output = try_stream! {
-            let mut buffer: Vec<u8> = vec![0u8; 256];
+            yield ConsoleDataReply { data: console.initial.clone(), };
             loop {
                 let what = select! {
-                    x = console.read_handle.read(&mut buffer) => ConsoleDataSelect::Read(x),
+                    x = receiver.recv() => ConsoleDataSelect::Read(x),
                     x = input.next() => ConsoleDataSelect::Write(x),
                 };
 
                 match what {
-                    ConsoleDataSelect::Read(result) => {
-                        let size = result?;
-                        let data = buffer[0..size].to_vec();
+                    ConsoleDataSelect::Read(Some(data)) => {
                         yield ConsoleDataReply { data, };
                     },
+
+                    ConsoleDataSelect::Read(None) => {
+                        break;
+                    }
 
                     ConsoleDataSelect::Write(Some(request)) => {
                         let request = request?;
                         if !request.data.is_empty() {
-                            console.write_handle.write_all(&request.data).await?;
+                            console.send(request.data).await.map_err(|error| ApiError {
+                                message: error.to_string(),
+                            })?;
                         }
                     },
 

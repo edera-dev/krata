@@ -3,7 +3,7 @@ use std::path::Path;
 use super::protocol::IdmPacket;
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use log::error;
+use log::{debug, error};
 use nix::sys::termios::{cfmakeraw, tcgetattr, tcsetattr, SetArg};
 use prost::Message;
 use tokio::{
@@ -41,7 +41,7 @@ impl IdmClient {
         let (tx_sender, tx_receiver) = channel(IDM_PACKET_QUEUE_LEN);
         let task = tokio::task::spawn(async move {
             if let Err(error) = IdmClient::process(file, rx_sender, tx_receiver).await {
-                error!("failed to handle idm client processing: {}", error);
+                debug!("failed to handle idm client processing: {}", error);
             }
         });
         Ok(IdmClient {

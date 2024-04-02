@@ -436,7 +436,7 @@ impl GuestInit {
         };
 
         if launch.run.is_some() {
-            cmd = launch.run.as_ref().unwrap().clone();
+            cmd.clone_from(launch.run.as_ref().unwrap());
         }
 
         if let Some(entrypoint) = config.entrypoint() {

@@ -22,6 +22,7 @@ async fn main() -> Result<()> {
         kernel_path: kernel_image_path.as_str(),
         initrd_path: initrd_path.as_str(),
         cmdline: "debug elevator=noop",
+        use_console_backend: None,
         disks: vec![],
         channels: vec![],
         vifs: vec![],
