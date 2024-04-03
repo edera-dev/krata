@@ -2,7 +2,6 @@
 git_release_enable = false
 git_tag_enable = false
 changelog_update = false
-publish = false
 
 [[package]]
 name = "krata"
