@@ -12,18 +12,18 @@ resolver = "2"
 anyhow = { workspace = true }
 backhand = { workspace = true }
 ipnetwork = { workspace = true }
-krata = { path = "../krata", version = "^0.0.3" }
+krata = { path = "../krata", version = "^0.0.4" }
 krata-advmac = { workspace = true }
-krata-oci = { path = "../oci", version = "^0.0.3" }
+krata-oci = { path = "../oci", version = "^0.0.4" }
 log = { workspace = true }
 loopdev-3 = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }
-krata-xenclient = { path = "../xen/xenclient", version = "^0.0.3" }
-krata-xenevtchn = { path = "../xen/xenevtchn", version = "^0.0.3" }
-krata-xengnt = { path = "../xen/xengnt", version = "^0.0.3" }
-krata-xenstore = { path = "../xen/xenstore", version = "^0.0.3" }
+krata-xenclient = { path = "../xen/xenclient", version = "^0.0.4" }
+krata-xenevtchn = { path = "../xen/xenevtchn", version = "^0.0.4" }
+krata-xengnt = { path = "../xen/xengnt", version = "^0.0.4" }
+krata-xenstore = { path = "../xen/xenstore", version = "^0.0.4" }
 
 [lib]
 name = "kratart"

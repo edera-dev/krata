@@ -23,6 +23,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
+      - run: ./hack/ci/install-linux-deps.sh
       - name: release-plz
         uses: MarcoIeni/release-plz-action@v0.5
         env:
