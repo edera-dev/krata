@@ -16,7 +16,7 @@ comfy-table = { workspace = true }
 crossterm = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 env_logger = { workspace = true }
-krata = { path = "../krata", version = "^0.0.3" }
+krata = { path = "../krata", version = "^0.0.4" }
 log = { workspace = true }
 prost-reflect = { workspace = true, features = ["serde"] }
 serde_json = { workspace = true }
