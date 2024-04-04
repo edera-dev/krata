@@ -2,6 +2,8 @@
 Description=Krata Networking Daemon
 
 [Service]
+Wants=kratad.service
+After=kratad.service
 Restart=on-failure
 Type=simple
 ExecStart=/usr/libexec/kratanet

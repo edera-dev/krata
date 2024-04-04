@@ -6,7 +6,7 @@ output_log="/var/log/kratanet.log"
 error_log="/var/log/kratanet.err"
 
 depend() {
-  use xenstored
+  use kratad
 }
 
 export RUST_LOG=info
