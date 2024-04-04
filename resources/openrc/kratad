@@ -6,7 +6,6 @@ output_log="/var/log/kratad.log"
 error_log="/var/log/kratad.err"
 
 depend() {
-  use xenconsoled
   use xenstored
 }
 
