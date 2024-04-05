@@ -1243,7 +1243,7 @@ dependencies = [
 
 [[package]]
 name = "krata"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1277,7 +1277,7 @@ dependencies = [
 
 [[package]]
 name = "krata-ctl"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1299,7 +1299,7 @@ dependencies = [
 
 [[package]]
 name = "krata-daemon"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1323,7 +1323,7 @@ dependencies = [
 
 [[package]]
 name = "krata-guest"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "cgroups-rs",
@@ -1347,7 +1347,7 @@ dependencies = [
 
 [[package]]
 name = "krata-network"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "krata-oci"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1396,7 +1396,7 @@ dependencies = [
 
 [[package]]
 name = "krata-runtime"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "backhand",
@@ -1433,7 +1433,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xencall"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "env_logger",
  "libc",
@@ -1446,7 +1446,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xenclient"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "async-trait",
  "elf",
@@ -1467,7 +1467,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xenevtchn"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "libc",
  "log",
@@ -1478,7 +1478,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xengnt"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "libc",
  "nix 0.28.0",
@@ -1487,7 +1487,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xenstore"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "byteorder",
  "env_logger",
