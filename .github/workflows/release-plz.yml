@@ -1,18 +1,13 @@
 name: release-plz
-
 permissions:
   pull-requests: write
   contents: write
-
 on:
   push:
     branches:
     - main
-
 concurrency:
   group: "${{ github.workflow }}"
-  cancel-in-progress: true
-
 jobs:
   release-plz:
     name: release-plz
@@ -27,6 +22,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          token: "${{ steps.generate-token.outputs.token }}"
       - uses: dtolnay/rust-toolchain@stable
       - run: ./hack/ci/install-linux-deps.sh
       - name: release-plz

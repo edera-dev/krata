@@ -1,15 +1,14 @@
 name: kernel
 on:
-  push:
-    paths:
-    - "kernel/**"
-    - "hack/ci/**"
   pull_request:
+    branches:
+    - main
     paths:
     - "kernel/**"
     - "hack/ci/**"
   merge_group:
-
+    branches:
+    - main
 jobs:
   build:
     runs-on: ubuntu-latest
