@@ -1,16 +1,15 @@
 name: os
 on:
-  push:
-    paths:
-    - "os/**"
-    - "hack/os/**"
-    - "hack/ci/**"
   pull_request:
+    branches:
+    - main
     paths:
     - "os/**"
     - "hack/os/**"
     - "hack/ci/**"
   merge_group:
+    branches:
+    - main
 jobs:
   build:
     runs-on: ubuntu-latest
