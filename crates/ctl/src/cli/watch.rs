@@ -17,8 +17,9 @@ enum WatchFormat {
 }
 
 #[derive(Parser)]
+#[command(about = "Watch for guest changes")]
 pub struct WatchCommand {
-    #[arg(short, long, default_value = "simple")]
+    #[arg(short, long, default_value = "simple", help = "Output format")]
     format: WatchFormat,
 }
 

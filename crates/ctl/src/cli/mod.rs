@@ -21,9 +21,17 @@ use self::{
 };
 
 #[derive(Parser)]
-#[command(version, about)]
+#[command(
+    version,
+    about = "Control the krata hypervisor, a secure platform for running containers"
+)]
 pub struct ControlCommand {
-    #[arg(short, long, default_value = "unix:///var/lib/krata/daemon.socket")]
+    #[arg(
+        short,
+        long,
+        help = "The connection URL to the krata hypervisor",
+        default_value = "unix:///var/lib/krata/daemon.socket"
+    )]
     connection: String,
 
     #[command(subcommand)]

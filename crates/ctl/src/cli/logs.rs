@@ -15,11 +15,12 @@ use crate::console::StdioConsoleStream;
 use super::resolve_guest;
 
 #[derive(Parser)]
+#[command(about = "View the logs of a guest")]
 pub struct LogsCommand {
-    #[arg()]
-    guest: String,
-    #[arg(short, long)]
+    #[arg(short, long, help = "Follow output from the guest")]
     follow: bool,
+    #[arg(help = "Guest to show logs for, either the name or the uuid")]
+    guest: String,
 }
 
 impl LogsCommand {
