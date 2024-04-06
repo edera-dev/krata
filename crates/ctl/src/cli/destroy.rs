@@ -17,10 +17,15 @@ use tonic::{transport::Channel, Request};
 use crate::cli::resolve_guest;
 
 #[derive(Parser)]
+#[command(about = "Destroy a guest")]
 pub struct DestroyCommand {
-    #[arg(short = 'W', long)]
+    #[arg(
+        short = 'W',
+        long,
+        help = "Wait for the destruction of the guest to complete"
+    )]
     wait: bool,
-    #[arg()]
+    #[arg(help = "Guest to destroy, either the name or the uuid")]
     guest: String,
 }
 

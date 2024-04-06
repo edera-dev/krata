@@ -22,23 +22,46 @@ use tonic::{transport::Channel, Request};
 use crate::console::StdioConsoleStream;
 
 #[derive(Parser)]
+#[command(about = "Launch a new guest")]
 pub struct LauchCommand {
-    #[arg(short, long)]
+    #[arg(short, long, help = "Name of the guest")]
     name: Option<String>,
-    #[arg(short, long, default_value_t = 1)]
+    #[arg(
+        short,
+        long,
+        default_value_t = 1,
+        help = "vCPUs available to the guest"
+    )]
     cpus: u32,
-    #[arg(short, long, default_value_t = 512)]
+    #[arg(
+        short,
+        long,
+        default_value_t = 512,
+        help = "Memory available to the guest, in megabytes"
+    )]
     mem: u64,
-    #[arg[short, long]]
+    #[arg[short, long, help = "Environment variables set in the guest"]]
     env: Option<Vec<String>>,
-    #[arg(short, long)]
+    #[arg(
+        short,
+        long,
+        help = "Attach to the guest after guest starts, implies --wait"
+    )]
     attach: bool,
-    #[arg(short = 'W', long)]
+    #[arg(
+        short = 'W',
+        long,
+        help = "Wait for the guest to start, implied by --attach"
+    )]
     wait: bool,
-    #[arg()]
+    #[arg(help = "Container image for guest to use")]
     oci: String,
-    #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
-    run: Vec<String>,
+    #[arg(
+        allow_hyphen_values = true,
+        trailing_var_arg = true,
+        help = "Command to run inside the guest"
+    )]
+    command: Vec<String>,
 }
 
 impl LauchCommand {
@@ -63,7 +86,7 @@ impl LauchCommand {
                             value: value.clone(),
                         })
                         .collect(),
-                    command: self.run,
+                    command: self.command,
                 }),
                 annotations: vec![],
             }),

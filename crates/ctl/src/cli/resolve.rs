@@ -5,8 +5,9 @@ use krata::v1::control::{control_service_client::ControlServiceClient, ResolveGu
 use tonic::{transport::Channel, Request};
 
 #[derive(Parser)]
+#[command(about = "Resolve a guest name to a uuid")]
 pub struct ResolveCommand {
-    #[arg()]
+    #[arg(help = "Guest name")]
     guest: String,
 }
 

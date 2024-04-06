@@ -28,10 +28,11 @@ enum ListFormat {
 }
 
 #[derive(Parser)]
+#[command(about = "List the guests on the hypervisor")]
 pub struct ListCommand {
-    #[arg(short, long, default_value = "table")]
+    #[arg(short, long, default_value = "table", help = "Output format")]
     format: ListFormat,
-    #[arg()]
+    #[arg(help = "Limit to a single guest, either the name or the uuid")]
     guest: Option<String>,
 }
 

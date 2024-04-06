@@ -10,8 +10,9 @@ use crate::console::StdioConsoleStream;
 use super::resolve_guest;
 
 #[derive(Parser)]
+#[command(about = "Attach to the guest console")]
 pub struct AttachCommand {
-    #[arg()]
+    #[arg(help = "Guest to attach to, either the name or the uuid")]
     guest: String,
 }
 
