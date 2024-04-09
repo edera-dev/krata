@@ -346,7 +346,7 @@ impl KrataChannelBackendProcessor {
                                 .read_string(format!("{}/port", self.frontend))
                                 .await?;
 
-                            if (ring_ref.is_none() || port.is_none()) && tries < 10 {
+                            if (ring_ref.is_none() || port.is_none()) && tries < 40 {
                                 tries += 1;
                                 self.store
                                     .write_string(format!("{}/state", self.backend), "4")
