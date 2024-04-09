@@ -43,7 +43,7 @@ do
     asset "${SOURCE_FILE_PATH}" "target/assets/krata_${TAG_NAME}_${PLATFORM}.deb"
   elif [ "${FORM}" = "alpine" ]
   then
-    asset "${SOURCE_FILE_PATH}" "target/assets/krata_${TAG_NAME}_${PLATFORM}.deb"
+    asset "${SOURCE_FILE_PATH}" "target/assets/krata_${TAG_NAME}_${PLATFORM}.apk"
   elif [ "${FORM}" = "bundle-systemd" ]
   then
     asset "${SOURCE_FILE_PATH}" "target/assets/krata-systemd_${TAG_NAME}_${PLATFORM}.tgz"
