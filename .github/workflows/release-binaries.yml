@@ -48,6 +48,9 @@ jobs:
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
     - run: "./hack/ci/assemble-release-assets.sh os ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/os/krata-${{ matrix.arch }}.qcow2"
+    - run: "./hack/ci/upload-release-assets.sh ${{ github.event.release.tag_name }}"
+      env:
+        GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
   client:
     strategy:
       fail-fast: false
