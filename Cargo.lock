@@ -2707,12 +2707,12 @@ dependencies = [
 
 [[package]]
 name = "tokio-tun"
-version = "0.11.2"
+version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf2efaf33e86779a3a68b1f1d6e9e13a346c1c75ee3cab7a4293235c463b2668"
+checksum = "65d79912ba514490b1f5a574b585e19082bd2a6b238970c87c57a66bd77206b5"
 dependencies = [
  "libc",
- "nix 0.27.1",
+ "nix 0.28.0",
  "thiserror",
  "tokio",
 ]
