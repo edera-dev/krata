@@ -21,7 +21,7 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: build ${{ matrix.arch }}
+    name: os build ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
       with:

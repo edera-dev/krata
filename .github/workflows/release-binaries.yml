@@ -23,7 +23,7 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: server ${{ matrix.arch }}
+    name: release-binaries server ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
       with:
@@ -63,7 +63,7 @@ jobs:
       TARGET_OS: "${{ matrix.platform.os }}"
       TARGET_ARCH: "${{ matrix.platform.arch }}"
     runs-on: "${{ matrix.platform.on }}"
-    name: client ${{ matrix.platform.os }}-${{ matrix.platform.arch }}
+    name: release-binaries client ${{ matrix.platform.os }}-${{ matrix.platform.arch }}
     defaults:
       run:
         shell: bash
