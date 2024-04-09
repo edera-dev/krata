@@ -22,7 +22,7 @@ jobs:
       TARGET_OS: "${{ matrix.platform.os }}"
       TARGET_ARCH: "${{ matrix.platform.arch }}"
     runs-on: "${{ matrix.platform.on }}"
-    name: build ${{ matrix.platform.os }}-${{ matrix.platform.arch }}
+    name: client build ${{ matrix.platform.os }}-${{ matrix.platform.arch }}
     defaults:
       run:
         shell: bash

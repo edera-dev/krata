@@ -17,7 +17,7 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: build ${{ matrix.arch }}
+    name: server build ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
       with:
@@ -34,7 +34,7 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: test ${{ matrix.arch }}
+    name: server test ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
       with:
@@ -51,7 +51,7 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: clippy ${{ matrix.arch }}
+    name: server clippy ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
       with:
@@ -70,7 +70,7 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: initrd ${{ matrix.arch }}
+    name: server initrd ${{ matrix.arch }}
     steps:
     - uses: actions/checkout@v4
       with:
