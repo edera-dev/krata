@@ -8,7 +8,7 @@ use krata::idm::{
     client::IdmClient,
     protocol::{idm_event::Event, IdmEvent, IdmExitEvent, IdmPacket},
 };
-use log::error;
+use log::debug;
 use nix::unistd::Pid;
 use tokio::select;
 
@@ -38,7 +38,7 @@ impl GuestBackground {
                     },
 
                     None => {
-                        error!("idm packet channel closed");
+                        debug!("idm packet channel closed");
                         break;
                     }
                 },

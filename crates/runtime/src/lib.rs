@@ -15,7 +15,6 @@ use xenstore::{XsdClient, XsdInterface};
 
 use self::{
     autoloop::AutoLoop,
-    console::XenConsole,
     launch::{GuestLaunchRequest, GuestLauncher},
 };
 use krataoci::cache::ImageCache;
@@ -23,7 +22,6 @@ use krataoci::cache::ImageCache;
 pub mod autoloop;
 pub mod cfgblk;
 pub mod channel;
-pub mod console;
 pub mod launch;
 
 pub struct GuestLoopInfo {
@@ -319,17 +317,6 @@ impl Runtime {
             }
         }
         Ok(uuid)
-    }
-
-    pub async fn console(&self, uuid: Uuid) -> Result<XenConsole> {
-        let info = self
-            .context
-            .resolve(uuid)
-            .await?
-            .ok_or_else(|| anyhow!("unable to resolve guest: {}", uuid))?;
-        let domid = info.domid;
-        let tty = self.context.xen.get_console_path(domid).await?;
-        XenConsole::new(&tty).await
     }
 
     pub async fn list(&self) -> Result<Vec<GuestInfo>> {
