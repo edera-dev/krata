@@ -52,7 +52,7 @@ pub struct DaemonIdm {
     tx_sender: Sender<(u32, IdmPacket)>,
     tx_raw_sender: Sender<(u32, Vec<u8>)>,
     tx_receiver: Receiver<(u32, IdmPacket)>,
-    rx_receiver: Receiver<(u32, Vec<u8>)>,
+    rx_receiver: Receiver<(u32, Option<Vec<u8>>)>,
     task: JoinHandle<()>,
 }
 
@@ -98,29 +98,37 @@ impl DaemonIdm {
             select! {
                 x = self.rx_receiver.recv() => match x {
                     Some((domid, data)) => {
-                        let buffer = buffers.entry(domid).or_insert_with_key(|_| BytesMut::new());
-                        buffer.extend_from_slice(&data);
-                        if buffer.len() < 2 {
-                            continue;
-                        }
-                        let size = (buffer[0] as u16 | (buffer[1] as u16) << 8) as usize;
-                        let needed = size + 2;
-                        if buffer.len() < needed {
-                            continue;
-                        }
-                        let mut packet = buffer.split_to(needed);
-                        packet.advance(2);
-                        match IdmPacket::decode(packet) {
-                            Ok(packet) => {
-                                let guard = self.feeds.lock().await;
-                                if let Some(feed) = guard.get(&domid) {
-                                    let _ = feed.try_send(packet);
+                        if let Some(data) = data {
+                            let buffer = buffers.entry(domid).or_insert_with_key(|_| BytesMut::new());
+                            buffer.extend_from_slice(&data);
+                            if buffer.len() < 2 {
+                                continue;
+                            }
+                            let size = (buffer[0] as u16 | (buffer[1] as u16) << 8) as usize;
+                            let needed = size + 2;
+                            if buffer.len() < needed {
+                                continue;
+                            }
+                            let mut packet = buffer.split_to(needed);
+                            packet.advance(2);
+                            match IdmPacket::decode(packet) {
+                                Ok(packet) => {
+                                    let _ = client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await?;
+                                    let guard = self.feeds.lock().await;
+                                    if let Some(feed) = guard.get(&domid) {
+                                        let _ = feed.try_send(packet);
+                                    }
+                                }
+
+                                Err(packet) => {
+                                    warn!("received invalid packet from domain {}: {}", domid, packet);
                                 }
                             }
-
-                            Err(packet) => {
-                                warn!("received invalid packet from domain {}: {}", domid, packet);
-                            }
+                        } else {
+                            let mut clients = self.clients.lock().await;
+                            let mut feeds = self.feeds.lock().await;
+                            clients.remove(&domid);
+                            feeds.remove(&domid);
                         }
                     },
 
