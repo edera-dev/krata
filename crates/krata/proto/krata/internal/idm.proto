@@ -28,16 +28,25 @@ message IdmRequest {
     uint64 id = 1;
     oneof request {
         IdmPingRequest ping = 2;
+        IdmMetricsRequest metrics = 3;
     }
 }
 
 message IdmPingRequest {}
 
+message IdmMetricsRequest {}
+
 message IdmResponse {
     uint64 id = 1;
     oneof response {
         IdmPingResponse ping = 2;
+        IdmMetricsResponse metrics = 3;
     }
 }
 
 message IdmPingResponse {}
+
+message IdmMetricsResponse {
+    uint64 total_memory_bytes = 1;
+    uint64 used_memory_bytes = 2;
+}

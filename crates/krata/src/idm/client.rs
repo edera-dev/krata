@@ -6,7 +6,6 @@ use super::protocol::{
     idm_request::Request, idm_response::Response, IdmEvent, IdmPacket, IdmRequest, IdmResponse,
 };
 use anyhow::{anyhow, Result};
-use bytes::BytesMut;
 use log::{debug, error};
 use nix::sys::termios::{cfmakeraw, tcgetattr, tcsetattr, SetArg};
 use prost::Message;
@@ -33,14 +32,17 @@ pub trait IdmBackend: Send {
 }
 
 pub struct IdmFileBackend {
-    fd: Arc<Mutex<AsyncFd<File>>>,
+    read_fd: Arc<Mutex<AsyncFd<File>>>,
+    write: Arc<Mutex<File>>,
 }
 
 impl IdmFileBackend {
-    pub async fn new(file: File) -> Result<IdmFileBackend> {
-        IdmFileBackend::set_raw_port(&file)?;
+    pub async fn new(read_file: File, write_file: File) -> Result<IdmFileBackend> {
+        IdmFileBackend::set_raw_port(&read_file)?;
+        IdmFileBackend::set_raw_port(&write_file)?;
         Ok(IdmFileBackend {
-            fd: Arc::new(Mutex::new(AsyncFd::new(file)?)),
+            read_fd: Arc::new(Mutex::new(AsyncFd::new(read_file)?)),
+            write: Arc::new(Mutex::new(write_file)),
         })
     }
 
@@ -55,26 +57,25 @@ impl IdmFileBackend {
 #[async_trait::async_trait]
 impl IdmBackend for IdmFileBackend {
     async fn recv(&mut self) -> Result<IdmPacket> {
-        let mut fd = self.fd.lock().await;
+        let mut fd = self.read_fd.lock().await;
         let mut guard = fd.readable_mut().await?;
         let size = guard.get_inner_mut().read_u16_le().await?;
         if size == 0 {
             return Ok(IdmPacket::default());
         }
-        let mut buffer = BytesMut::with_capacity(size as usize);
+        let mut buffer = vec![0u8; size as usize];
         guard.get_inner_mut().read_exact(&mut buffer).await?;
-        match IdmPacket::decode(buffer) {
+        match IdmPacket::decode(buffer.as_slice()) {
             Ok(packet) => Ok(packet),
-
             Err(error) => Err(anyhow!("received invalid idm packet: {}", error)),
         }
     }
 
     async fn send(&mut self, packet: IdmPacket) -> Result<()> {
-        let mut fd = self.fd.lock().await;
+        let mut file = self.write.lock().await;
         let data = packet.encode_to_vec();
-        fd.get_mut().write_u16_le(data.len() as u16).await?;
-        fd.get_mut().write_all(&data).await?;
+        file.write_u16_le(data.len() as u16).await?;
+        file.write_all(&data).await?;
         Ok(())
     }
 }
@@ -105,6 +106,7 @@ impl IdmClient {
         let (tx_sender, tx_receiver) = channel(IDM_PACKET_QUEUE_LEN);
         let backend_event_sender = event_sender.clone();
         let request_backend_sender = internal_request_backend_sender.clone();
+        let requests_for_client = requests.clone();
         let task = tokio::task::spawn(async move {
             if let Err(error) = IdmClient::process(
                 backend,
@@ -123,20 +125,26 @@ impl IdmClient {
             next_request_id: Arc::new(Mutex::new(0)),
             event_receiver_sender: event_sender.clone(),
             request_backend_sender,
-            requests: Arc::new(Mutex::new(HashMap::new())),
+            requests: requests_for_client,
             tx_sender,
             task: Arc::new(task),
         })
     }
 
     pub async fn open<P: AsRef<Path>>(path: P) -> Result<IdmClient> {
-        let file = File::options()
+        let read_file = File::options()
             .read(true)
+            .write(false)
+            .create(false)
+            .open(&path)
+            .await?;
+        let write_file = File::options()
+            .read(false)
             .write(true)
             .create(false)
             .open(path)
             .await?;
-        let backend = IdmFileBackend::new(file).await?;
+        let backend = IdmFileBackend::new(read_file, write_file).await?;
         IdmClient::new(Box::new(backend) as Box<dyn IdmBackend>).await
     }
 

@@ -8,11 +8,12 @@ use krata::idm::{
     client::IdmClient,
     protocol::{
         idm_event::Event, idm_request::Request, idm_response::Response, IdmEvent, IdmExitEvent,
-        IdmPingResponse, IdmRequest,
+        IdmMetricsResponse, IdmPingResponse, IdmRequest,
     },
 };
 use log::debug;
 use nix::unistd::Pid;
+use sysinfo::System;
 use tokio::{select, sync::broadcast};
 
 pub struct GuestBackground {
@@ -80,10 +81,26 @@ impl GuestBackground {
 
     async fn handle_idm_request(&mut self, packet: IdmRequest) -> Result<()> {
         let id = packet.id;
-        if let Some(Request::Ping(_)) = packet.request {
-            self.idm
-                .respond(id, Response::Ping(IdmPingResponse {}))
-                .await?;
+
+        match packet.request {
+            Some(Request::Ping(_)) => {
+                self.idm
+                    .respond(id, Response::Ping(IdmPingResponse {}))
+                    .await?;
+            }
+
+            Some(Request::Metrics(_)) => {
+                let mut sys = System::new();
+                sys.refresh_memory();
+                let response = IdmMetricsResponse {
+                    total_memory_bytes: sys.total_memory(),
+                    used_memory_bytes: sys.used_memory(),
+                };
+
+                self.idm.respond(id, Response::Metrics(response)).await?;
+            }
+
+            None => {}
         }
         Ok(())
     }

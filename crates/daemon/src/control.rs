@@ -2,13 +2,19 @@ use std::{pin::Pin, str::FromStr};
 
 use async_stream::try_stream;
 use futures::Stream;
-use krata::v1::{
-    common::{Guest, GuestState, GuestStatus},
-    control::{
-        control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
-        CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-        ListGuestsReply, ListGuestsRequest, ResolveGuestReply, ResolveGuestRequest,
-        WatchEventsReply, WatchEventsRequest,
+use krata::{
+    idm::protocol::{
+        idm_request::Request as IdmRequestType, idm_response::Response as IdmResponseType,
+        IdmMetricsRequest,
+    },
+    v1::{
+        common::{Guest, GuestState, GuestStatus},
+        control::{
+            control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
+            CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
+            ListGuestsReply, ListGuestsRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
+            ResolveGuestReply, ResolveGuestRequest, WatchEventsReply, WatchEventsRequest,
+        },
     },
 };
 use tokio::{
@@ -19,7 +25,9 @@ use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
-use crate::{console::DaemonConsoleHandle, db::GuestStore, event::DaemonEventContext};
+use crate::{
+    console::DaemonConsoleHandle, db::GuestStore, event::DaemonEventContext, idm::DaemonIdmHandle,
+};
 
 pub struct ApiError {
     message: String,
@@ -43,6 +51,7 @@ impl From<ApiError> for Status {
 pub struct RuntimeControlService {
     events: DaemonEventContext,
     console: DaemonConsoleHandle,
+    idm: DaemonIdmHandle,
     guests: GuestStore,
     guest_reconciler_notify: Sender<Uuid>,
 }
@@ -51,12 +60,14 @@ impl RuntimeControlService {
     pub fn new(
         events: DaemonEventContext,
         console: DaemonConsoleHandle,
+        idm: DaemonIdmHandle,
         guests: GuestStore,
         guest_reconciler_notify: Sender<Uuid>,
     ) -> Self {
         Self {
             events,
             console,
+            idm,
             guests,
             guest_reconciler_notify,
         }
@@ -267,6 +278,59 @@ impl ControlService for RuntimeControlService {
         };
 
         Ok(Response::new(Box::pin(output) as Self::ConsoleDataStream))
+    }
+
+    async fn read_guest_metrics(
+        &self,
+        request: Request<ReadGuestMetricsRequest>,
+    ) -> Result<Response<ReadGuestMetricsReply>, Status> {
+        let request = request.into_inner();
+        let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
+            message: error.to_string(),
+        })?;
+        let guest = self
+            .guests
+            .read(uuid)
+            .await
+            .map_err(|error| ApiError {
+                message: error.to_string(),
+            })?
+            .ok_or_else(|| ApiError {
+                message: "guest did not exist in the database".to_string(),
+            })?;
+
+        let Some(ref state) = guest.state else {
+            return Err(ApiError {
+                message: "guest did not have state".to_string(),
+            }
+            .into());
+        };
+
+        let domid = state.domid;
+        if domid == 0 {
+            return Err(ApiError {
+                message: "invalid domid on the guest".to_string(),
+            }
+            .into());
+        }
+
+        let client = self.idm.client(domid).await.map_err(|error| ApiError {
+            message: error.to_string(),
+        })?;
+
+        let response = client
+            .send(IdmRequestType::Metrics(IdmMetricsRequest {}))
+            .await
+            .map_err(|error| ApiError {
+                message: error.to_string(),
+            })?;
+
+        let mut reply = ReadGuestMetricsReply::default();
+        if let IdmResponseType::Metrics(metrics) = response {
+            reply.total_memory_bytes = metrics.total_memory_bytes;
+            reply.used_memory_bytes = metrics.used_memory_bytes;
+        }
+        Ok(Response::new(reply))
     }
 
     async fn watch_events(

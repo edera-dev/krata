@@ -139,7 +139,12 @@ impl DaemonIdm {
                 x = self.tx_receiver.recv() => match x {
                     Some((domid, packet)) => {
                         let data = packet.encode_to_vec();
-                        self.tx_raw_sender.send((domid, data)).await?;
+                        let mut buffer = vec![0u8; 2];
+                        let length = data.len();
+                        buffer[0] = length as u8;
+                        buffer[1] = (length << 8) as u8;
+                        buffer.extend_from_slice(&data);
+                        self.tx_raw_sender.send((domid, buffer)).await?;
                     },
 
                     None => {

@@ -33,7 +33,7 @@ pub struct Daemon {
     guest_reconciler_task: JoinHandle<()>,
     guest_reconciler_notify: Sender<Uuid>,
     generator_task: JoinHandle<()>,
-    _idm: DaemonIdmHandle,
+    idm: DaemonIdmHandle,
     console: DaemonConsoleHandle,
 }
 
@@ -69,7 +69,7 @@ impl Daemon {
             guest_reconciler_task,
             guest_reconciler_notify,
             generator_task,
-            _idm: idm,
+            idm,
             console,
         })
     }
@@ -78,6 +78,7 @@ impl Daemon {
         let control_service = RuntimeControlService::new(
             self.events.clone(),
             self.console.clone(),
+            self.idm.clone(),
             self.guests.clone(),
             self.guest_reconciler_notify.clone(),
         );
