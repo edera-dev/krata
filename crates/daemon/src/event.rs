@@ -6,10 +6,10 @@ use std::{
 
 use anyhow::Result;
 use krata::{
-    idm::protocol::{idm_event::Event, idm_packet::Content, IdmPacket},
+    idm::protocol::{idm_event::Event, IdmEvent},
     v1::common::{GuestExitInfo, GuestState, GuestStatus},
 };
-use log::error;
+use log::{error, warn};
 use tokio::{
     select,
     sync::{
@@ -21,15 +21,12 @@ use tokio::{
 };
 use uuid::Uuid;
 
-use crate::{
-    db::GuestStore,
-    idm::{DaemonIdmHandle, DaemonIdmSubscribeHandle},
-};
+use crate::{db::GuestStore, idm::DaemonIdmHandle};
 
 pub type DaemonEvent = krata::v1::control::watch_events_reply::Event;
 
 const EVENT_CHANNEL_QUEUE_LEN: usize = 1000;
-const IDM_CHANNEL_QUEUE_LEN: usize = 1000;
+const IDM_EVENT_CHANNEL_QUEUE_LEN: usize = 1000;
 
 #[derive(Clone)]
 pub struct DaemonEventContext {
@@ -52,9 +49,9 @@ pub struct DaemonEventGenerator {
     guest_reconciler_notify: Sender<Uuid>,
     feed: broadcast::Receiver<DaemonEvent>,
     idm: DaemonIdmHandle,
-    idms: HashMap<u32, (Uuid, DaemonIdmSubscribeHandle)>,
-    idm_sender: Sender<(u32, IdmPacket)>,
-    idm_receiver: Receiver<(u32, IdmPacket)>,
+    idms: HashMap<u32, (Uuid, JoinHandle<()>)>,
+    idm_sender: Sender<(u32, IdmEvent)>,
+    idm_receiver: Receiver<(u32, IdmEvent)>,
     _event_sender: broadcast::Sender<DaemonEvent>,
 }
 
@@ -65,7 +62,7 @@ impl DaemonEventGenerator {
         idm: DaemonIdmHandle,
     ) -> Result<(DaemonEventContext, DaemonEventGenerator)> {
         let (sender, _) = broadcast::channel(EVENT_CHANNEL_QUEUE_LEN);
-        let (idm_sender, idm_receiver) = channel(IDM_CHANNEL_QUEUE_LEN);
+        let (idm_sender, idm_receiver) = channel(IDM_EVENT_CHANNEL_QUEUE_LEN);
         let generator = DaemonEventGenerator {
             guests,
             guest_reconciler_notify,
@@ -97,15 +94,27 @@ impl DaemonEventGenerator {
                 match status {
                     GuestStatus::Started => {
                         if let Entry::Vacant(e) = self.idms.entry(domid) {
-                            let subscribe =
-                                self.idm.subscribe(domid, self.idm_sender.clone()).await?;
-                            e.insert((id, subscribe));
+                            let client = self.idm.client(domid).await?;
+                            let mut receiver = client.subscribe().await?;
+                            let sender = self.idm_sender.clone();
+                            let task = tokio::task::spawn(async move {
+                                loop {
+                                    let Ok(event) = receiver.recv().await else {
+                                        break;
+                                    };
+
+                                    if let Err(error) = sender.send((domid, event)).await {
+                                        warn!("unable to deliver idm event: {}", error);
+                                    }
+                                }
+                            });
+                            e.insert((id, task));
                         }
                     }
 
                     GuestStatus::Destroyed => {
                         if let Some((_, handle)) = self.idms.remove(&domid) {
-                            handle.unsubscribe().await?;
+                            handle.abort();
                         }
                     }
 
@@ -116,14 +125,10 @@ impl DaemonEventGenerator {
         Ok(())
     }
 
-    async fn handle_idm_packet(&mut self, id: Uuid, packet: IdmPacket) -> Result<()> {
-        match packet.content {
-            Some(Content::Event(event)) => match event.event {
-                Some(Event::Exit(exit)) => self.handle_exit_code(id, exit.code).await,
-                None => Ok(()),
-            },
-
-            _ => Ok(()),
+    async fn handle_idm_event(&mut self, id: Uuid, event: IdmEvent) -> Result<()> {
+        match event.event {
+            Some(Event::Exit(exit)) => self.handle_exit_code(id, exit.code).await,
+            None => Ok(()),
         }
     }
 
@@ -146,9 +151,9 @@ impl DaemonEventGenerator {
     async fn evaluate(&mut self) -> Result<()> {
         select! {
             x = self.idm_receiver.recv() => match x {
-                Some((domid, packet)) => {
+                Some((domid, event)) => {
                     if let Some((id, _)) = self.idms.get(&domid) {
-                        self.handle_idm_packet(*id, packet).await?;
+                        self.handle_idm_event(*id, event).await?;
                     }
                     Ok(())
                 },

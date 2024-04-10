@@ -1,6 +1,8 @@
 use std::{path::Path, sync::Arc};
 
-use super::protocol::IdmPacket;
+use crate::idm::protocol::idm_packet::Content;
+
+use super::protocol::{IdmEvent, IdmPacket};
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
 use log::{debug, error};
@@ -11,6 +13,7 @@ use tokio::{
     io::{unix::AsyncFd, AsyncReadExt, AsyncWriteExt},
     select,
     sync::{
+        broadcast,
         mpsc::{channel, Receiver, Sender},
         Mutex,
     },
@@ -72,31 +75,37 @@ impl IdmBackend for IdmFileBackend {
     }
 }
 
+#[derive(Clone)]
 pub struct IdmClient {
-    pub receiver: Receiver<IdmPacket>,
-    pub sender: Sender<IdmPacket>,
-    task: JoinHandle<()>,
+    event_receiver_sender: broadcast::Sender<IdmEvent>,
+    tx_sender: Sender<IdmPacket>,
+    task: Arc<JoinHandle<()>>,
 }
 
 impl Drop for IdmClient {
     fn drop(&mut self) {
-        self.task.abort();
+        if Arc::strong_count(&self.task) <= 1 {
+            self.task.abort();
+        }
     }
 }
 
 impl IdmClient {
-    pub async fn new<'a>(backend: Box<dyn IdmBackend>) -> Result<IdmClient> {
-        let (rx_sender, rx_receiver) = channel(IDM_PACKET_QUEUE_LEN);
+    pub async fn new(backend: Box<dyn IdmBackend>) -> Result<IdmClient> {
+        let (event_sender, event_receiver) = broadcast::channel(IDM_PACKET_QUEUE_LEN);
         let (tx_sender, tx_receiver) = channel(IDM_PACKET_QUEUE_LEN);
+        let backend_event_sender = event_sender.clone();
         let task = tokio::task::spawn(async move {
-            if let Err(error) = IdmClient::process(backend, rx_sender, tx_receiver).await {
+            if let Err(error) =
+                IdmClient::process(backend, backend_event_sender, event_receiver, tx_receiver).await
+            {
                 debug!("failed to handle idm client processing: {}", error);
             }
         });
         Ok(IdmClient {
-            receiver: rx_receiver,
-            sender: tx_sender,
-            task,
+            event_receiver_sender: event_sender.clone(),
+            tx_sender,
+            task: Arc::new(task),
         })
     }
 
@@ -111,16 +120,36 @@ impl IdmClient {
         IdmClient::new(Box::new(backend) as Box<dyn IdmBackend>).await
     }
 
+    pub async fn emit(&self, event: IdmEvent) -> Result<()> {
+        self.tx_sender
+            .send(IdmPacket {
+                content: Some(Content::Event(event)),
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn subscribe(&self) -> Result<broadcast::Receiver<IdmEvent>> {
+        Ok(self.event_receiver_sender.subscribe())
+    }
+
     async fn process(
         mut backend: Box<dyn IdmBackend>,
-        sender: Sender<IdmPacket>,
+        event_sender: broadcast::Sender<IdmEvent>,
+        _event_receiver: broadcast::Receiver<IdmEvent>,
         mut receiver: Receiver<IdmPacket>,
     ) -> Result<()> {
         loop {
             select! {
                 x = backend.recv() => match x {
                     Ok(packet) => {
-                        sender.send(packet).await?;
+                        match packet.content {
+                            Some(Content::Event(event)) => {
+                                let _ = event_sender.send(event);
+                            },
+
+                            _ => {},
+                        }
                     },
 
                     Err(error) => {

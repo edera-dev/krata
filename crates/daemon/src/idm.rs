@@ -1,8 +1,14 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bytes::{Buf, BytesMut};
-use krata::idm::protocol::IdmPacket;
+use krata::idm::{
+    client::{IdmBackend, IdmClient},
+    protocol::IdmPacket,
+};
 use kratart::channel::ChannelService;
 use log::{error, warn};
 use prost::Message;
@@ -15,53 +21,20 @@ use tokio::{
     task::JoinHandle,
 };
 
-type ListenerMap = Arc<Mutex<HashMap<u32, Sender<(u32, IdmPacket)>>>>;
+type BackendFeedMap = Arc<Mutex<HashMap<u32, Sender<IdmPacket>>>>;
+type ClientMap = Arc<Mutex<HashMap<u32, IdmClient>>>;
 
 #[derive(Clone)]
 pub struct DaemonIdmHandle {
-    listeners: ListenerMap,
+    clients: ClientMap,
+    feeds: BackendFeedMap,
     tx_sender: Sender<(u32, IdmPacket)>,
     task: Arc<JoinHandle<()>>,
 }
 
-#[derive(Clone)]
-pub struct DaemonIdmSubscribeHandle {
-    domid: u32,
-    tx_sender: Sender<(u32, IdmPacket)>,
-    listeners: ListenerMap,
-}
-
-impl DaemonIdmSubscribeHandle {
-    pub async fn send(&self, packet: IdmPacket) -> Result<()> {
-        self.tx_sender.send((self.domid, packet)).await?;
-        Ok(())
-    }
-
-    pub async fn unsubscribe(&self) -> Result<()> {
-        let mut guard = self.listeners.lock().await;
-        let _ = guard.remove(&self.domid);
-        Ok(())
-    }
-}
-
 impl DaemonIdmHandle {
-    pub async fn send(&self, domid: u32, packet: IdmPacket) -> Result<()> {
-        self.tx_sender.send((domid, packet)).await?;
-        Ok(())
-    }
-
-    pub async fn subscribe(
-        &self,
-        domid: u32,
-        sender: Sender<(u32, IdmPacket)>,
-    ) -> Result<DaemonIdmSubscribeHandle> {
-        let mut guard = self.listeners.lock().await;
-        guard.insert(domid, sender);
-        Ok(DaemonIdmSubscribeHandle {
-            domid,
-            tx_sender: self.tx_sender.clone(),
-            listeners: self.listeners.clone(),
-        })
+    pub async fn client(&self, domid: u32) -> Result<IdmClient> {
+        client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await
     }
 }
 
@@ -74,7 +47,8 @@ impl Drop for DaemonIdmHandle {
 }
 
 pub struct DaemonIdm {
-    listeners: ListenerMap,
+    clients: ClientMap,
+    feeds: BackendFeedMap,
     tx_sender: Sender<(u32, IdmPacket)>,
     tx_raw_sender: Sender<(u32, Vec<u8>)>,
     tx_receiver: Receiver<(u32, IdmPacket)>,
@@ -88,19 +62,22 @@ impl DaemonIdm {
             ChannelService::new("krata-channel".to_string(), None).await?;
         let (tx_sender, tx_receiver) = channel(100);
         let task = service.launch().await?;
-        let listeners = Arc::new(Mutex::new(HashMap::new()));
+        let clients = Arc::new(Mutex::new(HashMap::new()));
+        let feeds = Arc::new(Mutex::new(HashMap::new()));
         Ok(DaemonIdm {
             rx_receiver,
             tx_receiver,
             tx_sender,
             tx_raw_sender,
             task,
-            listeners,
+            clients,
+            feeds,
         })
     }
 
     pub async fn launch(mut self) -> Result<DaemonIdmHandle> {
-        let listeners = self.listeners.clone();
+        let clients = self.clients.clone();
+        let feeds = self.feeds.clone();
         let tx_sender = self.tx_sender.clone();
         let task = tokio::task::spawn(async move {
             let mut buffers: HashMap<u32, BytesMut> = HashMap::new();
@@ -109,7 +86,8 @@ impl DaemonIdm {
             }
         });
         Ok(DaemonIdmHandle {
-            listeners,
+            clients,
+            feeds,
             tx_sender,
             task: Arc::new(task),
         })
@@ -134,11 +112,9 @@ impl DaemonIdm {
                         packet.advance(2);
                         match IdmPacket::decode(packet) {
                             Ok(packet) => {
-                                let guard = self.listeners.lock().await;
-                                if let Some(sender) = guard.get(&domid) {
-                                    if let Err(error) = sender.try_send((domid, packet)) {
-                                        warn!("dropped idm packet from domain {}: {}", domid, error);
-                                    }
+                                let guard = self.feeds.lock().await;
+                                if let Some(feed) = guard.get(&domid) {
+                                    let _ = feed.try_send(packet);
                                 }
                             }
 
@@ -171,5 +147,52 @@ impl DaemonIdm {
 impl Drop for DaemonIdm {
     fn drop(&mut self) {
         self.task.abort();
+    }
+}
+
+async fn client_or_create(
+    domid: u32,
+    tx_sender: &Sender<(u32, IdmPacket)>,
+    clients: &ClientMap,
+    feeds: &BackendFeedMap,
+) -> Result<IdmClient> {
+    let mut clients = clients.lock().await;
+    let mut feeds = feeds.lock().await;
+    match clients.entry(domid) {
+        Entry::Occupied(entry) => Ok(entry.get().clone()),
+        Entry::Vacant(entry) => {
+            let (rx_sender, rx_receiver) = channel(100);
+            feeds.insert(domid, rx_sender);
+            let backend = IdmDaemonBackend {
+                domid,
+                rx_receiver,
+                tx_sender: tx_sender.clone(),
+            };
+            let client = IdmClient::new(Box::new(backend) as Box<dyn IdmBackend>).await?;
+            entry.insert(client.clone());
+            Ok(client)
+        }
+    }
+}
+
+pub struct IdmDaemonBackend {
+    domid: u32,
+    rx_receiver: Receiver<IdmPacket>,
+    tx_sender: Sender<(u32, IdmPacket)>,
+}
+
+#[async_trait::async_trait]
+impl IdmBackend for IdmDaemonBackend {
+    async fn recv(&mut self) -> Result<IdmPacket> {
+        if let Some(packet) = self.rx_receiver.recv().await {
+            Ok(packet)
+        } else {
+            Err(anyhow!("idm receive channel closed"))
+        }
+    }
+
+    async fn send(&mut self, packet: IdmPacket) -> Result<()> {
+        self.tx_sender.send((self.domid, packet)).await?;
+        Ok(())
     }
 }

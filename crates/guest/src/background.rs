@@ -6,11 +6,11 @@ use anyhow::Result;
 use cgroups_rs::Cgroup;
 use krata::idm::{
     client::IdmClient,
-    protocol::{idm_event::Event, idm_packet::Content, IdmEvent, IdmExitEvent, IdmPacket},
+    protocol::{idm_event::Event, IdmEvent, IdmExitEvent},
 };
 use log::debug;
 use nix::unistd::Pid;
-use tokio::select;
+use tokio::{select, sync::broadcast};
 
 pub struct GuestBackground {
     idm: IdmClient,
@@ -30,16 +30,21 @@ impl GuestBackground {
     }
 
     pub async fn run(&mut self) -> Result<()> {
+        let mut event_subscription = self.idm.subscribe().await?;
         loop {
             select! {
-                x = self.idm.receiver.recv() => match x {
-                    Some(_packet) => {
+                x = event_subscription.recv() => match x {
+                    Ok(_event) => {
 
                     },
 
-                    None => {
+                    Err(broadcast::error::RecvError::Closed) => {
                         debug!("idm packet channel closed");
                         break;
+                    },
+
+                    _ => {
+                        continue;
                     }
                 },
 
@@ -57,11 +62,8 @@ impl GuestBackground {
     async fn child_event(&mut self, event: ChildEvent) -> Result<()> {
         if event.pid == self.child {
             self.idm
-                .sender
-                .send(IdmPacket {
-                    content: Some(Content::Event(IdmEvent {
-                        event: Some(Event::Exit(IdmExitEvent { code: event.status })),
-                    })),
+                .emit(IdmEvent {
+                    event: Some(Event::Exit(IdmExitEvent { code: event.status })),
                 })
                 .await?;
             death(event.status).await?;
