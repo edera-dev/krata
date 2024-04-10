@@ -6,7 +6,10 @@ use anyhow::Result;
 use cgroups_rs::Cgroup;
 use krata::idm::{
     client::IdmClient,
-    protocol::{idm_event::Event, IdmEvent, IdmExitEvent},
+    protocol::{
+        idm_event::Event, idm_request::Request, idm_response::Response, IdmEvent, IdmExitEvent,
+        IdmPingResponse, IdmRequest,
+    },
 };
 use log::debug;
 use nix::unistd::Pid;
@@ -31,11 +34,27 @@ impl GuestBackground {
 
     pub async fn run(&mut self) -> Result<()> {
         let mut event_subscription = self.idm.subscribe().await?;
+        let mut requests_subscription = self.idm.requests().await?;
         loop {
             select! {
                 x = event_subscription.recv() => match x {
                     Ok(_event) => {
 
+                    },
+
+                    Err(broadcast::error::RecvError::Closed) => {
+                        debug!("idm packet channel closed");
+                        break;
+                    },
+
+                    _ => {
+                        continue;
+                    }
+                },
+
+                x = requests_subscription.recv() => match x {
+                    Ok(request) => {
+                        self.handle_idm_request(request).await?;
                     },
 
                     Err(broadcast::error::RecvError::Closed) => {
@@ -55,6 +74,16 @@ impl GuestBackground {
                     }
                 }
             };
+        }
+        Ok(())
+    }
+
+    async fn handle_idm_request(&mut self, packet: IdmRequest) -> Result<()> {
+        let id = packet.id;
+        if let Some(Request::Ping(_)) = packet.request {
+            self.idm
+                .respond(id, Response::Ping(IdmPingResponse {}))
+                .await?;
         }
         Ok(())
     }
