@@ -6,7 +6,7 @@ use anyhow::Result;
 use cgroups_rs::Cgroup;
 use krata::idm::{
     client::IdmClient,
-    protocol::{idm_event::Event, IdmEvent, IdmExitEvent, IdmPacket},
+    protocol::{idm_event::Event, idm_packet::Content, IdmEvent, IdmExitEvent, IdmPacket},
 };
 use log::debug;
 use nix::unistd::Pid;
@@ -59,9 +59,9 @@ impl GuestBackground {
             self.idm
                 .sender
                 .send(IdmPacket {
-                    event: Some(IdmEvent {
+                    content: Some(Content::Event(IdmEvent {
                         event: Some(Event::Exit(IdmExitEvent { code: event.status })),
-                    }),
+                    })),
                 })
                 .await?;
             death(event.status).await?;

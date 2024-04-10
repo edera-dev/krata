@@ -1228,6 +1228,7 @@ name = "krata"
 version = "0.0.8"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bytes",
  "libc",
  "log",

@@ -6,8 +6,12 @@ option java_multiple_files = true;
 option java_package = "dev.krata.proto.internal.idm";
 option java_outer_classname = "IdmProto";
 
-message IdmExitEvent {
-    int32 code = 1;
+message IdmPacket {
+    oneof content {
+        IdmEvent event = 1;
+        IdmRequest request = 2;
+        IdmResponse response = 3;
+    }
 }
 
 message IdmEvent {
@@ -16,6 +20,24 @@ message IdmEvent {
     }
 }
 
-message IdmPacket {
-    IdmEvent event = 1;
+message IdmExitEvent {
+    int32 code = 1;
 }
+
+message IdmRequest {
+    uint64 id = 1;
+    oneof request {
+        IdmPingRequest ping = 2;
+    }
+}
+
+message IdmPingRequest {}
+
+message IdmResponse {
+    uint64 id = 1;
+    oneof response {
+        IdmPingResponse ping = 2;
+    }
+}
+
+message IdmPingResponse {}
