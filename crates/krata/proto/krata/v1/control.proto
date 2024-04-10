@@ -73,6 +73,10 @@ message ReadGuestMetricsRequest {
 }
 
 message ReadGuestMetricsReply {
+    GuestMetrics metrics = 1;
+}
+
+message GuestMetrics {
     uint64 total_memory_bytes = 1;
     uint64 used_memory_bytes = 2;
 }

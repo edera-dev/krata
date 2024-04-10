@@ -4,8 +4,7 @@ use comfy_table::{presets::UTF8_FULL_CONDENSED, Table};
 use krata::{
     events::EventStream,
     v1::control::{
-        control_service_client::ControlServiceClient, ReadGuestMetricsReply,
-        ReadGuestMetricsRequest,
+        control_service_client::ControlServiceClient, GuestMetrics, ReadGuestMetricsRequest,
     },
 };
 
@@ -40,17 +39,19 @@ impl MetricsCommand {
         _events: EventStream,
     ) -> Result<()> {
         let guest_id: String = resolve_guest(&mut client, &self.guest).await?;
-        let reply = client
+        let metrics = client
             .read_guest_metrics(ReadGuestMetricsRequest { guest_id })
             .await?
-            .into_inner();
+            .into_inner()
+            .metrics
+            .unwrap_or_default();
         match self.format {
             MetricsFormat::Table => {
-                self.print_metrics_table(reply)?;
+                self.print_metrics_table(metrics)?;
             }
 
             MetricsFormat::Json | MetricsFormat::JsonPretty | MetricsFormat::Yaml => {
-                let value = serde_json::to_value(proto2dynamic(reply)?)?;
+                let value = serde_json::to_value(proto2dynamic(metrics)?)?;
                 let encoded = if self.format == MetricsFormat::JsonPretty {
                     serde_json::to_string_pretty(&value)?
                 } else if self.format == MetricsFormat::Yaml {
@@ -62,19 +63,19 @@ impl MetricsCommand {
             }
 
             MetricsFormat::KeyValue => {
-                self.print_key_value(reply)?;
+                self.print_key_value(metrics)?;
             }
         }
 
         Ok(())
     }
 
-    fn print_metrics_table(&self, reply: ReadGuestMetricsReply) -> Result<()> {
+    fn print_metrics_table(&self, metrics: GuestMetrics) -> Result<()> {
         let mut table = Table::new();
         table.load_preset(UTF8_FULL_CONDENSED);
         table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
         table.set_header(vec!["metric", "value"]);
-        let kvs = proto2kv(reply)?;
+        let kvs = proto2kv(metrics)?;
         for (key, value) in kvs {
             table.add_row(vec![key, value]);
         }
@@ -82,7 +83,7 @@ impl MetricsCommand {
         Ok(())
     }
 
-    fn print_key_value(&self, metrics: ReadGuestMetricsReply) -> Result<()> {
+    fn print_key_value(&self, metrics: GuestMetrics) -> Result<()> {
         let kvs = proto2kv(metrics)?;
         println!("{}", kv2line(kvs),);
         Ok(())

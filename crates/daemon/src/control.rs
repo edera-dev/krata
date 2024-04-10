@@ -12,8 +12,9 @@ use krata::{
         control::{
             control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
             CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-            ListGuestsReply, ListGuestsRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
-            ResolveGuestReply, ResolveGuestRequest, WatchEventsReply, WatchEventsRequest,
+            GuestMetrics, ListGuestsReply, ListGuestsRequest, ReadGuestMetricsReply,
+            ReadGuestMetricsRequest, ResolveGuestReply, ResolveGuestRequest, WatchEventsReply,
+            WatchEventsRequest,
         },
     },
 };
@@ -327,8 +328,10 @@ impl ControlService for RuntimeControlService {
 
         let mut reply = ReadGuestMetricsReply::default();
         if let IdmResponseType::Metrics(metrics) = response {
-            reply.total_memory_bytes = metrics.total_memory_bytes;
-            reply.used_memory_bytes = metrics.used_memory_bytes;
+            reply.metrics = Some(GuestMetrics {
+                total_memory_bytes: metrics.total_memory_bytes,
+                used_memory_bytes: metrics.used_memory_bytes,
+            });
         }
         Ok(Response::new(reply))
     }
