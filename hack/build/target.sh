@@ -1,6 +1,17 @@
 #!/bin/sh
 set -e
 
+if [ -z "${TARGET_LIBC}" ] && [ -e "/etc/alpine-release" ] && [ "${KRATA_TARGET_IGNORE_LIBC}" != "1" ]
+then
+  TARGET_LIBC="musl"
+  TARGET_VENDOR="alpine"
+fi
+
+if [ -z "${TARGET_VENDOR}" ]
+then
+  TARGET_VENDOR="unknown"
+fi
+
 if [ -z "${TARGET_LIBC}" ] || [ "${KRATA_TARGET_IGNORE_LIBC}" = "1" ]
 then
   TARGET_LIBC="gnu"
@@ -46,20 +57,20 @@ elif [ "${TARGET_OS}" = "freebsd" ]
 then
   if [ -z "${RUST_TARGET}" ]
   then
-    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-unknown-freebsd"
+    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-${TARGET_VENDOR}-freebsd"
   fi
 elif [ "${TARGET_OS}" = "netbsd" ]
 then
   if [ -z "${RUST_TARGET}" ]
   then
-    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-unknown-netbsd"
+    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-${TARGET_VENDOR}-netbsd"
   fi
 else
   if [ -z "${RUST_TARGET}" ]
   then
-    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-unknown-linux-${TARGET_LIBC}"
-    [ "${TARGET_ARCH}" = "aarch64" ] && RUST_TARGET="aarch64-unknown-linux-${TARGET_LIBC}"
-    [ "${TARGET_ARCH}" = "riscv64gc" ] && RUST_TARGET="riscv64gc-unknown-linux-${TARGET_LIBC}"
+    [ "${TARGET_ARCH}" = "x86_64" ] && RUST_TARGET="x86_64-${TARGET_VENDOR}-linux-${TARGET_LIBC}"
+    [ "${TARGET_ARCH}" = "aarch64" ] && RUST_TARGET="aarch64-${TARGET_VENDOR}-linux-${TARGET_LIBC}"
+    [ "${TARGET_ARCH}" = "riscv64gc" ] && RUST_TARGET="riscv64gc-${TARGET_VENDOR}-linux-${TARGET_LIBC}"
   fi
 fi
 
