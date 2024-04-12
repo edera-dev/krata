@@ -28,11 +28,10 @@ impl WatchCommand {
         let mut stream = events.subscribe();
         loop {
             let event = stream.recv().await?;
-            match event {
-                Event::GuestChanged(changed) => {
-                    let guest = changed.guest.clone();
-                    self.print_event("guest.changed", changed, guest)?;
-                }
+
+            if let Event::GuestChanged(changed) = event {
+                let guest = changed.guest.clone();
+                self.print_event("guest.changed", changed, guest)?;
             }
         }
     }

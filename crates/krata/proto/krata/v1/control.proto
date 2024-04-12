@@ -61,11 +61,44 @@ message WatchEventsRequest {}
 message WatchEventsReply {
     oneof event {
         GuestChangedEvent guest_changed = 1;
+        OciProgressEvent oci_progress = 2;
     }
 }
 
 message GuestChangedEvent {
     krata.v1.common.Guest guest = 1;
+}
+
+enum OciProgressEventLayerPhase {
+    OCI_PROGRESS_EVENT_LAYER_PHASE_UNKNOWN = 0;
+    OCI_PROGRESS_EVENT_LAYER_PHASE_WAITING = 1;
+    OCI_PROGRESS_EVENT_LAYER_PHASE_DOWNLOADING = 2;
+    OCI_PROGRESS_EVENT_LAYER_PHASE_DOWNLOADED = 3;
+    OCI_PROGRESS_EVENT_LAYER_PHASE_EXTRACTING = 4;
+    OCI_PROGRESS_EVENT_LAYER_PHASE_EXTRACTED = 5;
+}
+
+message OciProgressEventLayer {
+    string id = 1;
+    OciProgressEventLayerPhase phase = 2;
+    double progress = 3;
+}
+
+enum OciProgressEventPhase {
+    OCI_PROGRESS_EVENT_PHASE_UNKNOWN = 0;
+    OCI_PROGRESS_EVENT_PHASE_RESOLVING = 1;
+    OCI_PROGRESS_EVENT_PHASE_RESOLVED = 2;
+    OCI_PROGRESS_EVENT_PHASE_CONFIG_ACQUIRE = 3;
+    OCI_PROGRESS_EVENT_PHASE_LAYER_ACQUIRE = 4;
+    OCI_PROGRESS_EVENT_PHASE_PACKING = 5;
+    OCI_PROGRESS_EVENT_PHASE_COMPLETE = 6;
+}
+
+message OciProgressEvent {
+    string guest_id = 1;
+    OciProgressEventPhase phase = 2;
+    repeated OciProgressEventLayer layers = 3;
+    double progress = 4;
 }
 
 message ReadGuestMetricsRequest {

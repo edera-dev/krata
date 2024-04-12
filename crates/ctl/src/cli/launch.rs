@@ -158,6 +158,8 @@ async fn wait_guest_started(id: &str, events: EventStream) -> Result<()> {
                     break;
                 }
             }
+
+            Event::OciProgress(_oci) => {}
         }
     }
     Ok(())

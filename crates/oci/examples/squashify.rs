@@ -2,8 +2,10 @@ use std::{env::args, path::PathBuf};
 
 use anyhow::Result;
 use env_logger::Env;
-use krataoci::{cache::ImageCache, compiler::ImageCompiler, name::ImageName};
-use tokio::fs;
+use krataoci::{
+    cache::ImageCache, compiler::ImageCompiler, name::ImageName, progress::OciProgressContext,
+};
+use tokio::{fs, sync::broadcast};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -18,8 +20,18 @@ async fn main() -> Result<()> {
     }
 
     let cache = ImageCache::new(&cache_dir)?;
-    let compiler = ImageCompiler::new(&cache, seed)?;
-    let info = compiler.compile(&image).await?;
+
+    let (sender, mut receiver) = broadcast::channel(1000);
+    tokio::task::spawn(async move {
+        loop {
+            let Some(_) = receiver.recv().await.ok() else {
+                break;
+            };
+        }
+    });
+    let context = OciProgressContext::new(sender);
+    let compiler = ImageCompiler::new(&cache, seed, context)?;
+    let info = compiler.compile(&image.to_string(), &image).await?;
     println!(
         "generated squashfs of {} to {}",
         image,

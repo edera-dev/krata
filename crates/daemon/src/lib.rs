@@ -7,12 +7,16 @@ use db::GuestStore;
 use event::{DaemonEventContext, DaemonEventGenerator};
 use idm::{DaemonIdm, DaemonIdmHandle};
 use krata::{dial::ControlDialAddress, v1::control::control_service_server::ControlServiceServer};
+use krataoci::progress::OciProgressContext;
 use kratart::Runtime;
 use log::info;
 use reconcile::guest::GuestReconciler;
 use tokio::{
     net::UnixListener,
-    sync::mpsc::{channel, Sender},
+    sync::{
+        broadcast,
+        mpsc::{channel, Sender},
+    },
     task::JoinHandle,
 };
 use tokio_stream::wrappers::UnixListenerStream;
@@ -25,6 +29,7 @@ pub mod db;
 pub mod event;
 pub mod idm;
 pub mod metrics;
+pub mod oci;
 pub mod reconcile;
 
 pub struct Daemon {
@@ -39,9 +44,14 @@ pub struct Daemon {
 }
 
 const GUEST_RECONCILER_QUEUE_LEN: usize = 1000;
+const OCI_PROGRESS_QUEUE_LEN: usize = 1000;
 
 impl Daemon {
-    pub async fn new(store: String, runtime: Runtime) -> Result<Self> {
+    pub async fn new(store: String) -> Result<Self> {
+        let (oci_progress_sender, oci_progress_receiver) =
+            broadcast::channel(OCI_PROGRESS_QUEUE_LEN);
+        let runtime =
+            Runtime::new(OciProgressContext::new(oci_progress_sender), store.clone()).await?;
         let guests_db_path = format!("{}/guests.db", store);
         let guests = GuestStore::open(&PathBuf::from(guests_db_path))?;
         let (guest_reconciler_notify, guest_reconciler_receiver) =
@@ -50,9 +60,13 @@ impl Daemon {
         let idm = idm.launch().await?;
         let console = DaemonConsole::new().await?;
         let console = console.launch().await?;
-        let (events, generator) =
-            DaemonEventGenerator::new(guests.clone(), guest_reconciler_notify.clone(), idm.clone())
-                .await?;
+        let (events, generator) = DaemonEventGenerator::new(
+            guests.clone(),
+            guest_reconciler_notify.clone(),
+            idm.clone(),
+            oci_progress_receiver,
+        )
+        .await?;
         let runtime_for_reconciler = runtime.dupe().await?;
         let guest_reconciler = GuestReconciler::new(
             guests.clone(),

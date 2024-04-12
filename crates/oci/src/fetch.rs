@@ -1,3 +1,5 @@
+use crate::progress::{OciProgress, OciProgressContext, OciProgressPhase};
+
 use super::{
     name::ImageName,
     registry::{OciRegistryClient, OciRegistryPlatform},
@@ -26,6 +28,7 @@ pub struct OciImageDownloader {
     seed: Option<PathBuf>,
     storage: PathBuf,
     platform: OciRegistryPlatform,
+    progress: OciProgressContext,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,11 +82,13 @@ impl OciImageDownloader {
         seed: Option<PathBuf>,
         storage: PathBuf,
         platform: OciRegistryPlatform,
+        progress: OciProgressContext,
     ) -> OciImageDownloader {
         OciImageDownloader {
             seed,
             storage,
             platform,
+            progress,
         }
     }
 
@@ -208,9 +213,15 @@ impl OciImageDownloader {
         })
     }
 
-    pub async fn download(&self, image: OciResolvedImage) -> Result<OciLocalImage> {
+    pub async fn download(
+        &self,
+        image: OciResolvedImage,
+        progress: &mut OciProgress,
+    ) -> Result<OciLocalImage> {
         let config: ImageConfiguration;
 
+        progress.phase = OciProgressPhase::ConfigAcquire;
+        self.progress.update(progress);
         let mut client = OciRegistryClient::new(image.name.registry_url()?, self.platform.clone())?;
         if let Some(seeded) = self
             .load_seed_json_blob::<ImageConfiguration>(image.manifest.config())
@@ -223,9 +234,18 @@ impl OciImageDownloader {
                 .await?;
             config = serde_json::from_slice(&config_bytes)?;
         }
+        progress.phase = OciProgressPhase::LayerAcquire;
+        self.progress.update(progress);
         let mut layers = Vec::new();
         for layer in image.manifest.layers() {
-            layers.push(self.acquire_layer(&image.name, layer, &mut client).await?);
+            progress.downloading_layer(layer.digest(), 0, layer.size() as usize);
+            self.progress.update(progress);
+            layers.push(
+                self.acquire_layer(&image.name, layer, &mut client, progress)
+                    .await?,
+            );
+            progress.downloaded_layer(layer.digest());
+            self.progress.update(progress);
         }
         Ok(OciLocalImage {
             image,
@@ -239,6 +259,7 @@ impl OciImageDownloader {
         image: &ImageName,
         layer: &Descriptor,
         client: &mut OciRegistryClient,
+        progress: &mut OciProgress,
     ) -> Result<OciImageLayer> {
         debug!(
             "acquire layer digest={} size={}",
@@ -251,7 +272,15 @@ impl OciImageDownloader {
         let seeded = self.extract_seed_blob(layer, &layer_path).await?;
         if !seeded {
             let file = File::create(&layer_path).await?;
-            let size = client.write_blob_to_file(&image.name, layer, file).await?;
+            let size = client
+                .write_blob_to_file(
+                    &image.name,
+                    layer,
+                    file,
+                    Some(progress),
+                    Some(&self.progress),
+                )
+                .await?;
             if layer.size() as u64 != size {
                 return Err(anyhow!(
                     "downloaded layer size differs from size in manifest",

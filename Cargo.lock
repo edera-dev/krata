@@ -1347,6 +1347,7 @@ dependencies = [
  "env_logger",
  "futures",
  "krata",
+ "krata-oci",
  "krata-runtime",
  "log",
  "prost",
