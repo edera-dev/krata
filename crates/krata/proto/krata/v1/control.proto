@@ -81,7 +81,8 @@ enum OciProgressEventLayerPhase {
 message OciProgressEventLayer {
     string id = 1;
     OciProgressEventLayerPhase phase = 2;
-    double progress = 3;
+    uint64 value = 3;
+    uint64 total = 4;
 }
 
 enum OciProgressEventPhase {
@@ -98,7 +99,8 @@ message OciProgressEvent {
     string guest_id = 1;
     OciProgressEventPhase phase = 2;
     repeated OciProgressEventLayer layers = 3;
-    double progress = 4;
+    uint64 value = 4;
+    uint64 total = 5;
 }
 
 message ReadGuestMetricsRequest {

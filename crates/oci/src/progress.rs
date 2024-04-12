@@ -7,7 +7,8 @@ pub struct OciProgress {
     pub id: String,
     pub phase: OciProgressPhase,
     pub layers: BTreeMap<String, OciProgressLayer>,
-    pub progress: f64,
+    pub value: u64,
+    pub total: u64,
 }
 
 impl OciProgress {
@@ -17,7 +18,8 @@ impl OciProgress {
             OciProgressLayer {
                 id: id.to_string(),
                 phase: OciProgressLayerPhase::Waiting,
-                progress: 0.0,
+                value: 0,
+                total: 0,
             },
         );
     }
@@ -25,36 +27,30 @@ impl OciProgress {
     pub fn downloading_layer(&mut self, id: &str, downloaded: usize, total: usize) {
         if let Some(entry) = self.layers.get_mut(id) {
             entry.phase = OciProgressLayerPhase::Downloading;
-            entry.progress = if total != 0 {
-                (downloaded as f64 / total as f64) * 100.0
-            } else {
-                100.0
-            };
+            entry.value = downloaded as u64;
+            entry.total = total as u64;
         }
     }
 
     pub fn downloaded_layer(&mut self, id: &str) {
         if let Some(entry) = self.layers.get_mut(id) {
             entry.phase = OciProgressLayerPhase::Downloaded;
-            entry.progress = 100.0;
+            entry.value = entry.total;
         }
     }
 
     pub fn extracting_layer(&mut self, id: &str, extracted: usize, total: usize) {
         if let Some(entry) = self.layers.get_mut(id) {
             entry.phase = OciProgressLayerPhase::Extracting;
-            entry.progress = if total != 0 {
-                (extracted as f64 / total as f64) * 100.0
-            } else {
-                100.0
-            };
+            entry.value = extracted as u64;
+            entry.total = total as u64;
         }
     }
 
     pub fn extracted_layer(&mut self, id: &str) {
         if let Some(entry) = self.layers.get_mut(id) {
             entry.phase = OciProgressLayerPhase::Extracted;
-            entry.progress = 100.0;
+            entry.value = entry.total;
         }
     }
 }
@@ -73,7 +69,8 @@ pub enum OciProgressPhase {
 pub struct OciProgressLayer {
     pub id: String,
     pub phase: OciProgressLayerPhase,
-    pub progress: f64,
+    pub value: u64,
+    pub total: u64,
 }
 
 #[derive(Clone, Debug)]

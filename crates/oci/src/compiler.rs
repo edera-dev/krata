@@ -97,7 +97,8 @@ impl ImageCompiler<'_> {
             id: id.to_string(),
             phase: OciProgressPhase::Resolving,
             layers: BTreeMap::new(),
-            progress: 0.0,
+            value: 0,
+            total: 0,
         };
         self.progress.update(&progress);
         let downloader = OciImageDownloader::new(
@@ -148,8 +149,8 @@ impl ImageCompiler<'_> {
                 let path = entry.path()?;
                 let mut maybe_whiteout_path_str =
                     path.to_str().map(|x| x.to_string()).unwrap_or_default();
-                completed += 1;
                 progress.extracting_layer(&layer.digest, completed, count);
+                completed += 1;
                 self.progress.update(&progress);
                 if whiteouts.contains(&maybe_whiteout_path_str) {
                     continue;
@@ -159,10 +160,10 @@ impl ImageCompiler<'_> {
                     continue;
                 }
                 let Some(name) = path.file_name() else {
-                    return Err(anyhow!("unable to get file name"));
+                    continue;
                 };
                 let Some(name) = name.to_str() else {
-                    return Err(anyhow!("unable to get file name as string"));
+                    continue;
                 };
 
                 if name.starts_with(".wh.") {
@@ -172,6 +173,8 @@ impl ImageCompiler<'_> {
                         .await?;
                 }
             }
+            progress.extracted_layer(&layer.digest);
+            self.progress.update(&progress);
         }
 
         for layer in &local.layers {
@@ -180,13 +183,31 @@ impl ImageCompiler<'_> {
             }
         }
 
-        self.squash(image_dir, squash_file, &mut progress)?;
+        let image_dir_squash = image_dir.to_path_buf();
+        let squash_file_squash = squash_file.to_path_buf();
+        let progress_squash = progress.clone();
+        let progress_context = self.progress.clone();
+        progress = tokio::task::spawn_blocking(move || {
+            ImageCompiler::squash(
+                &image_dir_squash,
+                &squash_file_squash,
+                progress_squash,
+                progress_context,
+            )
+        })
+        .await??;
+
         let info = ImageInfo::new(
             squash_file.to_path_buf(),
             local.image.manifest,
             local.config,
         )?;
-        self.cache.store(&cache_digest, &info).await
+        let info = self.cache.store(&cache_digest, &info).await?;
+        progress.phase = OciProgressPhase::Complete;
+        progress.value = 0;
+        progress.total = 0;
+        self.progress.update(&progress);
+        Ok(info)
     }
 
     async fn process_layer_whiteout(
@@ -203,10 +224,10 @@ impl ImageCompiler<'_> {
             count += 1;
             let path = entry.path()?;
             let Some(name) = path.file_name() else {
-                return Err(anyhow!("unable to get file name"));
+                continue;
             };
             let Some(name) = name.to_str() else {
-                return Err(anyhow!("unable to get file name as string"));
+                continue;
             };
 
             if name.starts_with(".wh.") {
@@ -339,14 +360,15 @@ impl ImageCompiler<'_> {
     }
 
     fn squash(
-        &self,
         image_dir: &Path,
         squash_file: &Path,
-        progress: &mut OciProgress,
-    ) -> Result<()> {
+        mut progress: OciProgress,
+        progress_context: OciProgressContext,
+    ) -> Result<OciProgress> {
         progress.phase = OciProgressPhase::Packing;
-        progress.progress = 0.0;
-        self.progress.update(progress);
+        progress.total = 2;
+        progress.value = 0;
+        progress_context.update(&progress);
         let mut writer = FilesystemWriter::default();
         writer.set_compressor(FilesystemCompressor::new(Compressor::Gzip, None)?);
         let walk = WalkDir::new(image_dir).follow_links(false);
@@ -405,8 +427,8 @@ impl ImageCompiler<'_> {
         }
 
         progress.phase = OciProgressPhase::Packing;
-        progress.progress = 50.0;
-        self.progress.update(progress);
+        progress.value = 1;
+        progress_context.update(&progress);
 
         let squash_file_path = squash_file
             .to_str()
@@ -417,10 +439,10 @@ impl ImageCompiler<'_> {
         trace!("squash generate: {}", squash_file_path);
         writer.write(&mut bufwrite)?;
         std::fs::remove_dir_all(image_dir)?;
-        progress.phase = OciProgressPhase::Complete;
-        progress.progress = 100.0;
-        self.progress.update(progress);
-        Ok(())
+        progress.phase = OciProgressPhase::Packing;
+        progress.value = 2;
+        progress_context.update(&progress);
+        Ok(progress)
     }
 }
 

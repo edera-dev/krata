@@ -14,7 +14,8 @@ fn convert_oci_layer_progress(layer: OciProgressLayer) -> OciProgressEventLayer 
             OciProgressLayerPhase::Extracted => OciProgressEventLayerPhase::Extracted,
         }
         .into(),
-        progress: layer.progress,
+        value: layer.value,
+        total: layer.total,
     }
 }
 
@@ -35,6 +36,7 @@ pub fn convert_oci_progress(oci: OciProgress) -> OciProgressEvent {
             .into_values()
             .map(convert_oci_layer_progress)
             .collect::<Vec<_>>(),
-        progress: oci.progress,
+        value: oci.value,
+        total: oci.total,
     }
 }

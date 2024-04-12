@@ -18,6 +18,7 @@ ctrlc = { workspace = true, features = ["termination"] }
 env_logger = { workspace = true }
 fancy-duration = { workspace = true }
 human_bytes = { workspace = true }
+indicatif = { workspace = true }
 krata = { path = "../krata", version = "^0.0.8" }
 log = { workspace = true }
 prost-reflect = { workspace = true, features = ["serde"] }
