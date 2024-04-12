@@ -12,9 +12,8 @@ use krata::{
         control::{
             control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
             CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-            GuestMetrics, ListGuestsReply, ListGuestsRequest, ReadGuestMetricsReply,
-            ReadGuestMetricsRequest, ResolveGuestReply, ResolveGuestRequest, WatchEventsReply,
-            WatchEventsRequest,
+            ListGuestsReply, ListGuestsRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
+            ResolveGuestReply, ResolveGuestRequest, WatchEventsReply, WatchEventsRequest,
         },
     },
 };
@@ -28,6 +27,7 @@ use uuid::Uuid;
 
 use crate::{
     console::DaemonConsoleHandle, db::GuestStore, event::DaemonEventContext, idm::DaemonIdmHandle,
+    metrics::idm_metric_to_api,
 };
 
 pub struct ApiError {
@@ -328,10 +328,7 @@ impl ControlService for RuntimeControlService {
 
         let mut reply = ReadGuestMetricsReply::default();
         if let IdmResponseType::Metrics(metrics) = response {
-            reply.metrics = Some(GuestMetrics {
-                total_memory_bytes: metrics.total_memory_bytes,
-                used_memory_bytes: metrics.used_memory_bytes,
-            });
+            reply.root = metrics.root.map(idm_metric_to_api);
         }
         Ok(Response::new(reply))
     }

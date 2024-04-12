@@ -1,22 +1,22 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use comfy_table::{presets::UTF8_FULL_CONDENSED, Table};
 use krata::{
     events::EventStream,
-    v1::control::{
-        control_service_client::ControlServiceClient, GuestMetrics, ReadGuestMetricsRequest,
+    v1::{
+        common::GuestMetricNode,
+        control::{control_service_client::ControlServiceClient, ReadGuestMetricsRequest},
     },
 };
 
 use tonic::transport::Channel;
 
-use crate::format::{kv2line, proto2dynamic, proto2kv};
+use crate::format::{kv2line, metrics_flat, metrics_tree, proto2dynamic};
 
 use super::resolve_guest;
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum MetricsFormat {
-    Table,
+    Tree,
     Json,
     JsonPretty,
     Yaml,
@@ -26,7 +26,7 @@ enum MetricsFormat {
 #[derive(Parser)]
 #[command(about = "Read metrics from the guest")]
 pub struct MetricsCommand {
-    #[arg(short, long, default_value = "table", help = "Output format")]
+    #[arg(short, long, default_value = "tree", help = "Output format")]
     format: MetricsFormat,
     #[arg(help = "Guest to read metrics for, either the name or the uuid")]
     guest: String,
@@ -39,19 +39,19 @@ impl MetricsCommand {
         _events: EventStream,
     ) -> Result<()> {
         let guest_id: String = resolve_guest(&mut client, &self.guest).await?;
-        let metrics = client
+        let root = client
             .read_guest_metrics(ReadGuestMetricsRequest { guest_id })
             .await?
             .into_inner()
-            .metrics
+            .root
             .unwrap_or_default();
         match self.format {
-            MetricsFormat::Table => {
-                self.print_metrics_table(metrics)?;
+            MetricsFormat::Tree => {
+                self.print_metrics_tree(root)?;
             }
 
             MetricsFormat::Json | MetricsFormat::JsonPretty | MetricsFormat::Yaml => {
-                let value = serde_json::to_value(proto2dynamic(metrics)?)?;
+                let value = serde_json::to_value(proto2dynamic(root)?)?;
                 let encoded = if self.format == MetricsFormat::JsonPretty {
                     serde_json::to_string_pretty(&value)?
                 } else if self.format == MetricsFormat::Yaml {
@@ -63,29 +63,21 @@ impl MetricsCommand {
             }
 
             MetricsFormat::KeyValue => {
-                self.print_key_value(metrics)?;
+                self.print_key_value(root)?;
             }
         }
 
         Ok(())
     }
 
-    fn print_metrics_table(&self, metrics: GuestMetrics) -> Result<()> {
-        let mut table = Table::new();
-        table.load_preset(UTF8_FULL_CONDENSED);
-        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
-        table.set_header(vec!["metric", "value"]);
-        let kvs = proto2kv(metrics)?;
-        for (key, value) in kvs {
-            table.add_row(vec![key, value]);
-        }
-        println!("{}", table);
+    fn print_metrics_tree(&self, root: GuestMetricNode) -> Result<()> {
+        print!("{}", metrics_tree(root));
         Ok(())
     }
 
-    fn print_key_value(&self, metrics: GuestMetrics) -> Result<()> {
-        let kvs = proto2kv(metrics)?;
-        println!("{}", kv2line(kvs),);
+    fn print_key_value(&self, metrics: GuestMetricNode) -> Result<()> {
+        let kvs = metrics_flat(metrics);
+        println!("{}", kv2line(kvs));
         Ok(())
     }
 }

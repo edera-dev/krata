@@ -27,7 +27,6 @@ serde_json = { workspace = true }
 sys-mount = { workspace = true }
 sysinfo = { workspace = true }
 tokio = { workspace = true }
-walkdir = { workspace = true }
 
 [lib]
 name = "krataguest"

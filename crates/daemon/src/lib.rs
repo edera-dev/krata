@@ -24,6 +24,7 @@ pub mod control;
 pub mod db;
 pub mod event;
 pub mod idm;
+pub mod metrics;
 pub mod reconcile;
 
 pub struct Daemon {

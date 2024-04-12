@@ -6,6 +6,8 @@ option java_multiple_files = true;
 option java_package = "dev.krata.proto.v1.common";
 option java_outer_classname = "CommonProto";
 
+import "google/protobuf/struct.proto";
+
 message Guest {
     string id = 1;
     GuestSpec spec = 2;
@@ -79,4 +81,18 @@ message GuestExitInfo {
 
 message GuestErrorInfo {
     string message = 1;
+}
+
+message GuestMetricNode {
+    string name = 1;
+    google.protobuf.Value value = 2;
+    GuestMetricFormat format = 3;
+    repeated GuestMetricNode children = 4;
+}
+
+enum GuestMetricFormat {
+    GUEST_METRIC_FORMAT_UNKNOWN = 0;
+    GUEST_METRIC_FORMAT_BYTES = 1;
+    GUEST_METRIC_FORMAT_INTEGER = 2;
+    GUEST_METRIC_FORMAT_DURATION_SECONDS = 3;
 }

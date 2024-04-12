@@ -7,6 +7,7 @@ use xenstore::{XsdClient, XsdInterface};
 pub mod background;
 pub mod childwait;
 pub mod init;
+pub mod metrics;
 
 pub async fn death(code: c_int) -> Result<()> {
     let store = XsdClient::open().await?;

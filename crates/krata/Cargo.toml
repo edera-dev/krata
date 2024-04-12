@@ -17,6 +17,8 @@ log = { workspace = true }
 once_cell = { workspace = true }
 prost = { workspace = true }
 prost-reflect = { workspace = true }
+prost-types = { workspace = true }
+scopeguard = { workspace = true }
 serde = { workspace = true }
 tonic = { workspace = true }
 tokio = { workspace = true }

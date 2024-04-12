@@ -1,4 +1,12 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use crate::idm::protocol::idm_packet::Content;
 
@@ -19,11 +27,14 @@ use tokio::{
         oneshot, Mutex,
     },
     task::JoinHandle,
+    time::timeout,
 };
 
 type RequestMap = Arc<Mutex<HashMap<u64, oneshot::Sender<IdmResponse>>>>;
 
 const IDM_PACKET_QUEUE_LEN: usize = 100;
+const IDM_REQUEST_TIMEOUT_SECS: u64 = 10;
+const IDM_PACKET_MAX_SIZE: usize = 20 * 1024 * 1024;
 
 #[async_trait::async_trait]
 pub trait IdmBackend: Send {
@@ -59,7 +70,7 @@ impl IdmBackend for IdmFileBackend {
     async fn recv(&mut self) -> Result<IdmPacket> {
         let mut fd = self.read_fd.lock().await;
         let mut guard = fd.readable_mut().await?;
-        let size = guard.get_inner_mut().read_u16_le().await?;
+        let size = guard.get_inner_mut().read_u32_le().await?;
         if size == 0 {
             return Ok(IdmPacket::default());
         }
@@ -74,7 +85,7 @@ impl IdmBackend for IdmFileBackend {
     async fn send(&mut self, packet: IdmPacket) -> Result<()> {
         let mut file = self.write.lock().await;
         let data = packet.encode_to_vec();
-        file.write_u16_le(data.len() as u16).await?;
+        file.write_u32_le(data.len() as u32).await?;
         file.write_all(&data).await?;
         Ok(())
     }
@@ -177,16 +188,26 @@ impl IdmClient {
     }
 
     pub async fn send(&self, request: Request) -> Result<Response> {
-        let (sender, receiver) = oneshot::channel();
-        let mut requests = self.requests.lock().await;
+        let (sender, receiver) = oneshot::channel::<IdmResponse>();
         let req = {
             let mut guard = self.next_request_id.lock().await;
             let req = *guard;
             *guard = req.wrapping_add(1);
             req
         };
+        let mut requests = self.requests.lock().await;
         requests.insert(req, sender);
         drop(requests);
+        let success = AtomicBool::new(false);
+        let _guard = scopeguard::guard(self.requests.clone(), |requests| {
+            if success.load(Ordering::Acquire) {
+                return;
+            }
+            tokio::task::spawn(async move {
+                let mut requests = requests.lock().await;
+                requests.remove(&req);
+            });
+        });
         self.tx_sender
             .send(IdmPacket {
                 content: Some(Content::Request(IdmRequest {
@@ -196,7 +217,9 @@ impl IdmClient {
             })
             .await?;
 
-        if let Some(response) = receiver.await?.response {
+        let response = timeout(Duration::from_secs(IDM_REQUEST_TIMEOUT_SECS), receiver).await??;
+        success.store(true, Ordering::Release);
+        if let Some(response) = response.response {
             Ok(response)
         } else {
             Err(anyhow!("response did not contain any content"))
@@ -243,7 +266,7 @@ impl IdmClient {
                 x = receiver.recv() => match x {
                     Some(packet) => {
                         let length = packet.encoded_len();
-                        if length > u16::MAX as usize {
+                        if length > IDM_PACKET_MAX_SIZE {
                             error!("unable to send idm packet, packet size exceeded (tried to send {} bytes)", length);
                             continue;
                         }

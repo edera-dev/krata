@@ -1,6 +1,7 @@
 use crate::{
     childwait::{ChildEvent, ChildWait},
     death,
+    metrics::MetricsCollector,
 };
 use anyhow::Result;
 use cgroups_rs::Cgroup;
@@ -13,7 +14,6 @@ use krata::idm::{
 };
 use log::debug;
 use nix::unistd::Pid;
-use sysinfo::System;
 use tokio::{select, sync::broadcast};
 
 pub struct GuestBackground {
@@ -90,12 +90,9 @@ impl GuestBackground {
             }
 
             Some(Request::Metrics(_)) => {
-                let mut sys = System::new();
-                sys.refresh_memory();
-                let response = IdmMetricsResponse {
-                    total_memory_bytes: sys.total_memory(),
-                    used_memory_bytes: sys.used_memory(),
-                };
+                let metrics = MetricsCollector::new()?;
+                let root = metrics.collect()?;
+                let response = IdmMetricsResponse { root: Some(root) };
 
                 self.idm.respond(id, Response::Metrics(response)).await?;
             }
