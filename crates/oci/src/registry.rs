@@ -7,6 +7,8 @@ use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use tokio::{fs::File, io::AsyncWriteExt};
 use url::Url;
 
+use crate::progress::{OciProgress, OciProgressContext};
+
 #[derive(Clone, Debug)]
 pub struct OciRegistryPlatform {
     pub os: Os,
@@ -138,6 +140,8 @@ impl OciRegistryClient {
         name: N,
         descriptor: &Descriptor,
         mut dest: File,
+        mut progress_handle: Option<&mut OciProgress>,
+        progress_context: Option<&OciProgressContext>,
     ) -> Result<u64> {
         let url = self.url.join(&format!(
             "/v2/{}/blobs/{}",
@@ -146,9 +150,24 @@ impl OciRegistryClient {
         ))?;
         let mut response = self.call(self.agent.get(url.as_str())).await?;
         let mut size: u64 = 0;
+        let mut last_progress_size: u64 = 0;
         while let Some(chunk) = response.chunk().await? {
             dest.write_all(&chunk).await?;
             size += chunk.len() as u64;
+
+            if (size - last_progress_size) > (5 * 1024 * 1024) {
+                last_progress_size = size;
+                if let Some(progress_handle) = progress_handle.as_mut() {
+                    progress_handle.downloading_layer(
+                        descriptor.digest(),
+                        size as usize,
+                        descriptor.size() as usize,
+                    );
+                    if let Some(progress_context) = progress_context.as_ref() {
+                        progress_context.update(progress_handle);
+                    }
+                }
+            }
         }
         Ok(size)
     }

@@ -9,6 +9,7 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
 };
+use krataoci::progress::OciProgressContext;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
@@ -51,7 +52,14 @@ impl GuestLauncher {
     ) -> Result<GuestInfo> {
         let uuid = request.uuid.unwrap_or_else(Uuid::new_v4);
         let xen_name = format!("krata-{uuid}");
-        let image_info = self.compile(request.image, &context.image_cache).await?;
+        let image_info = self
+            .compile(
+                &uuid.to_string(),
+                request.image,
+                &context.image_cache,
+                &context.oci_progress_context,
+            )
+            .await?;
 
         let mut gateway_mac = MacAddr6::random();
         gateway_mac.set_local(true);
@@ -243,10 +251,16 @@ impl GuestLauncher {
         }
     }
 
-    async fn compile(&self, image: &str, image_cache: &ImageCache) -> Result<ImageInfo> {
+    async fn compile(
+        &self,
+        id: &str,
+        image: &str,
+        image_cache: &ImageCache,
+        progress: &OciProgressContext,
+    ) -> Result<ImageInfo> {
         let image = ImageName::parse(image)?;
-        let compiler = ImageCompiler::new(image_cache, None)?;
-        compiler.compile(&image).await
+        let compiler = ImageCompiler::new(image_cache, None, progress.clone())?;
+        compiler.compile(id, &image).await
     }
 
     async fn allocate_ipv4(&self, context: &RuntimeContext) -> Result<Ipv4Addr> {

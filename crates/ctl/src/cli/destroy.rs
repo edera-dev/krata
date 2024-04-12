@@ -52,32 +52,30 @@ impl DestroyCommand {
 async fn wait_guest_destroyed(id: &str, events: EventStream) -> Result<()> {
     let mut stream = events.subscribe();
     while let Ok(event) = stream.recv().await {
-        match event {
-            Event::GuestChanged(changed) => {
-                let Some(guest) = changed.guest else {
-                    continue;
-                };
+        if let Event::GuestChanged(changed) = event {
+            let Some(guest) = changed.guest else {
+                continue;
+            };
 
-                if guest.id != id {
-                    continue;
+            if guest.id != id {
+                continue;
+            }
+
+            let Some(state) = guest.state else {
+                continue;
+            };
+
+            if let Some(ref error) = state.error_info {
+                if state.status() == GuestStatus::Failed {
+                    error!("destroy failed: {}", error.message);
+                    std::process::exit(1);
+                } else {
+                    error!("guest error: {}", error.message);
                 }
+            }
 
-                let Some(state) = guest.state else {
-                    continue;
-                };
-
-                if let Some(ref error) = state.error_info {
-                    if state.status() == GuestStatus::Failed {
-                        error!("destroy failed: {}", error.message);
-                        std::process::exit(1);
-                    } else {
-                        error!("guest error: {}", error.message);
-                    }
-                }
-
-                if state.status() == GuestStatus::Destroyed {
-                    std::process::exit(0);
-                }
+            if state.status() == GuestStatus::Destroyed {
+                std::process::exit(0);
             }
         }
     }

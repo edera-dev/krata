@@ -18,6 +18,7 @@ clap = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
 krata = { path = "../krata", version = "^0.0.8" }
+krata-oci = { path = "../oci", version = "^0.0.8" }
 krata-runtime = { path = "../runtime", version = "^0.0.8" }
 log = { workspace = true }
 prost = { workspace = true }

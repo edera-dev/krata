@@ -32,9 +32,5 @@ name = "kratart"
 env_logger = { workspace = true }
 
 [[example]]
-name = "kratart-squashify"
-path = "examples/squashify.rs"
-
-[[example]]
 name = "kratart-channel"
 path = "examples/channel.rs"

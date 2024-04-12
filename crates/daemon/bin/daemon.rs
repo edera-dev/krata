@@ -3,7 +3,6 @@ use clap::Parser;
 use env_logger::Env;
 use krata::dial::ControlDialAddress;
 use kratad::Daemon;
-use kratart::Runtime;
 use log::LevelFilter;
 use std::{
     str::FromStr,
@@ -27,8 +26,8 @@ async fn main() -> Result<()> {
 
     let args = DaemonCommand::parse();
     let addr = ControlDialAddress::from_str(&args.listen)?;
-    let runtime = Runtime::new(args.store.clone()).await?;
-    let mut daemon = Daemon::new(args.store.clone(), runtime).await?;
+
+    let mut daemon = Daemon::new(args.store.clone()).await?;
     daemon.listen(addr).await?;
     Ok(())
 }
