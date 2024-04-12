@@ -28,5 +28,5 @@ build_and_run() {
   fi
   RUST_TARGET="$(./hack/build/target.sh)"
   ./hack/build/cargo.sh build ${CARGO_BUILD_FLAGS} --bin "${EXE_TARGET}"
-  exec sudo RUST_LOG="${RUST_LOG}" "target/${RUST_TARGET}/debug/${EXE_TARGET}" "${@}"
+  exec sudo sh -c "RUST_LOG='${RUST_LOG}' 'target/${RUST_TARGET}/debug/${EXE_TARGET}' $*"
 }
