@@ -6,8 +6,14 @@ option java_multiple_files = true;
 option java_package = "dev.krata.proto.internal.idm";
 option java_outer_classname = "IdmProto";
 
-message IdmExitEvent {
-    int32 code = 1;
+import "google/protobuf/struct.proto";
+
+message IdmPacket {
+    oneof content {
+        IdmEvent event = 1;
+        IdmRequest request = 2;
+        IdmResponse response = 3;
+    }
 }
 
 message IdmEvent {
@@ -16,6 +22,46 @@ message IdmEvent {
     }
 }
 
-message IdmPacket {
-    IdmEvent event = 1;
+message IdmExitEvent {
+    int32 code = 1;
+}
+
+message IdmRequest {
+    uint64 id = 1;
+    oneof request {
+        IdmPingRequest ping = 2;
+        IdmMetricsRequest metrics = 3;
+    }
+}
+
+message IdmPingRequest {}
+
+message IdmMetricsRequest {}
+
+message IdmResponse {
+    uint64 id = 1;
+    oneof response {
+        IdmPingResponse ping = 2;
+        IdmMetricsResponse metrics = 3;
+    }
+}
+
+message IdmPingResponse {}
+
+message IdmMetricsResponse {
+    IdmMetricNode root = 1;
+}
+
+message IdmMetricNode {
+    string name = 1;
+    google.protobuf.Value value = 2;
+    IdmMetricFormat format = 3;
+    repeated IdmMetricNode children = 4;
+}
+
+enum IdmMetricFormat {
+    IDM_METRIC_FORMAT_UNKNOWN = 0;
+    IDM_METRIC_FORMAT_BYTES = 1;
+    IDM_METRIC_FORMAT_INTEGER = 2;
+    IDM_METRIC_FORMAT_DURATION_SECONDS = 3;
 }

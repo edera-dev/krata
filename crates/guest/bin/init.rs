@@ -23,6 +23,8 @@ async fn main() -> Result<()> {
     if let Err(error) = guest.init().await {
         error!("failed to initialize guest: {}", error);
         death(127).await?;
+        return Ok(());
     }
+    death(1).await?;
     Ok(())
 }

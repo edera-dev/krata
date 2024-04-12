@@ -1,53 +1,40 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bytes::{Buf, BytesMut};
-use krata::idm::protocol::IdmPacket;
+use krata::idm::{
+    client::{IdmBackend, IdmClient},
+    protocol::IdmPacket,
+};
 use kratart::channel::ChannelService;
 use log::{error, warn};
 use prost::Message;
 use tokio::{
+    select,
     sync::{
-        mpsc::{Receiver, Sender},
+        mpsc::{channel, Receiver, Sender},
         Mutex,
     },
     task::JoinHandle,
 };
 
-type ListenerMap = Arc<Mutex<HashMap<u32, Sender<(u32, IdmPacket)>>>>;
+type BackendFeedMap = Arc<Mutex<HashMap<u32, Sender<IdmPacket>>>>;
+type ClientMap = Arc<Mutex<HashMap<u32, IdmClient>>>;
 
 #[derive(Clone)]
 pub struct DaemonIdmHandle {
-    listeners: ListenerMap,
+    clients: ClientMap,
+    feeds: BackendFeedMap,
+    tx_sender: Sender<(u32, IdmPacket)>,
     task: Arc<JoinHandle<()>>,
 }
 
-#[derive(Clone)]
-pub struct DaemonIdmSubscribeHandle {
-    domid: u32,
-    listeners: ListenerMap,
-}
-
-impl DaemonIdmSubscribeHandle {
-    pub async fn unsubscribe(&self) -> Result<()> {
-        let mut guard = self.listeners.lock().await;
-        let _ = guard.remove(&self.domid);
-        Ok(())
-    }
-}
-
 impl DaemonIdmHandle {
-    pub async fn subscribe(
-        &self,
-        domid: u32,
-        sender: Sender<(u32, IdmPacket)>,
-    ) -> Result<DaemonIdmSubscribeHandle> {
-        let mut guard = self.listeners.lock().await;
-        guard.insert(domid, sender);
-        Ok(DaemonIdmSubscribeHandle {
-            domid,
-            listeners: self.listeners.clone(),
-        })
+    pub async fn client(&self, domid: u32) -> Result<IdmClient> {
+        client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await
     }
 }
 
@@ -60,25 +47,38 @@ impl Drop for DaemonIdmHandle {
 }
 
 pub struct DaemonIdm {
-    listeners: ListenerMap,
-    receiver: Receiver<(u32, Vec<u8>)>,
+    clients: ClientMap,
+    feeds: BackendFeedMap,
+    tx_sender: Sender<(u32, IdmPacket)>,
+    tx_raw_sender: Sender<(u32, Vec<u8>)>,
+    tx_receiver: Receiver<(u32, IdmPacket)>,
+    rx_receiver: Receiver<(u32, Option<Vec<u8>>)>,
     task: JoinHandle<()>,
 }
 
 impl DaemonIdm {
     pub async fn new() -> Result<DaemonIdm> {
-        let (service, _, receiver) = ChannelService::new("krata-channel".to_string(), None).await?;
+        let (service, tx_raw_sender, rx_receiver) =
+            ChannelService::new("krata-channel".to_string(), None).await?;
+        let (tx_sender, tx_receiver) = channel(100);
         let task = service.launch().await?;
-        let listeners = Arc::new(Mutex::new(HashMap::new()));
+        let clients = Arc::new(Mutex::new(HashMap::new()));
+        let feeds = Arc::new(Mutex::new(HashMap::new()));
         Ok(DaemonIdm {
-            receiver,
+            rx_receiver,
+            tx_receiver,
+            tx_sender,
+            tx_raw_sender,
             task,
-            listeners,
+            clients,
+            feeds,
         })
     }
 
     pub async fn launch(mut self) -> Result<DaemonIdmHandle> {
-        let listeners = self.listeners.clone();
+        let clients = self.clients.clone();
+        let feeds = self.feeds.clone();
+        let tx_sender = self.tx_sender.clone();
         let task = tokio::task::spawn(async move {
             let mut buffers: HashMap<u32, BytesMut> = HashMap::new();
             if let Err(error) = self.process(&mut buffers).await {
@@ -86,43 +86,74 @@ impl DaemonIdm {
             }
         });
         Ok(DaemonIdmHandle {
-            listeners,
+            clients,
+            feeds,
+            tx_sender,
             task: Arc::new(task),
         })
     }
 
     async fn process(&mut self, buffers: &mut HashMap<u32, BytesMut>) -> Result<()> {
         loop {
-            let Some((domid, data)) = self.receiver.recv().await else {
-                break;
-            };
+            select! {
+                x = self.rx_receiver.recv() => match x {
+                    Some((domid, data)) => {
+                        if let Some(data) = data {
+                            let buffer = buffers.entry(domid).or_insert_with_key(|_| BytesMut::new());
+                            buffer.extend_from_slice(&data);
+                            if buffer.len() < 4 {
+                                continue;
+                            }
+                            let size = (buffer[0] as u32 | (buffer[1] as u32) << 8 | (buffer[2] as u32) << 16 | (buffer[3] as u32) << 24) as usize;
+                            let needed = size + 4;
+                            if buffer.len() < needed {
+                                continue;
+                            }
+                            let mut packet = buffer.split_to(needed);
+                            packet.advance(4);
+                            match IdmPacket::decode(packet) {
+                                Ok(packet) => {
+                                    let _ = client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await?;
+                                    let guard = self.feeds.lock().await;
+                                    if let Some(feed) = guard.get(&domid) {
+                                        let _ = feed.try_send(packet);
+                                    }
+                                }
 
-            let buffer = buffers.entry(domid).or_insert_with_key(|_| BytesMut::new());
-            buffer.extend_from_slice(&data);
-            if buffer.len() < 2 {
-                continue;
-            }
-            let size = (buffer[0] as u16 | (buffer[1] as u16) << 8) as usize;
-            let needed = size + 2;
-            if buffer.len() < needed {
-                continue;
-            }
-            let mut packet = buffer.split_to(needed);
-            packet.advance(2);
-            match IdmPacket::decode(packet) {
-                Ok(packet) => {
-                    let guard = self.listeners.lock().await;
-                    if let Some(sender) = guard.get(&domid) {
-                        if let Err(error) = sender.try_send((domid, packet)) {
-                            warn!("dropped idm packet from domain {}: {}", domid, error);
+                                Err(packet) => {
+                                    warn!("received invalid packet from domain {}: {}", domid, packet);
+                                }
+                            }
+                        } else {
+                            let mut clients = self.clients.lock().await;
+                            let mut feeds = self.feeds.lock().await;
+                            clients.remove(&domid);
+                            feeds.remove(&domid);
                         }
+                    },
+
+                    None => {
+                        break;
+                    }
+                },
+                x = self.tx_receiver.recv() => match x {
+                    Some((domid, packet)) => {
+                        let data = packet.encode_to_vec();
+                        let mut buffer = vec![0u8; 4];
+                        let length = data.len() as u32;
+                        buffer[0] = length as u8;
+                        buffer[1] = (length << 8) as u8;
+                        buffer[2] = (length << 16) as u8;
+                        buffer[3] = (length << 24) as u8;
+                        buffer.extend_from_slice(&data);
+                        self.tx_raw_sender.send((domid, buffer)).await?;
+                    },
+
+                    None => {
+                        break;
                     }
                 }
-
-                Err(packet) => {
-                    warn!("received invalid packet from domain {}: {}", domid, packet);
-                }
-            }
+            };
         }
         Ok(())
     }
@@ -131,5 +162,52 @@ impl DaemonIdm {
 impl Drop for DaemonIdm {
     fn drop(&mut self) {
         self.task.abort();
+    }
+}
+
+async fn client_or_create(
+    domid: u32,
+    tx_sender: &Sender<(u32, IdmPacket)>,
+    clients: &ClientMap,
+    feeds: &BackendFeedMap,
+) -> Result<IdmClient> {
+    let mut clients = clients.lock().await;
+    let mut feeds = feeds.lock().await;
+    match clients.entry(domid) {
+        Entry::Occupied(entry) => Ok(entry.get().clone()),
+        Entry::Vacant(entry) => {
+            let (rx_sender, rx_receiver) = channel(100);
+            feeds.insert(domid, rx_sender);
+            let backend = IdmDaemonBackend {
+                domid,
+                rx_receiver,
+                tx_sender: tx_sender.clone(),
+            };
+            let client = IdmClient::new(Box::new(backend) as Box<dyn IdmBackend>).await?;
+            entry.insert(client.clone());
+            Ok(client)
+        }
+    }
+}
+
+pub struct IdmDaemonBackend {
+    domid: u32,
+    rx_receiver: Receiver<IdmPacket>,
+    tx_sender: Sender<(u32, IdmPacket)>,
+}
+
+#[async_trait::async_trait]
+impl IdmBackend for IdmDaemonBackend {
+    async fn recv(&mut self) -> Result<IdmPacket> {
+        if let Some(packet) = self.rx_receiver.recv().await {
+            Ok(packet)
+        } else {
+            Err(anyhow!("idm receive channel closed"))
+        }
+    }
+
+    async fn send(&mut self, packet: IdmPacket) -> Result<()> {
+        self.tx_sender.send((self.domid, packet)).await?;
+        Ok(())
     }
 }

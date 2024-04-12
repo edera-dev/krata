@@ -79,7 +79,7 @@ impl Drop for DaemonConsoleHandle {
 pub struct DaemonConsole {
     listeners: ListenerMap,
     buffers: BufferMap,
-    receiver: Receiver<(u32, Vec<u8>)>,
+    receiver: Receiver<(u32, Option<Vec<u8>>)>,
     sender: Sender<(u32, Vec<u8>)>,
     task: JoinHandle<()>,
 }
@@ -124,16 +124,22 @@ impl DaemonConsole {
             };
 
             let mut buffers = self.buffers.lock().await;
-            let buffer = buffers
-                .entry(domid)
-                .or_insert_with_key(|_| RawConsoleBuffer::boxed());
-            buffer.extend_from_slice(&data);
-            drop(buffers);
-            let mut listeners = self.listeners.lock().await;
-            if let Some(senders) = listeners.get_mut(&domid) {
-                senders.retain(|sender| {
-                    !matches!(sender.try_send(data.to_vec()), Err(TrySendError::Closed(_)))
-                });
+            if let Some(data) = data {
+                let buffer = buffers
+                    .entry(domid)
+                    .or_insert_with_key(|_| RawConsoleBuffer::boxed());
+                buffer.extend_from_slice(&data);
+                drop(buffers);
+                let mut listeners = self.listeners.lock().await;
+                if let Some(senders) = listeners.get_mut(&domid) {
+                    senders.retain(|sender| {
+                        !matches!(sender.try_send(data.to_vec()), Err(TrySendError::Closed(_)))
+                    });
+                }
+            } else {
+                buffers.remove(&domid);
+                let mut listeners = self.listeners.lock().await;
+                listeners.remove(&domid);
             }
         }
         Ok(())

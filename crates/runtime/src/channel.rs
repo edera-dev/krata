@@ -48,7 +48,7 @@ pub struct ChannelService {
     gnttab: GrantTab,
     input_receiver: Receiver<(u32, Vec<u8>)>,
     pub input_sender: Sender<(u32, Vec<u8>)>,
-    output_sender: Sender<(u32, Vec<u8>)>,
+    output_sender: Sender<(u32, Option<Vec<u8>>)>,
 }
 
 impl ChannelService {
@@ -58,7 +58,7 @@ impl ChannelService {
     ) -> Result<(
         ChannelService,
         Sender<(u32, Vec<u8>)>,
-        Receiver<(u32, Vec<u8>)>,
+        Receiver<(u32, Option<Vec<u8>>)>,
     )> {
         let (input_sender, input_receiver) = channel(GROUPED_CHANNEL_QUEUE_LEN);
         let (output_sender, output_receiver) = channel(GROUPED_CHANNEL_QUEUE_LEN);
@@ -203,12 +203,14 @@ pub struct ChannelBackend {
     pub domid: u32,
     pub id: u32,
     pub sender: Sender<Vec<u8>>,
+    raw_sender: Sender<(u32, Option<Vec<u8>>)>,
     task: JoinHandle<()>,
 }
 
 impl Drop for ChannelBackend {
     fn drop(&mut self) {
         self.task.abort();
+        let _ = self.raw_sender.try_send((self.domid, None));
         debug!(
             "destroyed channel backend for domain {} channel {}",
             self.domid, self.id
@@ -226,7 +228,7 @@ impl ChannelBackend {
         store: XsdClient,
         evtchn: EventChannel,
         gnttab: GrantTab,
-        output_sender: Sender<(u32, Vec<u8>)>,
+        output_sender: Sender<(u32, Option<Vec<u8>>)>,
         use_reserved_ref: Option<u64>,
     ) -> Result<ChannelBackend> {
         let processor = KrataChannelBackendProcessor {
@@ -242,11 +244,14 @@ impl ChannelBackend {
 
         let (input_sender, input_receiver) = channel(SINGLE_CHANNEL_QUEUE_LEN);
 
-        let task = processor.launch(output_sender, input_receiver).await?;
+        let task = processor
+            .launch(output_sender.clone(), input_receiver)
+            .await?;
         Ok(ChannelBackend {
             domid,
             id,
             task,
+            raw_sender: output_sender,
             sender: input_sender,
         })
     }
@@ -304,7 +309,7 @@ impl KrataChannelBackendProcessor {
 
     async fn launch(
         &self,
-        output_sender: Sender<(u32, Vec<u8>)>,
+        output_sender: Sender<(u32, Option<Vec<u8>>)>,
         input_receiver: Receiver<Vec<u8>>,
     ) -> Result<JoinHandle<()>> {
         let owned = self.clone();
@@ -321,7 +326,7 @@ impl KrataChannelBackendProcessor {
 
     async fn processor(
         &self,
-        sender: Sender<(u32, Vec<u8>)>,
+        sender: Sender<(u32, Option<Vec<u8>>)>,
         mut receiver: Receiver<Vec<u8>>,
     ) -> Result<()> {
         self.init().await?;
@@ -396,7 +401,7 @@ impl KrataChannelBackendProcessor {
         unsafe {
             let buffer = self.read_output_buffer(channel.local_port, &memory).await?;
             if !buffer.is_empty() {
-                sender.send((self.domid, buffer)).await?;
+                sender.send((self.domid, Some(buffer))).await?;
             }
         };
 
@@ -466,7 +471,7 @@ impl KrataChannelBackendProcessor {
                         unsafe {
                             let buffer = self.read_output_buffer(channel.local_port, &memory).await?;
                             if !buffer.is_empty() {
-                                sender.send((self.domid, buffer)).await?;
+                                sender.send((self.domid, Some(buffer))).await?;
                             }
                         };
                         channel.unmask_sender.send(channel.local_port).await?;

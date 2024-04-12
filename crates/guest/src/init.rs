@@ -17,14 +17,12 @@ use std::fs::{File, OpenOptions, Permissions};
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::AsRawFd;
-use std::os::linux::fs::MetadataExt;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{chroot, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use sys_mount::{FilesystemType, Mount, MountFlags};
 use tokio::fs;
-use walkdir::WalkDir;
 
 use crate::background::GuestBackground;
 
@@ -88,7 +86,6 @@ impl GuestInit {
         let launch = self.parse_launch_config().await?;
 
         self.mount_new_root().await?;
-        self.nuke_initrd().await?;
         self.bind_new_root().await?;
 
         if let Some(hostname) = launch.hostname.clone() {
@@ -269,40 +266,6 @@ impl GuestInit {
         let launch_config = Path::new(LAUNCH_CONFIG_JSON_PATH);
         let content = fs::read_to_string(launch_config).await?;
         Ok(serde_json::from_str(&content)?)
-    }
-
-    async fn nuke_initrd(&mut self) -> Result<()> {
-        trace!("nuking initrd");
-        let initrd_dev = fs::metadata("/").await?.st_dev();
-        for item in WalkDir::new("/")
-            .same_file_system(true)
-            .follow_links(false)
-            .contents_first(true)
-        {
-            if item.is_err() {
-                continue;
-            }
-
-            let item = item?;
-            let metadata = match item.metadata() {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-
-            if metadata.st_dev() != initrd_dev {
-                continue;
-            }
-
-            if metadata.is_symlink() || metadata.is_file() {
-                let _ = fs::remove_file(item.path()).await;
-                trace!("deleting file {:?}", item.path());
-            } else if metadata.is_dir() {
-                let _ = fs::remove_dir(item.path()).await;
-                trace!("deleting directory {:?}", item.path());
-            }
-        }
-        trace!("nuked initrd");
-        Ok(())
     }
 
     async fn bind_new_root(&mut self) -> Result<()> {
