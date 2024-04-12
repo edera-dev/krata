@@ -420,7 +420,12 @@ impl GuestInit {
         }
         env.extend(launch.env.clone());
         env.insert("KRATA_CONTAINER".to_string(), "1".to_string());
-        env.insert("TERM".to_string(), "vt100".to_string());
+
+        // If we were not provided a terminal definition in our launch manifest, we
+        // default to xterm as most terminal emulators support the xterm control codes.
+        if !env.contains_key("TERM") {
+            env.insert("TERM".to_string(), "xterm".to_string());
+        }
 
         let path = GuestInit::resolve_executable(&env, path.into())?;
         let Some(file_name) = path.file_name() else {
