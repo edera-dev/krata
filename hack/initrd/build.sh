@@ -14,6 +14,7 @@ export RUSTFLAGS="-Ctarget-feature=+crt-static"
 
 ./hack/build/cargo.sh build "${@}" --release --bin krataguest
 INITRD_DIR="$(mktemp -d /tmp/krata-initrd.XXXXXXXXXXXXX)"
+strip "target/${RUST_TARGET}/release/krataguest"
 cp "target/${RUST_TARGET}/release/krataguest" "${INITRD_DIR}/init"
 chmod +x "${INITRD_DIR}/init"
 cd "${INITRD_DIR}"
