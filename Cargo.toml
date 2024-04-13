@@ -116,3 +116,7 @@ features = ["tls"]
 [workspace.dependencies.uuid]
 version = "1.6.1"
 features = ["v4"]
+
+[profile.release]
+lto = "fat"
+strip = "symbols"
