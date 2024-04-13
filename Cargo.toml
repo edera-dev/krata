@@ -119,3 +119,4 @@ features = ["v4"]
 
 [profile.release]
 lto = "fat"
+strip = "symbols"
