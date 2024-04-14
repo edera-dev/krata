@@ -1,6 +1,6 @@
 use prost_types::{ListValue, Value};
 
-include!(concat!(env!("OUT_DIR"), "/krata.internal.idm.rs"));
+include!(concat!(env!("OUT_DIR"), "/krata.bus.idm.rs"));
 
 pub trait AsIdmMetricValue {
     fn as_metric_value(&self) -> Value;

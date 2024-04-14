@@ -1,3 +1,3 @@
 #[cfg(unix)]
 pub mod client;
-pub mod protocol;
+pub use crate::bus::idm as protocol;

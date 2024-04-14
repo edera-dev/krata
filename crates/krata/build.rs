@@ -6,18 +6,12 @@ fn main() -> Result<()> {
         .descriptor_pool("crate::DESCRIPTOR_POOL")
         .configure(
             &mut config,
-            &[
-                "proto/krata/v1/control.proto",
-                "proto/krata/internal/idm.proto",
-            ],
+            &["proto/krata/v1/control.proto", "proto/krata/bus/idm.proto"],
             &["proto/"],
         )?;
     tonic_build::configure().compile_with_config(
         config,
-        &[
-            "proto/krata/v1/control.proto",
-            "proto/krata/internal/idm.proto",
-        ],
+        &["proto/krata/v1/control.proto", "proto/krata/bus/idm.proto"],
         &["proto/"],
     )?;
     Ok(())

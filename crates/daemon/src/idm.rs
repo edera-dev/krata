@@ -15,6 +15,7 @@ use prost::Message;
 use tokio::{
     select,
     sync::{
+        broadcast,
         mpsc::{channel, Receiver, Sender},
         Mutex,
     },
@@ -30,9 +31,14 @@ pub struct DaemonIdmHandle {
     feeds: BackendFeedMap,
     tx_sender: Sender<(u32, IdmPacket)>,
     task: Arc<JoinHandle<()>>,
+    snoop_sender: broadcast::Sender<DaemonIdmSnoopPacket>,
 }
 
 impl DaemonIdmHandle {
+    pub fn snoop(&self) -> broadcast::Receiver<DaemonIdmSnoopPacket> {
+        self.snoop_sender.subscribe()
+    }
+
     pub async fn client(&self, domid: u32) -> Result<IdmClient> {
         client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await
     }
@@ -46,6 +52,13 @@ impl Drop for DaemonIdmHandle {
     }
 }
 
+#[derive(Clone)]
+pub struct DaemonIdmSnoopPacket {
+    pub from: u32,
+    pub to: u32,
+    pub packet: IdmPacket,
+}
+
 pub struct DaemonIdm {
     clients: ClientMap,
     feeds: BackendFeedMap,
@@ -53,6 +66,7 @@ pub struct DaemonIdm {
     tx_raw_sender: Sender<(u32, Vec<u8>)>,
     tx_receiver: Receiver<(u32, IdmPacket)>,
     rx_receiver: Receiver<(u32, Option<Vec<u8>>)>,
+    snoop_sender: broadcast::Sender<DaemonIdmSnoopPacket>,
     task: JoinHandle<()>,
 }
 
@@ -61,6 +75,7 @@ impl DaemonIdm {
         let (service, tx_raw_sender, rx_receiver) =
             ChannelService::new("krata-channel".to_string(), None).await?;
         let (tx_sender, tx_receiver) = channel(100);
+        let (snoop_sender, _) = broadcast::channel(100);
         let task = service.launch().await?;
         let clients = Arc::new(Mutex::new(HashMap::new()));
         let feeds = Arc::new(Mutex::new(HashMap::new()));
@@ -69,6 +84,7 @@ impl DaemonIdm {
             tx_receiver,
             tx_sender,
             tx_raw_sender,
+            snoop_sender,
             task,
             clients,
             feeds,
@@ -79,9 +95,11 @@ impl DaemonIdm {
         let clients = self.clients.clone();
         let feeds = self.feeds.clone();
         let tx_sender = self.tx_sender.clone();
+        let snoop_sender = self.snoop_sender.clone();
         let task = tokio::task::spawn(async move {
             let mut buffers: HashMap<u32, BytesMut> = HashMap::new();
-            if let Err(error) = self.process(&mut buffers).await {
+
+            while let Err(error) = self.process(&mut buffers).await {
                 error!("failed to process idm: {}", error);
             }
         });
@@ -89,6 +107,7 @@ impl DaemonIdm {
             clients,
             feeds,
             tx_sender,
+            snoop_sender,
             task: Arc::new(task),
         })
     }
@@ -116,8 +135,9 @@ impl DaemonIdm {
                                     let _ = client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await?;
                                     let guard = self.feeds.lock().await;
                                     if let Some(feed) = guard.get(&domid) {
-                                        let _ = feed.try_send(packet);
+                                        let _ = feed.try_send(packet.clone());
                                     }
+                                    let _ = self.snoop_sender.send(DaemonIdmSnoopPacket { from: domid, to: 0, packet });
                                 }
 
                                 Err(packet) => {
@@ -147,6 +167,7 @@ impl DaemonIdm {
                         buffer[3] = (length << 24) as u8;
                         buffer.extend_from_slice(&data);
                         self.tx_raw_sender.send((domid, buffer)).await?;
+                        let _ = self.snoop_sender.send(DaemonIdmSnoopPacket { from: 0, to: domid, packet });
                     },
 
                     None => {

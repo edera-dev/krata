@@ -1,5 +1,6 @@
 pub mod attach;
 pub mod destroy;
+pub mod idm_snoop;
 pub mod launch;
 pub mod list;
 pub mod logs;
@@ -17,8 +18,9 @@ use krata::{
 use tonic::{transport::Channel, Request};
 
 use self::{
-    attach::AttachCommand, destroy::DestroyCommand, launch::LauchCommand, list::ListCommand,
-    logs::LogsCommand, metrics::MetricsCommand, resolve::ResolveCommand, watch::WatchCommand,
+    attach::AttachCommand, destroy::DestroyCommand, idm_snoop::IdmSnoopCommand,
+    launch::LauchCommand, list::ListCommand, logs::LogsCommand, metrics::MetricsCommand,
+    resolve::ResolveCommand, watch::WatchCommand,
 };
 
 #[derive(Parser)]
@@ -49,6 +51,7 @@ pub enum Commands {
     Watch(WatchCommand),
     Resolve(ResolveCommand),
     Metrics(MetricsCommand),
+    IdmSnoop(IdmSnoopCommand),
 }
 
 impl ControlCommand {
@@ -87,6 +90,10 @@ impl ControlCommand {
 
             Commands::Metrics(metrics) => {
                 metrics.run(client, events).await?;
+            }
+
+            Commands::IdmSnoop(snoop) => {
+                snoop.run(client, events).await?;
             }
         }
         Ok(())

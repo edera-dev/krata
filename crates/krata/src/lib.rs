@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use prost_reflect::DescriptorPool;
 
+pub mod bus;
 pub mod v1;
 
 pub mod client;
