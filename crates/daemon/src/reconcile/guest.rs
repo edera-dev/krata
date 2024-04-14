@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use krata::launchcfg::LaunchPackedFormat;
 use krata::v1::{
     common::{
         guest_image_spec::Image, Guest, GuestErrorInfo, GuestExitInfo, GuestNetworkState,
@@ -238,6 +239,7 @@ impl GuestReconciler {
         let info = self
             .runtime
             .launch(GuestLaunchRequest {
+                format: LaunchPackedFormat::Squashfs,
                 uuid: Some(uuid),
                 name: if spec.name.is_empty() {
                     None

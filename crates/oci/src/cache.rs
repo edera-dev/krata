@@ -28,10 +28,10 @@ impl ImageCache {
         config_path.push(format!("{}.config.json", digest));
         Ok(
             if fs_path.exists() && manifest_path.exists() && config_path.exists() {
-                let squashfs_metadata = fs::metadata(&fs_path).await?;
+                let image_metadata = fs::metadata(&fs_path).await?;
                 let manifest_metadata = fs::metadata(&manifest_path).await?;
                 let config_metadata = fs::metadata(&config_path).await?;
-                if squashfs_metadata.is_file()
+                if image_metadata.is_file()
                     && manifest_metadata.is_file()
                     && config_metadata.is_file()
                 {
@@ -64,7 +64,7 @@ impl ImageCache {
         fs_path.push(format!("{}.{}", digest, format.extension()));
         manifest_path.push(format!("{}.manifest.json", digest));
         config_path.push(format!("{}.config.json", digest));
-        fs::copy(&info.image_squashfs, &fs_path).await?;
+        fs::copy(&info.image, &fs_path).await?;
         let manifest_text = serde_json::to_string_pretty(&info.manifest)?;
         fs::write(&manifest_path, manifest_text).await?;
         let config_text = serde_json::to_string_pretty(&info.config)?;

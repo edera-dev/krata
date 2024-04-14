@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
+    LaunchPackedFormat, LaunchRoot,
 };
 use krataoci::packer::OciPackerFormat;
 use krataoci::progress::OciProgressContext;
@@ -27,6 +28,7 @@ use krataoci::{
 use super::{GuestInfo, GuestState};
 
 pub struct GuestLaunchRequest<'a> {
+    pub format: LaunchPackedFormat,
     pub uuid: Option<Uuid>,
     pub name: Option<&'a str>,
     pub image: &'a str,
@@ -59,7 +61,10 @@ impl GuestLauncher {
                 request.image,
                 &context.image_cache,
                 &context.oci_progress_context,
-                OciPackerFormat::Squashfs,
+                match request.format {
+                    LaunchPackedFormat::Squashfs => OciPackerFormat::Squashfs,
+                    LaunchPackedFormat::Erofs => OciPackerFormat::Erofs,
+                },
             )
             .await?;
 
@@ -79,6 +84,9 @@ impl GuestLauncher {
         let ipv6_network_mask: u32 = 10;
 
         let launch_config = LaunchInfo {
+            root: LaunchRoot {
+                format: request.format.clone(),
+            },
             hostname: Some(
                 request
                     .name
@@ -112,9 +120,9 @@ impl GuestLauncher {
         cfgblk.build(&launch_config)?;
 
         let image_squashfs_path = image_info
-            .image_squashfs
+            .image
             .to_str()
-            .ok_or_else(|| anyhow!("failed to convert image squashfs path to string"))?;
+            .ok_or_else(|| anyhow!("failed to convert image path to string"))?;
 
         let cfgblk_dir_path = cfgblk
             .dir

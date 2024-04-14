@@ -20,19 +20,19 @@ use uuid::Uuid;
 pub const IMAGE_PACKER_VERSION: u64 = 2;
 
 pub struct ImageInfo {
-    pub image_squashfs: PathBuf,
+    pub image: PathBuf,
     pub manifest: ImageManifest,
     pub config: ImageConfiguration,
 }
 
 impl ImageInfo {
     pub fn new(
-        squashfs: PathBuf,
+        image: PathBuf,
         manifest: ImageManifest,
         config: ImageConfiguration,
     ) -> Result<ImageInfo> {
         Ok(ImageInfo {
-            image_squashfs: squashfs,
+            image,
             manifest,
             config,
         })
@@ -76,8 +76,8 @@ impl OciImageCompiler<'_> {
         layer_dir.push("layer");
         fs::create_dir_all(&layer_dir).await?;
 
-        let mut squash_file = tmp_dir.clone();
-        squash_file.push("image.squashfs");
+        let mut packed_file = tmp_dir.clone();
+        packed_file.push("image.packed");
 
         let _guard = scopeguard::guard(tmp_dir.to_path_buf(), |delete| {
             tokio::task::spawn(async move {
@@ -85,7 +85,7 @@ impl OciImageCompiler<'_> {
             });
         });
         let info = self
-            .download_and_compile(id, image, &layer_dir, &image_dir, &squash_file, format)
+            .download_and_compile(id, image, &layer_dir, &image_dir, &packed_file, format)
             .await?;
         Ok(info)
     }
@@ -96,7 +96,7 @@ impl OciImageCompiler<'_> {
         image: &ImageName,
         layer_dir: &Path,
         image_dir: &Path,
-        squash_file: &Path,
+        packed_file: &Path,
         format: OciPackerFormat,
     ) -> Result<ImageInfo> {
         let mut progress = OciProgress {
@@ -191,23 +191,24 @@ impl OciImageCompiler<'_> {
             }
         }
 
-        let image_dir_squash = image_dir.to_path_buf();
-        let squash_file_squash = squash_file.to_path_buf();
-        let progress_squash = progress.clone();
+        let image_dir_pack = image_dir.to_path_buf();
+        let packed_file_pack = packed_file.to_path_buf();
+        let progress_pack = progress.clone();
         let progress_context = self.progress.clone();
+        let format_pack = format;
         progress = tokio::task::spawn_blocking(move || {
             OciImageCompiler::pack(
-                OciPackerFormat::Squashfs,
-                &image_dir_squash,
-                &squash_file_squash,
-                progress_squash,
+                format_pack,
+                &image_dir_pack,
+                &packed_file_pack,
+                progress_pack,
                 progress_context,
             )
         })
         .await??;
 
         let info = ImageInfo::new(
-            squash_file.to_path_buf(),
+            packed_file.to_path_buf(),
             local.image.manifest,
             local.config,
         )?;
@@ -371,14 +372,13 @@ impl OciImageCompiler<'_> {
     fn pack(
         format: OciPackerFormat,
         image_dir: &Path,
-        squash_file: &Path,
+        packed_file: &Path,
         mut progress: OciProgress,
         progress_context: OciProgressContext,
     ) -> Result<OciProgress> {
-        progress_context.update(&progress);
         let backend = format.detect_best_backend();
         let backend = backend.create();
-        backend.pack(&mut progress, &progress_context, image_dir, squash_file)?;
+        backend.pack(&mut progress, &progress_context, image_dir, packed_file)?;
         std::fs::remove_dir_all(image_dir)?;
         progress.phase = OciProgressPhase::Packing;
         progress.value = progress.total;

@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
     println!(
         "generated squashfs of {} to {}",
         image,
-        info.image_squashfs.to_string_lossy()
+        info.image.to_string_lossy()
     );
     Ok(())
 }

@@ -4,7 +4,7 @@ use futures::stream::TryStreamExt;
 use ipnetwork::IpNetwork;
 use krata::ethtool::EthtoolHandle;
 use krata::idm::client::IdmClient;
-use krata::launchcfg::{LaunchInfo, LaunchNetwork};
+use krata::launchcfg::{LaunchInfo, LaunchNetwork, LaunchPackedFormat};
 use libc::{sethostname, setsid, TIOCSCTTY};
 use log::{trace, warn};
 use nix::ioctl_write_int_bad;
@@ -80,10 +80,12 @@ impl GuestInit {
         let idm = IdmClient::open("/dev/hvc1")
             .await
             .map_err(|x| anyhow!("failed to open idm client: {}", x))?;
-        self.mount_squashfs_images().await?;
+        self.mount_config_image().await?;
 
         let config = self.parse_image_config().await?;
         let launch = self.parse_launch_config().await?;
+
+        self.mount_root_image(launch.root.format.clone()).await?;
 
         self.mount_new_root().await?;
         self.bind_new_root().await?;
@@ -185,24 +187,41 @@ impl GuestInit {
         Ok(())
     }
 
-    async fn mount_squashfs_images(&mut self) -> Result<()> {
-        trace!("mounting squashfs images");
-        let image_mount_path = Path::new(IMAGE_MOUNT_PATH);
+    async fn mount_config_image(&mut self) -> Result<()> {
+        trace!("mounting config image");
         let config_mount_path = Path::new(CONFIG_MOUNT_PATH);
-        self.mount_squashfs(Path::new(IMAGE_BLOCK_DEVICE_PATH), image_mount_path)
-            .await?;
-        self.mount_squashfs(Path::new(CONFIG_BLOCK_DEVICE_PATH), config_mount_path)
+        self.mount_image(
+            Path::new(CONFIG_BLOCK_DEVICE_PATH),
+            config_mount_path,
+            LaunchPackedFormat::Squashfs,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn mount_root_image(&mut self, format: LaunchPackedFormat) -> Result<()> {
+        trace!("mounting root image");
+        let image_mount_path = Path::new(IMAGE_MOUNT_PATH);
+        self.mount_image(Path::new(IMAGE_BLOCK_DEVICE_PATH), image_mount_path, format)
             .await?;
         Ok(())
     }
 
-    async fn mount_squashfs(&mut self, from: &Path, to: &Path) -> Result<()> {
-        trace!("mounting squashfs image {:?} to {:?}", from, to);
+    async fn mount_image(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        format: LaunchPackedFormat,
+    ) -> Result<()> {
+        trace!("mounting {:?} image {:?} to {:?}", format, from, to);
         if !to.is_dir() {
             fs::create_dir(to).await?;
         }
         Mount::builder()
-            .fstype(FilesystemType::Manual("squashfs"))
+            .fstype(FilesystemType::Manual(match format {
+                LaunchPackedFormat::Squashfs => "squashfs",
+                LaunchPackedFormat::Erofs => "erofs",
+            }))
             .flags(MountFlags::RDONLY)
             .mount(from, to)?;
         Ok(())
