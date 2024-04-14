@@ -13,7 +13,8 @@ use krata::{
             control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
             CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
             ListGuestsReply, ListGuestsRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
-            ResolveGuestReply, ResolveGuestRequest, WatchEventsReply, WatchEventsRequest,
+            ResolveGuestReply, ResolveGuestRequest, SnoopIdmReply, SnoopIdmRequest,
+            WatchEventsReply, WatchEventsRequest,
         },
     },
 };
@@ -87,6 +88,9 @@ impl ControlService for RuntimeControlService {
 
     type WatchEventsStream =
         Pin<Box<dyn Stream<Item = Result<WatchEventsReply, Status>> + Send + 'static>>;
+
+    type SnoopIdmStream =
+        Pin<Box<dyn Stream<Item = Result<SnoopIdmReply, Status>> + Send + 'static>>;
 
     async fn create_guest(
         &self,
@@ -345,5 +349,19 @@ impl ControlService for RuntimeControlService {
             }
         };
         Ok(Response::new(Box::pin(output) as Self::WatchEventsStream))
+    }
+
+    async fn snoop_idm(
+        &self,
+        request: Request<SnoopIdmRequest>,
+    ) -> Result<Response<Self::SnoopIdmStream>, Status> {
+        let _ = request.into_inner();
+        let mut messages = self.idm.snoop();
+        let output = try_stream! {
+            while let Ok(event) = messages.recv().await {
+                yield SnoopIdmReply { from: event.from, to: event.to, packet: Some(event.packet) };
+            }
+        };
+        Ok(Response::new(Box::pin(output) as Self::SnoopIdmStream))
     }
 }

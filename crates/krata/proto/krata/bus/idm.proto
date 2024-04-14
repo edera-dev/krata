@@ -1,9 +1,9 @@
 syntax = "proto3";
 
-package krata.internal.idm;
+package krata.bus.idm;
 
 option java_multiple_files = true;
-option java_package = "dev.krata.proto.internal.idm";
+option java_package = "dev.krata.proto.bus.idm";
 option java_outer_classname = "IdmProto";
 
 import "google/protobuf/struct.proto";

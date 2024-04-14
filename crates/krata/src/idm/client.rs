@@ -8,10 +8,9 @@ use std::{
     time::Duration,
 };
 
-use crate::idm::protocol::idm_packet::Content;
-
 use super::protocol::{
-    idm_request::Request, idm_response::Response, IdmEvent, IdmPacket, IdmRequest, IdmResponse,
+    idm_packet::Content, idm_request::Request, idm_response::Response, IdmEvent, IdmPacket,
+    IdmRequest, IdmResponse,
 };
 use anyhow::{anyhow, Result};
 use log::{debug, error};
