@@ -14,11 +14,13 @@ async-compression = { workspace = true, features = ["tokio", "gzip", "zstd"] }
 async-trait = { workspace = true }
 backhand = { workspace = true }
 bytes = { workspace = true }
+indexmap = { workspace = true }
 krata-tokio-tar = { workspace = true }
 log = { workspace = true }
 oci-spec = { workspace = true }
 path-clean = { workspace = true }
 reqwest = { workspace = true }
+scopeguard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha256 = { workspace = true }

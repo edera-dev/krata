@@ -98,11 +98,19 @@ impl GuestInit {
             if result != 0 {
                 warn!("failed to set hostname: {}", result);
             }
+
+            let etc = PathBuf::from_str("/etc")?;
+            if !etc.exists() {
+                fs::create_dir(&etc).await?;
+            }
+            let mut etc_hostname = etc;
+            etc_hostname.push("hostname");
+            fs::write(&etc_hostname, hostname + "\n").await?;
         }
 
         if let Some(network) = &launch.network {
             trace!("initializing network");
-            if let Err(error) = self.network_setup(network).await {
+            if let Err(error) = self.network_setup(&launch, network).await {
                 warn!("failed to initialize network: {}", error);
             }
         }
@@ -287,7 +295,7 @@ impl GuestInit {
         Ok(())
     }
 
-    async fn network_setup(&mut self, network: &LaunchNetwork) -> Result<()> {
+    async fn network_setup(&mut self, cfg: &LaunchInfo, network: &LaunchNetwork) -> Result<()> {
         trace!("setting up network for link");
 
         let etc = PathBuf::from_str("/etc")?;
@@ -295,14 +303,33 @@ impl GuestInit {
             fs::create_dir(etc).await?;
         }
         let resolv = PathBuf::from_str("/etc/resolv.conf")?;
-        let mut lines = vec!["# krata resolver configuration".to_string()];
-        for nameserver in &network.resolver.nameservers {
-            lines.push(format!("nameserver {}", nameserver));
+
+        {
+            let mut lines = vec!["# krata resolver configuration".to_string()];
+            for nameserver in &network.resolver.nameservers {
+                lines.push(format!("nameserver {}", nameserver));
+            }
+
+            let mut conf = lines.join("\n");
+            conf.push('\n');
+            fs::write(resolv, conf).await?;
         }
 
-        let mut conf = lines.join("\n");
-        conf.push('\n');
-        fs::write(resolv, conf).await?;
+        let hosts = PathBuf::from_str("/etc/hosts")?;
+        if let Some(ref hostname) = cfg.hostname {
+            let mut lines = if hosts.exists() {
+                fs::read_to_string(&hosts)
+                    .await?
+                    .lines()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            } else {
+                vec!["127.0.0.1 localhost".to_string()]
+            };
+            lines.push(format!("127.0.1.1 {}", hostname));
+            fs::write(&hosts, lines.join("\n") + "\n").await?;
+        }
+
         self.network_configure_ethtool(network).await?;
         self.network_configure_link(network).await?;
         Ok(())

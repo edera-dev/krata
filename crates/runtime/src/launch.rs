@@ -9,6 +9,7 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
 };
+use krataoci::packer::OciPackerFormat;
 use krataoci::progress::OciProgressContext;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -19,7 +20,7 @@ use crate::cfgblk::ConfigBlock;
 use crate::RuntimeContext;
 use krataoci::{
     cache::ImageCache,
-    compiler::{ImageCompiler, ImageInfo},
+    compiler::{ImageInfo, OciImageCompiler},
     name::ImageName,
 };
 
@@ -58,6 +59,7 @@ impl GuestLauncher {
                 request.image,
                 &context.image_cache,
                 &context.oci_progress_context,
+                OciPackerFormat::Squashfs,
             )
             .await?;
 
@@ -257,10 +259,11 @@ impl GuestLauncher {
         image: &str,
         image_cache: &ImageCache,
         progress: &OciProgressContext,
+        format: OciPackerFormat,
     ) -> Result<ImageInfo> {
         let image = ImageName::parse(image)?;
-        let compiler = ImageCompiler::new(image_cache, None, progress.clone())?;
-        compiler.compile(id, &image).await
+        let compiler = OciImageCompiler::new(image_cache, None, progress.clone())?;
+        compiler.compile(id, &image, format).await
     }
 
     async fn allocate_ipv4(&self, context: &RuntimeContext) -> Result<Ipv4Addr> {

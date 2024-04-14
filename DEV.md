@@ -28,7 +28,12 @@ it's corresponding code path from the above table.
 
 1. Install the specified Debian version on a x86_64 host _capable_ of KVM (NOTE: KVM is not used, Xen is a type-1 hypervisor).
 
-2. Install required packages: `apt install git xen-system-amd64 flex bison libelf-dev libssl-dev bc`
+2. Install required packages:
+
+```sh
+$ apt install git xen-system-amd64 flex bison libelf-dev libssl-dev bc protobuf-compiler libprotobuf-dev squashfs-tools erofs-utils
+```
+
 
 3. Install [rustup](https://rustup.rs) for managing a Rust environment.
 

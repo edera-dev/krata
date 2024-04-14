@@ -3,7 +3,11 @@ use std::{env::args, path::PathBuf};
 use anyhow::Result;
 use env_logger::Env;
 use krataoci::{
-    cache::ImageCache, compiler::ImageCompiler, name::ImageName, progress::OciProgressContext,
+    cache::ImageCache,
+    compiler::OciImageCompiler,
+    name::ImageName,
+    packer::OciPackerFormat,
+    progress::{OciProgress, OciProgressContext},
 };
 use tokio::{fs, sync::broadcast};
 
@@ -21,17 +25,26 @@ async fn main() -> Result<()> {
 
     let cache = ImageCache::new(&cache_dir)?;
 
-    let (sender, mut receiver) = broadcast::channel(1000);
+    let (sender, mut receiver) = broadcast::channel::<OciProgress>(1000);
     tokio::task::spawn(async move {
         loop {
-            let Some(_) = receiver.recv().await.ok() else {
+            let Some(progress) = receiver.recv().await.ok() else {
                 break;
             };
+            println!("phase {:?}", progress.phase);
+            for (id, layer) in progress.layers {
+                println!(
+                    "{} {:?} {} of {}",
+                    id, layer.phase, layer.value, layer.total
+                )
+            }
         }
     });
     let context = OciProgressContext::new(sender);
-    let compiler = ImageCompiler::new(&cache, seed, context)?;
-    let info = compiler.compile(&image.to_string(), &image).await?;
+    let compiler = OciImageCompiler::new(&cache, seed, context)?;
+    let info = compiler
+        .compile(&image.to_string(), &image, OciPackerFormat::Squashfs)
+        .await?;
     println!(
         "generated squashfs of {} to {}",
         image,

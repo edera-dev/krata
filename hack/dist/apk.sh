@@ -19,6 +19,8 @@ fpm -s tar -t apk \
   --license agpl3 \
   --version "${KRATA_VERSION}" \
   --architecture "${TARGET_ARCH}" \
+  --depends "squashfs-tools" \
+  --depends "erofs-utils" \
   --description "Krata Hypervisor" \
   --url "https://krata.dev" \
   --maintainer "Edera Team <contact@edera.dev>" \

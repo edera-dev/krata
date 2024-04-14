@@ -182,8 +182,7 @@ async fn wait_guest_started(id: &str, events: EventStream) -> Result<()> {
                             for layer in &oci.layers {
                                 let bar = ProgressBar::new(layer.total);
                                 bar.set_style(
-                                    ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len}")
-                                        .unwrap(),
+                                    ProgressStyle::with_template("{msg} {wide_bar}").unwrap(),
                                 );
                                 progresses.insert(layer.id.clone(), bar.clone());
                                 multi_progress.add(bar);
@@ -204,35 +203,54 @@ async fn wait_guest_started(id: &str, events: EventStream) -> Result<()> {
                                 _ => "unknown",
                             };
 
-                            progress.set_message(format!("{} {}", layer.id, phase));
-                            progress.set_length(layer.total);
-                            progress.set_position(layer.value);
+                            let simple = if let Some((_, hash)) = layer.id.split_once(':') {
+                                hash
+                            } else {
+                                id
+                            };
+                            let simple = if simple.len() > 10 {
+                                &simple[0..10]
+                            } else {
+                                simple
+                            };
+                            let message = format!("{:width$} {}", simple, phase, width = 10);
+
+                            if message != progress.message() {
+                                progress.set_message(message);
+                            }
+
+                            progress.update(|state| {
+                                state.set_len(layer.total);
+                                state.set_pos(layer.value);
+                            });
                         }
                     }
 
                     OciProgressEventPhase::Packing => {
-                        for (key, progress) in &mut *progresses {
+                        for (key, bar) in &mut *progresses {
                             if key == "packing" {
                                 continue;
                             }
-                            progress.finish_and_clear();
-                            multi_progress.remove(progress);
+                            bar.finish_and_clear();
+                            multi_progress.remove(bar);
                         }
                         progresses.retain(|k, _| k == "packing");
                         if progresses.is_empty() {
                             let progress = ProgressBar::new(100);
+                            progress.set_message("packing");
                             progress.set_style(
-                                ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len}")
-                                    .unwrap(),
+                                ProgressStyle::with_template("{msg} {wide_bar}").unwrap(),
                             );
                             progresses.insert("packing".to_string(), progress);
                         }
                         let Some(progress) = progresses.get("packing") else {
                             continue;
                         };
-                        progress.set_message("packing image");
-                        progress.set_length(oci.total);
-                        progress.set_position(oci.value);
+
+                        progress.update(|state| {
+                            state.set_len(oci.total);
+                            state.set_pos(oci.value);
+                        });
                     }
 
                     _ => {}
