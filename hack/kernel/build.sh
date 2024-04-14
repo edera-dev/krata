@@ -26,7 +26,7 @@ KERNEL_SRC="${KERNEL_DIR}/linux-${KERNEL_VERSION}-${TARGET_ARCH_STANDARD}"
 
 if [ -z "${KRATA_KERNEL_BUILD_JOBS}" ]
 then
-  KRATA_KERNEL_BUILD_JOBS="2"
+  KRATA_KERNEL_BUILD_JOBS="$(nproc)"
 fi
 
 if [ ! -f "${KERNEL_SRC}/Makefile" ]
