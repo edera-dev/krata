@@ -13,7 +13,7 @@ anyhow = { workspace = true }
 async-stream = { workspace = true }
 clap = { workspace = true }
 comfy-table = { workspace = true }
-crossterm = { workspace = true }
+crossterm = { workspace = true, features = ["event-stream"] }
 ctrlc = { workspace = true, features = ["termination"] }
 env_logger = { workspace = true }
 fancy-duration = { workspace = true }
@@ -23,6 +23,7 @@ krata = { path = "../krata", version = "^0.0.8" }
 log = { workspace = true }
 prost-reflect = { workspace = true, features = ["serde"] }
 prost-types = { workspace = true }
+ratatui = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 termtree = { workspace = true }

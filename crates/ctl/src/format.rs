@@ -121,7 +121,7 @@ fn metrics_value_numeric(value: Value) -> f64 {
     string.parse::<f64>().ok().unwrap_or(f64::NAN)
 }
 
-fn metrics_value_pretty(value: Value, format: GuestMetricFormat) -> String {
+pub fn metrics_value_pretty(value: Value, format: GuestMetricFormat) -> String {
     match format {
         GuestMetricFormat::Bytes => human_bytes(metrics_value_numeric(value)),
         GuestMetricFormat::Integer => (metrics_value_numeric(value) as u64).to_string(),
