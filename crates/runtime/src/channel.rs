@@ -448,6 +448,10 @@ impl KrataChannelBackendProcessor {
                                 error!("channel for domid {} has an invalid input space of {}", self.domid, space);
                             }
                             let free = XenConsoleInterface::INPUT_SIZE.wrapping_sub(space);
+                            if free == 0 {
+                                sleep(Duration::from_micros(100)).await;
+                                continue;
+                            }
                             let want = data.len().min(free);
                             let buffer = &data[index..want];
                             for b in buffer {
