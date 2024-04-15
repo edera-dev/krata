@@ -74,7 +74,11 @@ impl IdmBackend for IdmFileBackend {
             return Ok(IdmPacket::default());
         }
         let b2 = guard.get_inner_mut().read_u8().await?;
-        if b2 != 0xff {
+        if b2 != 0xfe {
+            return Ok(IdmPacket::default());
+        }
+        let b3 = guard.get_inner_mut().read_u8().await?;
+        if b3 != 0xff {
             return Ok(IdmPacket::default());
         }
         let size = guard.get_inner_mut().read_u32_le().await?;
@@ -92,7 +96,7 @@ impl IdmBackend for IdmFileBackend {
     async fn send(&mut self, packet: IdmPacket) -> Result<()> {
         let mut file = self.write.lock().await;
         let data = packet.encode_to_vec();
-        file.write_all(&[0xff, 0xff]).await?;
+        file.write_all(&[0xff, 0xfe, 0xff]).await?;
         file.write_u32_le(data.len() as u32).await?;
         file.write_all(&data).await?;
         Ok(())

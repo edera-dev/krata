@@ -22,6 +22,9 @@ use tokio::{
     task::JoinHandle,
 };
 
+const IDM_TX_QUEUE_LEN: usize = 100;
+const IDM_SNOOP_QUEUE_LEN: usize = 100;
+
 type BackendFeedMap = Arc<Mutex<HashMap<u32, Sender<IdmPacket>>>>;
 type ClientMap = Arc<Mutex<HashMap<u32, IdmClient>>>;
 
@@ -74,8 +77,8 @@ impl DaemonIdm {
     pub async fn new() -> Result<DaemonIdm> {
         let (service, tx_raw_sender, rx_receiver) =
             ChannelService::new("krata-channel".to_string(), None).await?;
-        let (tx_sender, tx_receiver) = channel(100);
-        let (snoop_sender, _) = broadcast::channel(100);
+        let (tx_sender, tx_receiver) = channel(IDM_TX_QUEUE_LEN);
+        let (snoop_sender, _) = broadcast::channel(IDM_SNOOP_QUEUE_LEN);
         let task = service.launch().await?;
         let clients = Arc::new(Mutex::new(HashMap::new()));
         let feeds = Arc::new(Mutex::new(HashMap::new()));
@@ -120,17 +123,17 @@ impl DaemonIdm {
                         if let Some(data) = data {
                             let buffer = buffers.entry(domid).or_insert_with_key(|_| BytesMut::new());
                             buffer.extend_from_slice(&data);
-                            if buffer.len() < 6 {
+                            if buffer.len() < 7 {
                                 continue;
                             }
 
-                            if buffer[0] != 0xff || buffer[1] != 0xff {
+                            if buffer[0] != 0xff || buffer[1] != 0xfe || buffer[2] != 0xff {
                                 buffer.clear();
                                 continue;
                             }
 
-                            let size = (buffer[2] as u32 | (buffer[3] as u32) << 8 | (buffer[4] as u32) << 16 | (buffer[5] as u32) << 24) as usize;
-                            let needed = size + 6;
+                            let size = (buffer[3] as u32 | (buffer[4] as u32) << 8 | (buffer[5] as u32) << 16 | (buffer[6] as u32) << 24) as usize;
+                            let needed = size + 7;
                             if buffer.len() < needed {
                                 continue;
                             }
@@ -165,14 +168,15 @@ impl DaemonIdm {
                 x = self.tx_receiver.recv() => match x {
                     Some((domid, packet)) => {
                         let data = packet.encode_to_vec();
-                        let mut buffer = vec![0u8; 6];
+                        let mut buffer = vec![0u8; 7];
                         let length = data.len() as u32;
                         buffer[0] = 0xff;
-                        buffer[1] = 0xff;
-                        buffer[2] = length as u8;
-                        buffer[3] = (length << 8) as u8;
-                        buffer[4] = (length << 16) as u8;
-                        buffer[5] = (length << 24) as u8;
+                        buffer[1] = 0xfe;
+                        buffer[2] = 0xff;
+                        buffer[3] = length as u8;
+                        buffer[4] = (length << 8) as u8;
+                        buffer[5] = (length << 16) as u8;
+                        buffer[6] = (length << 24) as u8;
                         buffer.extend_from_slice(&data);
                         self.tx_raw_sender.send((domid, buffer)).await?;
                         let _ = self.snoop_sender.send(DaemonIdmSnoopPacket { from: 0, to: domid, packet });
