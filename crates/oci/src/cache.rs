@@ -1,3 +1,5 @@
+use crate::packer::OciPackerFormat;
+
 use super::compiler::ImageInfo;
 use anyhow::Result;
 use log::debug;
@@ -17,19 +19,19 @@ impl ImageCache {
         })
     }
 
-    pub async fn recall(&self, digest: &str) -> Result<Option<ImageInfo>> {
-        let mut squashfs_path = self.cache_dir.clone();
+    pub async fn recall(&self, digest: &str, format: OciPackerFormat) -> Result<Option<ImageInfo>> {
+        let mut fs_path = self.cache_dir.clone();
         let mut config_path = self.cache_dir.clone();
         let mut manifest_path = self.cache_dir.clone();
-        squashfs_path.push(format!("{}.squashfs", digest));
+        fs_path.push(format!("{}.{}", digest, format.extension()));
         manifest_path.push(format!("{}.manifest.json", digest));
         config_path.push(format!("{}.config.json", digest));
         Ok(
-            if squashfs_path.exists() && manifest_path.exists() && config_path.exists() {
-                let squashfs_metadata = fs::metadata(&squashfs_path).await?;
+            if fs_path.exists() && manifest_path.exists() && config_path.exists() {
+                let image_metadata = fs::metadata(&fs_path).await?;
                 let manifest_metadata = fs::metadata(&manifest_path).await?;
                 let config_metadata = fs::metadata(&config_path).await?;
-                if squashfs_metadata.is_file()
+                if image_metadata.is_file()
                     && manifest_metadata.is_file()
                     && config_metadata.is_file()
                 {
@@ -38,7 +40,7 @@ impl ImageCache {
                     let config_text = fs::read_to_string(&config_path).await?;
                     let config: ImageConfiguration = serde_json::from_str(&config_text)?;
                     debug!("cache hit digest={}", digest);
-                    Some(ImageInfo::new(squashfs_path.clone(), manifest, config)?)
+                    Some(ImageInfo::new(fs_path.clone(), manifest, config)?)
                 } else {
                     None
                 }
@@ -49,23 +51,24 @@ impl ImageCache {
         )
     }
 
-    pub async fn store(&self, digest: &str, info: &ImageInfo) -> Result<ImageInfo> {
+    pub async fn store(
+        &self,
+        digest: &str,
+        info: &ImageInfo,
+        format: OciPackerFormat,
+    ) -> Result<ImageInfo> {
         debug!("cache store digest={}", digest);
-        let mut squashfs_path = self.cache_dir.clone();
+        let mut fs_path = self.cache_dir.clone();
         let mut manifest_path = self.cache_dir.clone();
         let mut config_path = self.cache_dir.clone();
-        squashfs_path.push(format!("{}.squashfs", digest));
+        fs_path.push(format!("{}.{}", digest, format.extension()));
         manifest_path.push(format!("{}.manifest.json", digest));
         config_path.push(format!("{}.config.json", digest));
-        fs::copy(&info.image_squashfs, &squashfs_path).await?;
+        fs::copy(&info.image, &fs_path).await?;
         let manifest_text = serde_json::to_string_pretty(&info.manifest)?;
         fs::write(&manifest_path, manifest_text).await?;
         let config_text = serde_json::to_string_pretty(&info.config)?;
         fs::write(&config_path, config_text).await?;
-        ImageInfo::new(
-            squashfs_path.clone(),
-            info.manifest.clone(),
-            info.config.clone(),
-        )
+        ImageInfo::new(fs_path.clone(), info.manifest.clone(), info.config.clone())
     }
 }

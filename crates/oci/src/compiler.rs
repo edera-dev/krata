@@ -1,18 +1,14 @@
 use crate::cache::ImageCache;
 use crate::fetch::{OciImageDownloader, OciImageLayer};
 use crate::name::ImageName;
+use crate::packer::OciPackerFormat;
 use crate::progress::{OciProgress, OciProgressContext, OciProgressPhase};
 use crate::registry::OciRegistryPlatform;
 use anyhow::{anyhow, Result};
-use backhand::compression::Compressor;
-use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader};
-use log::{debug, trace, warn};
+use indexmap::IndexMap;
+use log::{debug, trace};
 use oci_spec::image::{ImageConfiguration, ImageManifest};
 use std::borrow::Cow;
-use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::{BufWriter, ErrorKind, Read};
-use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use tokio::fs;
@@ -20,51 +16,55 @@ use tokio::io::AsyncRead;
 use tokio_stream::StreamExt;
 use tokio_tar::{Archive, Entry};
 use uuid::Uuid;
-use walkdir::WalkDir;
 
-pub const IMAGE_SQUASHFS_VERSION: u64 = 2;
+pub const IMAGE_PACKER_VERSION: u64 = 2;
 
 pub struct ImageInfo {
-    pub image_squashfs: PathBuf,
+    pub image: PathBuf,
     pub manifest: ImageManifest,
     pub config: ImageConfiguration,
 }
 
 impl ImageInfo {
     pub fn new(
-        squashfs: PathBuf,
+        image: PathBuf,
         manifest: ImageManifest,
         config: ImageConfiguration,
     ) -> Result<ImageInfo> {
         Ok(ImageInfo {
-            image_squashfs: squashfs,
+            image,
             manifest,
             config,
         })
     }
 }
 
-pub struct ImageCompiler<'a> {
+pub struct OciImageCompiler<'a> {
     cache: &'a ImageCache,
     seed: Option<PathBuf>,
     progress: OciProgressContext,
 }
 
-impl ImageCompiler<'_> {
+impl OciImageCompiler<'_> {
     pub fn new(
         cache: &ImageCache,
         seed: Option<PathBuf>,
         progress: OciProgressContext,
-    ) -> Result<ImageCompiler> {
-        Ok(ImageCompiler {
+    ) -> Result<OciImageCompiler> {
+        Ok(OciImageCompiler {
             cache,
             seed,
             progress,
         })
     }
 
-    pub async fn compile(&self, id: &str, image: &ImageName) -> Result<ImageInfo> {
-        debug!("compile image={image}");
+    pub async fn compile(
+        &self,
+        id: &str,
+        image: &ImageName,
+        format: OciPackerFormat,
+    ) -> Result<ImageInfo> {
+        debug!("compile image={image} format={:?}", format);
         let mut tmp_dir = std::env::temp_dir().clone();
         tmp_dir.push(format!("krata-compile-{}", Uuid::new_v4()));
 
@@ -76,12 +76,17 @@ impl ImageCompiler<'_> {
         layer_dir.push("layer");
         fs::create_dir_all(&layer_dir).await?;
 
-        let mut squash_file = tmp_dir.clone();
-        squash_file.push("image.squashfs");
+        let mut packed_file = tmp_dir.clone();
+        packed_file.push("image.packed");
+
+        let _guard = scopeguard::guard(tmp_dir.to_path_buf(), |delete| {
+            tokio::task::spawn(async move {
+                let _ = fs::remove_dir_all(delete).await;
+            });
+        });
         let info = self
-            .download_and_compile(id, image, &layer_dir, &image_dir, &squash_file)
+            .download_and_compile(id, image, &layer_dir, &image_dir, &packed_file, format)
             .await?;
-        fs::remove_dir_all(&tmp_dir).await?;
         Ok(info)
     }
 
@@ -91,12 +96,13 @@ impl ImageCompiler<'_> {
         image: &ImageName,
         layer_dir: &Path,
         image_dir: &Path,
-        squash_file: &Path,
+        packed_file: &Path,
+        format: OciPackerFormat,
     ) -> Result<ImageInfo> {
         let mut progress = OciProgress {
             id: id.to_string(),
             phase: OciProgressPhase::Resolving,
-            layers: BTreeMap::new(),
+            layers: IndexMap::new(),
             value: 0,
             total: 0,
         };
@@ -109,14 +115,14 @@ impl ImageCompiler<'_> {
         );
         let resolved = downloader.resolve(image.clone()).await?;
         let cache_key = format!(
-            "manifest={}:squashfs-version={}\n",
-            resolved.digest, IMAGE_SQUASHFS_VERSION
+            "manifest={}:version={}:format={}\n",
+            resolved.digest,
+            IMAGE_PACKER_VERSION,
+            format.id(),
         );
         let cache_digest = sha256::digest(cache_key);
 
-        progress.phase = OciProgressPhase::Complete;
-        self.progress.update(&progress);
-        if let Some(cached) = self.cache.recall(&cache_digest).await? {
+        if let Some(cached) = self.cache.recall(&cache_digest, format).await? {
             return Ok(cached);
         }
 
@@ -132,7 +138,7 @@ impl ImageCompiler<'_> {
                 "process layer digest={} compression={:?}",
                 &layer.digest, layer.compression,
             );
-            progress.extracting_layer(&layer.digest, 0, 0);
+            progress.extracting_layer(&layer.digest, 0, 1);
             self.progress.update(&progress);
             let (whiteouts, count) = self.process_layer_whiteout(layer, image_dir).await?;
             progress.extracting_layer(&layer.digest, 0, count);
@@ -149,7 +155,9 @@ impl ImageCompiler<'_> {
                 let path = entry.path()?;
                 let mut maybe_whiteout_path_str =
                     path.to_str().map(|x| x.to_string()).unwrap_or_default();
-                progress.extracting_layer(&layer.digest, completed, count);
+                if (completed % 10) == 0 {
+                    progress.extracting_layer(&layer.digest, completed, count);
+                }
                 completed += 1;
                 self.progress.update(&progress);
                 if whiteouts.contains(&maybe_whiteout_path_str) {
@@ -183,26 +191,28 @@ impl ImageCompiler<'_> {
             }
         }
 
-        let image_dir_squash = image_dir.to_path_buf();
-        let squash_file_squash = squash_file.to_path_buf();
-        let progress_squash = progress.clone();
+        let image_dir_pack = image_dir.to_path_buf();
+        let packed_file_pack = packed_file.to_path_buf();
+        let progress_pack = progress.clone();
         let progress_context = self.progress.clone();
+        let format_pack = format;
         progress = tokio::task::spawn_blocking(move || {
-            ImageCompiler::squash(
-                &image_dir_squash,
-                &squash_file_squash,
-                progress_squash,
+            OciImageCompiler::pack(
+                format_pack,
+                &image_dir_pack,
+                &packed_file_pack,
+                progress_pack,
                 progress_context,
             )
         })
         .await??;
 
         let info = ImageInfo::new(
-            squash_file.to_path_buf(),
+            packed_file.to_path_buf(),
             local.image.manifest,
             local.config,
         )?;
-        let info = self.cache.store(&cache_digest, &info).await?;
+        let info = self.cache.store(&cache_digest, &info, format).await?;
         progress.phase = OciProgressPhase::Complete;
         progress.value = 0;
         progress.total = 0;
@@ -359,128 +369,20 @@ impl ImageCompiler<'_> {
         Ok(())
     }
 
-    fn squash(
+    fn pack(
+        format: OciPackerFormat,
         image_dir: &Path,
-        squash_file: &Path,
+        packed_file: &Path,
         mut progress: OciProgress,
         progress_context: OciProgressContext,
     ) -> Result<OciProgress> {
-        progress.phase = OciProgressPhase::Packing;
-        progress.total = 2;
-        progress.value = 0;
-        progress_context.update(&progress);
-        let mut writer = FilesystemWriter::default();
-        writer.set_compressor(FilesystemCompressor::new(Compressor::Gzip, None)?);
-        let walk = WalkDir::new(image_dir).follow_links(false);
-        for entry in walk {
-            let entry = entry?;
-            let rel = entry
-                .path()
-                .strip_prefix(image_dir)?
-                .to_str()
-                .ok_or_else(|| anyhow!("failed to strip prefix of tmpdir"))?;
-            let rel = format!("/{}", rel);
-            trace!("squash write {}", rel);
-            let typ = entry.file_type();
-            let metadata = std::fs::symlink_metadata(entry.path())?;
-            let uid = metadata.uid();
-            let gid = metadata.gid();
-            let mode = metadata.permissions().mode();
-            let mtime = metadata.mtime();
-
-            if rel == "/" {
-                writer.set_root_uid(uid);
-                writer.set_root_gid(gid);
-                writer.set_root_mode(mode as u16);
-                continue;
-            }
-
-            let header = NodeHeader {
-                permissions: mode as u16,
-                uid,
-                gid,
-                mtime: mtime as u32,
-            };
-            if typ.is_symlink() {
-                let symlink = std::fs::read_link(entry.path())?;
-                let symlink = symlink
-                    .to_str()
-                    .ok_or_else(|| anyhow!("failed to read symlink"))?;
-                writer.push_symlink(symlink, rel, header)?;
-            } else if typ.is_dir() {
-                writer.push_dir(rel, header)?;
-            } else if typ.is_file() {
-                writer.push_file(ConsumingFileReader::new(entry.path()), rel, header)?;
-            } else if typ.is_block_device() {
-                let device = metadata.dev();
-                writer.push_block_device(device as u32, rel, header)?;
-            } else if typ.is_char_device() {
-                let device = metadata.dev();
-                writer.push_char_device(device as u32, rel, header)?;
-            } else if typ.is_fifo() {
-                writer.push_fifo(rel, header)?;
-            } else if typ.is_socket() {
-                writer.push_socket(rel, header)?;
-            } else {
-                return Err(anyhow!("invalid file type"));
-            }
-        }
-
-        progress.phase = OciProgressPhase::Packing;
-        progress.value = 1;
-        progress_context.update(&progress);
-
-        let squash_file_path = squash_file
-            .to_str()
-            .ok_or_else(|| anyhow!("failed to convert squashfs string"))?;
-
-        let file = File::create(squash_file)?;
-        let mut bufwrite = BufWriter::new(file);
-        trace!("squash generate: {}", squash_file_path);
-        writer.write(&mut bufwrite)?;
+        let backend = format.detect_best_backend();
+        let backend = backend.create();
+        backend.pack(&mut progress, &progress_context, image_dir, packed_file)?;
         std::fs::remove_dir_all(image_dir)?;
         progress.phase = OciProgressPhase::Packing;
-        progress.value = 2;
+        progress.value = progress.total;
         progress_context.update(&progress);
         Ok(progress)
-    }
-}
-
-struct ConsumingFileReader {
-    path: PathBuf,
-    file: Option<File>,
-}
-
-impl ConsumingFileReader {
-    fn new(path: &Path) -> ConsumingFileReader {
-        ConsumingFileReader {
-            path: path.to_path_buf(),
-            file: None,
-        }
-    }
-}
-
-impl Read for ConsumingFileReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.file.is_none() {
-            self.file = Some(File::open(&self.path)?);
-        }
-        let Some(ref mut file) = self.file else {
-            return Err(std::io::Error::new(
-                ErrorKind::NotFound,
-                "file was not opened",
-            ));
-        };
-        file.read(buf)
-    }
-}
-
-impl Drop for ConsumingFileReader {
-    fn drop(&mut self) {
-        let file = self.file.take();
-        drop(file);
-        if let Err(error) = std::fs::remove_file(&self.path) {
-            warn!("failed to delete consuming file {:?}: {}", self.path, error);
-        }
     }
 }

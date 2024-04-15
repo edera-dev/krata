@@ -28,9 +28,20 @@ it's corresponding code path from the above table.
 
 1. Install the specified Debian version on a x86_64 host _capable_ of KVM (NOTE: KVM is not used, Xen is a type-1 hypervisor).
 
-2. Install required packages: `apt install git xen-system-amd64 flex bison libelf-dev libssl-dev bc`
+2. Install required packages:
+
+```sh
+$ apt install git xen-system-amd64 build-essential libclang-dev musl-tools flex bison libelf-dev libssl-dev bc protobuf-compiler libprotobuf-dev squashfs-tools erofs-utils
+```
 
 3. Install [rustup](https://rustup.rs) for managing a Rust environment.
+
+Make sure to install the targets that you need for krata:
+
+```sh
+$ rustup target add x86_64-unknown-linux-gnu
+$ rustup target add x86_64-unknown-linux-musl
+```
 
 4. Configure `/etc/default/grub.d/xen.cfg` to give krata guests some room:
 
@@ -43,7 +54,7 @@ After changing the grub config, update grub: `update-grub`
 
 Then reboot to boot the system as a Xen dom0.
 
-You can validate that Xen is setup by running `xl info` and ensuring it returns useful information about the Xen hypervisor.
+You can validate that Xen is setup by running `dmesg | grep "Hypervisor detected"` and ensuring it returns a line like `Hypervisor detected: Xen PV`, if that is missing, the host is not running under Xen.
 
 5. Clone the krata source code:
 ```sh

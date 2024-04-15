@@ -20,6 +20,8 @@ fpm -s tar -t deb \
   --version "${KRATA_VERSION}" \
   --architecture "${TARGET_ARCH_DEBIAN}" \
   --depends "xen-system-${TARGET_ARCH_DEBIAN}" \
+  --depends "squashfs-tools" \
+  --depends "erofs-utils" \
   --description "Krata Hypervisor" \
   --url "https://krata.dev" \
   --maintainer "Edera Team <contact@edera.dev>" \

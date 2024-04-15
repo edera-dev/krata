@@ -1,12 +1,11 @@
-use std::collections::BTreeMap;
-
+use indexmap::IndexMap;
 use tokio::sync::broadcast::Sender;
 
 #[derive(Clone, Debug)]
 pub struct OciProgress {
     pub id: String,
     pub phase: OciProgressPhase,
-    pub layers: BTreeMap<String, OciProgressLayer>,
+    pub layers: IndexMap<String, OciProgressLayer>,
     pub value: u64,
     pub total: u64,
 }
