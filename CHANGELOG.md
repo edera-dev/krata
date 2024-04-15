@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.9](https://github.com/edera-dev/krata/compare/v0.0.8...v0.0.9) - 2024-04-15
+
+### Added
+- oci compliance work ([#85](https://github.com/edera-dev/krata/pull/85))
+- oci packer can now use mksquashfs if available ([#70](https://github.com/edera-dev/krata/pull/70))
+- basic kratactl top command ([#72](https://github.com/edera-dev/krata/pull/72))
+- idm snooping ([#71](https://github.com/edera-dev/krata/pull/71))
+- implement oci image progress ([#64](https://github.com/edera-dev/krata/pull/64))
+- guest metrics support ([#46](https://github.com/edera-dev/krata/pull/46))
+
+### Other
+- init: default to xterm if TERM is not set ([#52](https://github.com/edera-dev/krata/pull/52))
+- update Cargo.toml dependencies
+
 ## [0.0.8](https://github.com/edera-dev/krata/compare/v0.0.7...v0.0.8) - 2024-04-09
 
 ### Other

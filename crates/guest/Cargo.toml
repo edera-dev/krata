@@ -14,8 +14,8 @@ cgroups-rs = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
 ipnetwork = { workspace = true }
-krata = { path = "../krata", version = "^0.0.8" }
-krata-xenstore = { path = "../xen/xenstore", version = "^0.0.8" }
+krata = { path = "../krata", version = "^0.0.9" }
+krata-xenstore = { path = "../xen/xenstore", version = "^0.0.9" }
 libc = { workspace = true }
 log = { workspace = true }
 nix = { workspace = true, features = ["ioctl", "process", "fs"] }
