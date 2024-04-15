@@ -6,116 +6,23 @@ use std::{
     process::{Command, Stdio},
 };
 
+use crate::progress::{OciBoundProgress, OciProgressPhase};
 use anyhow::{anyhow, Result};
 use backhand::{compression::Compressor, FilesystemCompressor, FilesystemWriter, NodeHeader};
 use log::{trace, warn};
 use walkdir::WalkDir;
 
-use crate::progress::{OciProgress, OciProgressContext, OciProgressPhase};
-
-#[derive(Debug, Default, Clone, Copy)]
-pub enum OciPackerFormat {
-    #[default]
-    Squashfs,
-    Erofs,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum OciPackerBackendType {
-    Backhand,
-    MkSquashfs,
-    MkfsErofs,
-}
-
-impl OciPackerFormat {
-    pub fn id(&self) -> u8 {
-        match self {
-            OciPackerFormat::Squashfs => 0,
-            OciPackerFormat::Erofs => 1,
-        }
-    }
-
-    pub fn extension(&self) -> &str {
-        match self {
-            OciPackerFormat::Squashfs => "erofs",
-            OciPackerFormat::Erofs => "erofs",
-        }
-    }
-
-    pub fn detect_best_backend(&self) -> OciPackerBackendType {
-        match self {
-            OciPackerFormat::Squashfs => {
-                let status = Command::new("mksquashfs")
-                    .arg("-version")
-                    .stdin(Stdio::null())
-                    .stderr(Stdio::null())
-                    .stdout(Stdio::null())
-                    .status()
-                    .ok();
-
-                let Some(code) = status.and_then(|x| x.code()) else {
-                    return OciPackerBackendType::Backhand;
-                };
-
-                if code == 0 {
-                    OciPackerBackendType::MkSquashfs
-                } else {
-                    OciPackerBackendType::Backhand
-                }
-            }
-            OciPackerFormat::Erofs => OciPackerBackendType::MkfsErofs,
-        }
-    }
-}
-
-impl OciPackerBackendType {
-    pub fn format(&self) -> OciPackerFormat {
-        match self {
-            OciPackerBackendType::Backhand => OciPackerFormat::Squashfs,
-            OciPackerBackendType::MkSquashfs => OciPackerFormat::Squashfs,
-            OciPackerBackendType::MkfsErofs => OciPackerFormat::Erofs,
-        }
-    }
-
-    pub fn create(&self) -> Box<dyn OciPackerBackend> {
-        match self {
-            OciPackerBackendType::Backhand => {
-                Box::new(OciPackerBackhand {}) as Box<dyn OciPackerBackend>
-            }
-            OciPackerBackendType::MkSquashfs => {
-                Box::new(OciPackerMkSquashfs {}) as Box<dyn OciPackerBackend>
-            }
-            OciPackerBackendType::MkfsErofs => {
-                Box::new(OciPackerMkfsErofs {}) as Box<dyn OciPackerBackend>
-            }
-        }
-    }
-}
-
-pub trait OciPackerBackend {
-    fn pack(
-        &self,
-        progress: &mut OciProgress,
-        progress_context: &OciProgressContext,
-        directory: &Path,
-        file: &Path,
-    ) -> Result<()>;
-}
+use super::OciPackedFormat;
 
 pub struct OciPackerBackhand {}
 
 impl OciPackerBackend for OciPackerBackhand {
-    fn pack(
-        &self,
-        progress: &mut OciProgress,
-        progress_context: &OciProgressContext,
-        directory: &Path,
-        file: &Path,
-    ) -> Result<()> {
-        progress.phase = OciProgressPhase::Packing;
-        progress.total = 1;
-        progress.value = 0;
-        progress_context.update(progress);
+    fn pack(&self, progress: OciBoundProgress, directory: &Path, file: &Path) -> Result<()> {
+        progress.update_blocking(|progress| {
+            progress.phase = OciProgressPhase::Packing;
+            progress.total = 1;
+            progress.value = 0;
+        });
         let mut writer = FilesystemWriter::default();
         writer.set_compressor(FilesystemCompressor::new(Compressor::Gzip, None)?);
         let walk = WalkDir::new(directory).follow_links(false);
@@ -172,11 +79,6 @@ impl OciPackerBackend for OciPackerBackhand {
                 return Err(anyhow!("invalid file type"));
             }
         }
-
-        progress.phase = OciProgressPhase::Packing;
-        progress.value = 1;
-        progress_context.update(progress);
-
         let squash_file_path = file
             .to_str()
             .ok_or_else(|| anyhow!("failed to convert squashfs string"))?;
@@ -185,6 +87,11 @@ impl OciPackerBackend for OciPackerBackhand {
         let mut bufwrite = BufWriter::new(file);
         trace!("squash generate: {}", squash_file_path);
         writer.write(&mut bufwrite)?;
+        progress.update_blocking(|progress| {
+            progress.phase = OciProgressPhase::Packing;
+            progress.total = 1;
+            progress.value = 1;
+        });
         Ok(())
     }
 }
@@ -228,20 +135,50 @@ impl Drop for ConsumingFileReader {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum OciPackerBackendType {
+    Backhand,
+    MkSquashfs,
+    MkfsErofs,
+}
+
+impl OciPackerBackendType {
+    pub fn format(&self) -> OciPackedFormat {
+        match self {
+            OciPackerBackendType::Backhand => OciPackedFormat::Squashfs,
+            OciPackerBackendType::MkSquashfs => OciPackedFormat::Squashfs,
+            OciPackerBackendType::MkfsErofs => OciPackedFormat::Erofs,
+        }
+    }
+
+    pub fn create(&self) -> Box<dyn OciPackerBackend> {
+        match self {
+            OciPackerBackendType::Backhand => {
+                Box::new(OciPackerBackhand {}) as Box<dyn OciPackerBackend>
+            }
+            OciPackerBackendType::MkSquashfs => {
+                Box::new(OciPackerMkSquashfs {}) as Box<dyn OciPackerBackend>
+            }
+            OciPackerBackendType::MkfsErofs => {
+                Box::new(OciPackerMkfsErofs {}) as Box<dyn OciPackerBackend>
+            }
+        }
+    }
+}
+
+pub trait OciPackerBackend {
+    fn pack(&self, progress: OciBoundProgress, directory: &Path, file: &Path) -> Result<()>;
+}
+
 pub struct OciPackerMkSquashfs {}
 
 impl OciPackerBackend for OciPackerMkSquashfs {
-    fn pack(
-        &self,
-        progress: &mut OciProgress,
-        progress_context: &OciProgressContext,
-        directory: &Path,
-        file: &Path,
-    ) -> Result<()> {
-        progress.phase = OciProgressPhase::Packing;
-        progress.total = 1;
-        progress.value = 0;
-        progress_context.update(progress);
+    fn pack(&self, progress: OciBoundProgress, directory: &Path, file: &Path) -> Result<()> {
+        progress.update_blocking(|progress| {
+            progress.phase = OciProgressPhase::Packing;
+            progress.total = 1;
+            progress.value = 0;
+        });
         let mut child = Command::new("mksquashfs")
             .arg(directory)
             .arg(file)
@@ -258,10 +195,11 @@ impl OciPackerBackend for OciPackerMkSquashfs {
                 status.code().unwrap()
             ))
         } else {
-            progress.phase = OciProgressPhase::Packing;
-            progress.total = 1;
-            progress.value = 1;
-            progress_context.update(progress);
+            progress.update_blocking(|progress| {
+                progress.phase = OciProgressPhase::Packing;
+                progress.total = 1;
+                progress.value = 1;
+            });
             Ok(())
         }
     }
@@ -270,17 +208,12 @@ impl OciPackerBackend for OciPackerMkSquashfs {
 pub struct OciPackerMkfsErofs {}
 
 impl OciPackerBackend for OciPackerMkfsErofs {
-    fn pack(
-        &self,
-        progress: &mut OciProgress,
-        progress_context: &OciProgressContext,
-        directory: &Path,
-        file: &Path,
-    ) -> Result<()> {
-        progress.phase = OciProgressPhase::Packing;
-        progress.total = 1;
-        progress.value = 0;
-        progress_context.update(progress);
+    fn pack(&self, progress: OciBoundProgress, directory: &Path, file: &Path) -> Result<()> {
+        progress.update_blocking(|progress| {
+            progress.phase = OciProgressPhase::Packing;
+            progress.total = 1;
+            progress.value = 0;
+        });
         let mut child = Command::new("mkfs.erofs")
             .arg("-L")
             .arg("root")
@@ -297,10 +230,11 @@ impl OciPackerBackend for OciPackerMkfsErofs {
                 status.code().unwrap()
             ))
         } else {
-            progress.phase = OciProgressPhase::Packing;
-            progress.total = 1;
-            progress.value = 1;
-            progress_context.update(progress);
+            progress.update_blocking(|progress| {
+                progress.phase = OciProgressPhase::Packing;
+                progress.total = 1;
+                progress.value = 1;
+            });
             Ok(())
         }
     }

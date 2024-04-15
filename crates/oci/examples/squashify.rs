@@ -3,11 +3,10 @@ use std::{env::args, path::PathBuf};
 use anyhow::Result;
 use env_logger::Env;
 use krataoci::{
-    cache::ImageCache,
-    compiler::OciImageCompiler,
     name::ImageName,
-    packer::OciPackerFormat,
+    packer::{service::OciPackerService, OciPackedFormat},
     progress::{OciProgress, OciProgressContext},
+    registry::OciPlatform,
 };
 use tokio::{fs, sync::broadcast};
 
@@ -22,8 +21,6 @@ async fn main() -> Result<()> {
     if !cache_dir.exists() {
         fs::create_dir(&cache_dir).await?;
     }
-
-    let cache = ImageCache::new(&cache_dir)?;
 
     let (sender, mut receiver) = broadcast::channel::<OciProgress>(1000);
     tokio::task::spawn(async move {
@@ -41,14 +38,14 @@ async fn main() -> Result<()> {
         }
     });
     let context = OciProgressContext::new(sender);
-    let compiler = OciImageCompiler::new(&cache, seed, context)?;
-    let info = compiler
-        .compile(&image.to_string(), &image, OciPackerFormat::Squashfs)
+    let service = OciPackerService::new(seed, &cache_dir, OciPlatform::current(), context)?;
+    let packed = service
+        .pack("cli", image.clone(), OciPackedFormat::Squashfs)
         .await?;
     println!(
         "generated squashfs of {} to {}",
         image,
-        info.image.to_string_lossy()
+        packed.path.to_string_lossy()
     );
     Ok(())
 }

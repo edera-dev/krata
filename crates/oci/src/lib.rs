@@ -1,5 +1,4 @@
-pub mod cache;
-pub mod compiler;
+pub mod assemble;
 pub mod fetch;
 pub mod name;
 pub mod packer;

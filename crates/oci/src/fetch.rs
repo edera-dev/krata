@@ -1,8 +1,8 @@
-use crate::progress::{OciProgress, OciProgressContext, OciProgressPhase};
+use crate::progress::{OciBoundProgress, OciProgressPhase};
 
 use super::{
     name::ImageName,
-    registry::{OciRegistryClient, OciRegistryPlatform},
+    registry::{OciPlatform, OciRegistryClient},
 };
 
 use std::{
@@ -24,11 +24,10 @@ use tokio::{
 use tokio_stream::StreamExt;
 use tokio_tar::Archive;
 
-pub struct OciImageDownloader {
+pub struct OciImageFetcher {
     seed: Option<PathBuf>,
-    storage: PathBuf,
-    platform: OciRegistryPlatform,
-    progress: OciProgressContext,
+    platform: OciPlatform,
+    progress: OciBoundProgress,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,16 +76,14 @@ pub struct OciLocalImage {
     pub layers: Vec<OciImageLayer>,
 }
 
-impl OciImageDownloader {
+impl OciImageFetcher {
     pub fn new(
         seed: Option<PathBuf>,
-        storage: PathBuf,
-        platform: OciRegistryPlatform,
-        progress: OciProgressContext,
-    ) -> OciImageDownloader {
-        OciImageDownloader {
+        platform: OciPlatform,
+        progress: OciBoundProgress,
+    ) -> OciImageFetcher {
+        OciImageFetcher {
             seed,
-            storage,
             platform,
             progress,
         }
@@ -216,12 +213,14 @@ impl OciImageDownloader {
     pub async fn download(
         &self,
         image: OciResolvedImage,
-        progress: &mut OciProgress,
+        layer_dir: &Path,
     ) -> Result<OciLocalImage> {
         let config: ImageConfiguration;
-
-        progress.phase = OciProgressPhase::ConfigAcquire;
-        self.progress.update(progress);
+        self.progress
+            .update(|progress| {
+                progress.phase = OciProgressPhase::ConfigAcquire;
+            })
+            .await;
         let mut client = OciRegistryClient::new(image.name.registry_url()?, self.platform.clone())?;
         if let Some(seeded) = self
             .load_seed_json_blob::<ImageConfiguration>(image.manifest.config())
@@ -234,18 +233,31 @@ impl OciImageDownloader {
                 .await?;
             config = serde_json::from_slice(&config_bytes)?;
         }
-        progress.phase = OciProgressPhase::LayerAcquire;
-        self.progress.update(progress);
+        self.progress
+            .update(|progress| {
+                progress.phase = OciProgressPhase::LayerAcquire;
+
+                for layer in image.manifest.layers() {
+                    progress.add_layer(layer.digest(), layer.size() as usize);
+                }
+            })
+            .await;
         let mut layers = Vec::new();
         for layer in image.manifest.layers() {
-            progress.downloading_layer(layer.digest(), 0, layer.size() as usize);
-            self.progress.update(progress);
+            self.progress
+                .update(|progress| {
+                    progress.downloading_layer(layer.digest(), 0, layer.size() as usize);
+                })
+                .await;
             layers.push(
-                self.acquire_layer(&image.name, layer, &mut client, progress)
+                self.acquire_layer(&image.name, layer, layer_dir, &mut client)
                     .await?,
             );
-            progress.downloaded_layer(layer.digest());
-            self.progress.update(progress);
+            self.progress
+                .update(|progress| {
+                    progress.downloaded_layer(layer.digest());
+                })
+                .await;
         }
         Ok(OciLocalImage {
             image,
@@ -258,28 +270,22 @@ impl OciImageDownloader {
         &self,
         image: &ImageName,
         layer: &Descriptor,
+        layer_dir: &Path,
         client: &mut OciRegistryClient,
-        progress: &mut OciProgress,
     ) -> Result<OciImageLayer> {
         debug!(
             "acquire layer digest={} size={}",
             layer.digest(),
             layer.size()
         );
-        let mut layer_path = self.storage.clone();
+        let mut layer_path = layer_dir.to_path_buf();
         layer_path.push(format!("{}.layer", layer.digest()));
 
         let seeded = self.extract_seed_blob(layer, &layer_path).await?;
         if !seeded {
             let file = File::create(&layer_path).await?;
             let size = client
-                .write_blob_to_file(
-                    &image.name,
-                    layer,
-                    file,
-                    Some(progress),
-                    Some(&self.progress),
-                )
+                .write_blob_to_file(&image.name, layer, file, Some(self.progress.clone()))
                 .await?;
             if layer.size() as u64 != size {
                 return Err(anyhow!(

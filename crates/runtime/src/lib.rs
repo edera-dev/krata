@@ -17,7 +17,9 @@ use self::{
     autoloop::AutoLoop,
     launch::{GuestLaunchRequest, GuestLauncher},
 };
-use krataoci::{cache::ImageCache, progress::OciProgressContext};
+use krataoci::{
+    packer::service::OciPackerService, progress::OciProgressContext, registry::OciPlatform,
+};
 
 pub mod autoloop;
 pub mod cfgblk;
@@ -52,7 +54,7 @@ pub struct GuestInfo {
 #[derive(Clone)]
 pub struct RuntimeContext {
     pub oci_progress_context: OciProgressContext,
-    pub image_cache: ImageCache,
+    pub packer: OciPackerService,
     pub autoloop: AutoLoop,
     pub xen: XenClient,
     pub kernel: String,
@@ -68,13 +70,18 @@ impl RuntimeContext {
         let xen = XenClient::open(0).await?;
         image_cache_path.push("image");
         fs::create_dir_all(&image_cache_path)?;
-        let image_cache = ImageCache::new(&image_cache_path)?;
+        let packer = OciPackerService::new(
+            None,
+            &image_cache_path,
+            OciPlatform::current(),
+            oci_progress_context.clone(),
+        )?;
         let kernel = RuntimeContext::detect_guest_file(&store, "kernel")?;
         let initrd = RuntimeContext::detect_guest_file(&store, "initrd")?;
 
         Ok(RuntimeContext {
             oci_progress_context,
-            image_cache,
+            packer,
             autoloop: AutoLoop::new(LoopControl::open()?),
             xen,
             kernel,

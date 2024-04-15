@@ -10,8 +10,8 @@ use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
     LaunchPackedFormat, LaunchRoot,
 };
-use krataoci::packer::OciPackerFormat;
-use krataoci::progress::OciProgressContext;
+use krataoci::packer::service::OciPackerService;
+use krataoci::packer::{OciImagePacked, OciPackedFormat};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
@@ -19,11 +19,7 @@ use xenstore::XsdInterface;
 
 use crate::cfgblk::ConfigBlock;
 use crate::RuntimeContext;
-use krataoci::{
-    cache::ImageCache,
-    compiler::{ImageInfo, OciImageCompiler},
-    name::ImageName,
-};
+use krataoci::name::ImageName;
 
 use super::{GuestInfo, GuestState};
 
@@ -55,15 +51,14 @@ impl GuestLauncher {
     ) -> Result<GuestInfo> {
         let uuid = request.uuid.unwrap_or_else(Uuid::new_v4);
         let xen_name = format!("krata-{uuid}");
-        let image_info = self
+        let packed = self
             .compile(
                 &uuid.to_string(),
                 request.image,
-                &context.image_cache,
-                &context.oci_progress_context,
+                &context.packer,
                 match request.format {
-                    LaunchPackedFormat::Squashfs => OciPackerFormat::Squashfs,
-                    LaunchPackedFormat::Erofs => OciPackerFormat::Erofs,
+                    LaunchPackedFormat::Squashfs => OciPackedFormat::Squashfs,
+                    LaunchPackedFormat::Erofs => OciPackedFormat::Erofs,
                 },
             )
             .await?;
@@ -116,11 +111,11 @@ impl GuestLauncher {
             run: request.run,
         };
 
-        let cfgblk = ConfigBlock::new(&uuid, &image_info)?;
+        let cfgblk = ConfigBlock::new(&uuid, &packed)?;
         cfgblk.build(&launch_config)?;
 
-        let image_squashfs_path = image_info
-            .image
+        let image_squashfs_path = packed
+            .path
             .to_str()
             .ok_or_else(|| anyhow!("failed to convert image path to string"))?;
 
@@ -265,13 +260,11 @@ impl GuestLauncher {
         &self,
         id: &str,
         image: &str,
-        image_cache: &ImageCache,
-        progress: &OciProgressContext,
-        format: OciPackerFormat,
-    ) -> Result<ImageInfo> {
+        packer: &OciPackerService,
+        format: OciPackedFormat,
+    ) -> Result<OciImagePacked> {
         let image = ImageName::parse(image)?;
-        let compiler = OciImageCompiler::new(image_cache, None, progress.clone())?;
-        compiler.compile(id, &image, format).await
+        packer.pack(id, image, format).await
     }
 
     async fn allocate_ipv4(&self, context: &RuntimeContext) -> Result<Ipv4Addr> {

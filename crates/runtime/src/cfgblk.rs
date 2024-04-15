@@ -1,7 +1,7 @@
 use anyhow::Result;
 use backhand::{FilesystemWriter, NodeHeader};
 use krata::launchcfg::LaunchInfo;
-use krataoci::compiler::ImageInfo;
+use krataoci::packer::OciImagePacked;
 use log::trace;
 use std::fs;
 use std::fs::File;
@@ -9,28 +9,24 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub struct ConfigBlock<'a> {
-    pub image_info: &'a ImageInfo,
+    pub image: &'a OciImagePacked,
     pub file: PathBuf,
     pub dir: PathBuf,
 }
 
 impl ConfigBlock<'_> {
-    pub fn new<'a>(uuid: &Uuid, image_info: &'a ImageInfo) -> Result<ConfigBlock<'a>> {
+    pub fn new<'a>(uuid: &Uuid, image: &'a OciImagePacked) -> Result<ConfigBlock<'a>> {
         let mut dir = std::env::temp_dir().clone();
         dir.push(format!("krata-cfg-{}", uuid));
         fs::create_dir_all(&dir)?;
         let mut file = dir.clone();
         file.push("config.squashfs");
-        Ok(ConfigBlock {
-            image_info,
-            file,
-            dir,
-        })
+        Ok(ConfigBlock { image, file, dir })
     }
 
     pub fn build(&self, launch_config: &LaunchInfo) -> Result<()> {
         trace!("build launch_config={:?}", launch_config);
-        let manifest = self.image_info.config.to_string()?;
+        let manifest = self.image.config.to_string()?;
         let launch = serde_json::to_string(launch_config)?;
         let mut writer = FilesystemWriter::default();
         writer.push_dir(

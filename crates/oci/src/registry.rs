@@ -7,28 +7,28 @@ use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use tokio::{fs::File, io::AsyncWriteExt};
 use url::Url;
 
-use crate::progress::{OciProgress, OciProgressContext};
+use crate::progress::OciBoundProgress;
 
 #[derive(Clone, Debug)]
-pub struct OciRegistryPlatform {
+pub struct OciPlatform {
     pub os: Os,
     pub arch: Arch,
 }
 
-impl OciRegistryPlatform {
+impl OciPlatform {
     #[cfg(target_arch = "x86_64")]
     const CURRENT_ARCH: Arch = Arch::Amd64;
     #[cfg(target_arch = "aarch64")]
     const CURRENT_ARCH: Arch = Arch::ARM64;
 
-    pub fn new(os: Os, arch: Arch) -> OciRegistryPlatform {
-        OciRegistryPlatform { os, arch }
+    pub fn new(os: Os, arch: Arch) -> OciPlatform {
+        OciPlatform { os, arch }
     }
 
-    pub fn current() -> OciRegistryPlatform {
-        OciRegistryPlatform {
+    pub fn current() -> OciPlatform {
+        OciPlatform {
             os: Os::Linux,
-            arch: OciRegistryPlatform::CURRENT_ARCH,
+            arch: OciPlatform::CURRENT_ARCH,
         }
     }
 }
@@ -36,12 +36,12 @@ impl OciRegistryPlatform {
 pub struct OciRegistryClient {
     agent: Client,
     url: Url,
-    platform: OciRegistryPlatform,
+    platform: OciPlatform,
     token: Option<String>,
 }
 
 impl OciRegistryClient {
-    pub fn new(url: Url, platform: OciRegistryPlatform) -> Result<OciRegistryClient> {
+    pub fn new(url: Url, platform: OciPlatform) -> Result<OciRegistryClient> {
         Ok(OciRegistryClient {
             agent: Client::new(),
             url,
@@ -140,8 +140,7 @@ impl OciRegistryClient {
         name: N,
         descriptor: &Descriptor,
         mut dest: File,
-        mut progress_handle: Option<&mut OciProgress>,
-        progress_context: Option<&OciProgressContext>,
+        progress: Option<OciBoundProgress>,
     ) -> Result<u64> {
         let url = self.url.join(&format!(
             "/v2/{}/blobs/{}",
@@ -157,15 +156,16 @@ impl OciRegistryClient {
 
             if (size - last_progress_size) > (5 * 1024 * 1024) {
                 last_progress_size = size;
-                if let Some(progress_handle) = progress_handle.as_mut() {
-                    progress_handle.downloading_layer(
-                        descriptor.digest(),
-                        size as usize,
-                        descriptor.size() as usize,
-                    );
-                    if let Some(progress_context) = progress_context.as_ref() {
-                        progress_context.update(progress_handle);
-                    }
+                if let Some(ref progress) = progress {
+                    progress
+                        .update(|progress| {
+                            progress.downloading_layer(
+                                descriptor.digest(),
+                                size as usize,
+                                descriptor.size() as usize,
+                            );
+                        })
+                        .await;
                 }
             }
         }

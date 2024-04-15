@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use indexmap::IndexMap;
-use tokio::sync::broadcast::Sender;
+use tokio::sync::{broadcast::Sender, Mutex};
 
 #[derive(Clone, Debug)]
 pub struct OciProgress {
@@ -11,14 +13,24 @@ pub struct OciProgress {
 }
 
 impl OciProgress {
-    pub fn add_layer(&mut self, id: &str) {
+    pub fn new(id: &str) -> Self {
+        OciProgress {
+            id: id.to_string(),
+            phase: OciProgressPhase::Resolving,
+            layers: IndexMap::new(),
+            value: 0,
+            total: 1,
+        }
+    }
+
+    pub fn add_layer(&mut self, id: &str, size: usize) {
         self.layers.insert(
             id.to_string(),
             OciProgressLayer {
                 id: id.to_string(),
                 phase: OciProgressLayerPhase::Waiting,
                 value: 0,
-                total: 0,
+                total: size as u64,
             },
         );
     }
@@ -93,5 +105,32 @@ impl OciProgressContext {
 
     pub fn update(&self, progress: &OciProgress) {
         let _ = self.sender.send(progress.clone());
+    }
+}
+
+#[derive(Clone)]
+pub struct OciBoundProgress {
+    context: OciProgressContext,
+    instance: Arc<Mutex<OciProgress>>,
+}
+
+impl OciBoundProgress {
+    pub fn new(context: OciProgressContext, progress: OciProgress) -> OciBoundProgress {
+        OciBoundProgress {
+            context,
+            instance: Arc::new(Mutex::new(progress)),
+        }
+    }
+
+    pub async fn update(&self, function: impl FnOnce(&mut OciProgress)) {
+        let mut progress = self.instance.lock().await;
+        function(&mut progress);
+        self.context.update(&progress);
+    }
+
+    pub fn update_blocking(&self, function: impl FnOnce(&mut OciProgress)) {
+        let mut progress = self.instance.blocking_lock();
+        function(&mut progress);
+        self.context.update(&progress);
     }
 }
