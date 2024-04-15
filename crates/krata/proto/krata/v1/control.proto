@@ -14,11 +14,14 @@ service ControlService {
     rpc DestroyGuest(DestroyGuestRequest) returns (DestroyGuestReply);
     rpc ResolveGuest(ResolveGuestRequest) returns (ResolveGuestReply);
     rpc ListGuests(ListGuestsRequest) returns (ListGuestsReply);
+
     rpc ConsoleData(stream ConsoleDataRequest) returns (stream ConsoleDataReply);
+    rpc ReadGuestMetrics(ReadGuestMetricsRequest) returns (ReadGuestMetricsReply);
+    
+    rpc SnoopIdm(SnoopIdmRequest) returns (stream SnoopIdmReply);
     rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
 
-    rpc ReadGuestMetrics(ReadGuestMetricsRequest) returns (ReadGuestMetricsReply);
-    rpc SnoopIdm(SnoopIdmRequest) returns (stream SnoopIdmReply);
+    rpc PullImage(PullImageRequest) returns (stream PullImageReply);
 }
 
 message CreateGuestRequest {
@@ -63,46 +66,11 @@ message WatchEventsRequest {}
 message WatchEventsReply {
     oneof event {
         GuestChangedEvent guest_changed = 1;
-        OciProgressEvent oci_progress = 2;
     }
 }
 
 message GuestChangedEvent {
     krata.v1.common.Guest guest = 1;
-}
-
-enum OciProgressEventLayerPhase {
-    OCI_PROGRESS_EVENT_LAYER_PHASE_UNKNOWN = 0;
-    OCI_PROGRESS_EVENT_LAYER_PHASE_WAITING = 1;
-    OCI_PROGRESS_EVENT_LAYER_PHASE_DOWNLOADING = 2;
-    OCI_PROGRESS_EVENT_LAYER_PHASE_DOWNLOADED = 3;
-    OCI_PROGRESS_EVENT_LAYER_PHASE_EXTRACTING = 4;
-    OCI_PROGRESS_EVENT_LAYER_PHASE_EXTRACTED = 5;
-}
-
-message OciProgressEventLayer {
-    string id = 1;
-    OciProgressEventLayerPhase phase = 2;
-    uint64 value = 3;
-    uint64 total = 4;
-}
-
-enum OciProgressEventPhase {
-    OCI_PROGRESS_EVENT_PHASE_UNKNOWN = 0;
-    OCI_PROGRESS_EVENT_PHASE_RESOLVING = 1;
-    OCI_PROGRESS_EVENT_PHASE_RESOLVED = 2;
-    OCI_PROGRESS_EVENT_PHASE_CONFIG_ACQUIRE = 3;
-    OCI_PROGRESS_EVENT_PHASE_LAYER_ACQUIRE = 4;
-    OCI_PROGRESS_EVENT_PHASE_PACKING = 5;
-    OCI_PROGRESS_EVENT_PHASE_COMPLETE = 6;
-}
-
-message OciProgressEvent {
-    string guest_id = 1;
-    OciProgressEventPhase phase = 2;
-    repeated OciProgressEventLayer layers = 3;
-    uint64 value = 4;
-    uint64 total = 5;
 }
 
 message ReadGuestMetricsRequest {
@@ -119,4 +87,48 @@ message SnoopIdmReply {
     uint32 from = 1;
     uint32 to = 2;
     krata.bus.idm.IdmPacket packet = 3;
+}
+
+enum PullImageProgressLayerPhase {
+    PULL_IMAGE_PROGRESS_LAYER_PHASE_UNKNOWN = 0;
+    PULL_IMAGE_PROGRESS_LAYER_PHASE_WAITING = 1;
+    PULL_IMAGE_PROGRESS_LAYER_PHASE_DOWNLOADING = 2;
+    PULL_IMAGE_PROGRESS_LAYER_PHASE_DOWNLOADED = 3;
+    PULL_IMAGE_PROGRESS_LAYER_PHASE_EXTRACTING = 4;
+    PULL_IMAGE_PROGRESS_LAYER_PHASE_EXTRACTED = 5;
+}
+
+message PullImageProgressLayer {
+    string id = 1;
+    PullImageProgressLayerPhase phase = 2;
+    uint64 value = 3;
+    uint64 total = 4;
+}
+
+enum PullImageProgressPhase {
+    PULL_IMAGE_PROGRESS_PHASE_UNKNOWN = 0;
+    PULL_IMAGE_PROGRESS_PHASE_RESOLVING = 1;
+    PULL_IMAGE_PROGRESS_PHASE_RESOLVED = 2;
+    PULL_IMAGE_PROGRESS_PHASE_CONFIG_ACQUIRE = 3;
+    PULL_IMAGE_PROGRESS_PHASE_LAYER_ACQUIRE = 4;
+    PULL_IMAGE_PROGRESS_PHASE_PACKING = 5;
+    PULL_IMAGE_PROGRESS_PHASE_COMPLETE = 6;
+}
+
+message PullImageProgress {
+    PullImageProgressPhase phase = 1;
+    repeated PullImageProgressLayer layers = 2;
+    uint64 value = 3;
+    uint64 total = 4;
+}
+
+message PullImageRequest {
+    string image = 1;
+    krata.v1.common.GuestOciImageFormat format = 2;
+}
+
+message PullImageReply {
+    PullImageProgress progress = 1;
+    string digest = 2;
+    krata.v1.common.GuestOciImageFormat format = 3;
 }

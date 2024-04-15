@@ -3,13 +3,12 @@ use std::{env::args, path::PathBuf};
 use anyhow::Result;
 use env_logger::Env;
 use krataoci::{
-    cache::ImageCache,
-    compiler::OciImageCompiler,
     name::ImageName,
-    packer::OciPackerFormat,
+    packer::{service::OciPackerService, OciPackedFormat},
     progress::{OciProgress, OciProgressContext},
+    registry::OciPlatform,
 };
-use tokio::{fs, sync::broadcast};
+use tokio::{fs, sync::mpsc::channel};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,16 +22,16 @@ async fn main() -> Result<()> {
         fs::create_dir(&cache_dir).await?;
     }
 
-    let cache = ImageCache::new(&cache_dir)?;
-
-    let (sender, mut receiver) = broadcast::channel::<OciProgress>(1000);
+    let (sender, mut receiver) = channel::<OciProgress>(100);
     tokio::task::spawn(async move {
         loop {
-            let Some(progress) = receiver.recv().await.ok() else {
-                break;
+            let mut progresses = Vec::new();
+            let _ = receiver.recv_many(&mut progresses, 100).await;
+            let Some(progress) = progresses.last() else {
+                continue;
             };
             println!("phase {:?}", progress.phase);
-            for (id, layer) in progress.layers {
+            for (id, layer) in &progress.layers {
                 println!(
                     "{} {:?} {} of {}",
                     id, layer.phase, layer.value, layer.total
@@ -41,14 +40,14 @@ async fn main() -> Result<()> {
         }
     });
     let context = OciProgressContext::new(sender);
-    let compiler = OciImageCompiler::new(&cache, seed, context)?;
-    let info = compiler
-        .compile(&image.to_string(), &image, OciPackerFormat::Squashfs)
+    let service = OciPackerService::new(seed, &cache_dir, OciPlatform::current())?;
+    let packed = service
+        .request(image.clone(), OciPackedFormat::Squashfs, context)
         .await?;
     println!(
         "generated squashfs of {} to {}",
         image,
-        info.image.to_string_lossy()
+        packed.path.to_string_lossy()
     );
     Ok(())
 }

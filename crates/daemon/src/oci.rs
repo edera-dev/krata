@@ -1,17 +1,17 @@
 use krata::v1::control::{
-    OciProgressEvent, OciProgressEventLayer, OciProgressEventLayerPhase, OciProgressEventPhase,
+    PullImageProgress, PullImageProgressLayer, PullImageProgressLayerPhase, PullImageProgressPhase,
 };
 use krataoci::progress::{OciProgress, OciProgressLayer, OciProgressLayerPhase, OciProgressPhase};
 
-fn convert_oci_layer_progress(layer: OciProgressLayer) -> OciProgressEventLayer {
-    OciProgressEventLayer {
+fn convert_oci_layer_progress(layer: OciProgressLayer) -> PullImageProgressLayer {
+    PullImageProgressLayer {
         id: layer.id,
         phase: match layer.phase {
-            OciProgressLayerPhase::Waiting => OciProgressEventLayerPhase::Waiting,
-            OciProgressLayerPhase::Downloading => OciProgressEventLayerPhase::Downloading,
-            OciProgressLayerPhase::Downloaded => OciProgressEventLayerPhase::Downloaded,
-            OciProgressLayerPhase::Extracting => OciProgressEventLayerPhase::Extracting,
-            OciProgressLayerPhase::Extracted => OciProgressEventLayerPhase::Extracted,
+            OciProgressLayerPhase::Waiting => PullImageProgressLayerPhase::Waiting,
+            OciProgressLayerPhase::Downloading => PullImageProgressLayerPhase::Downloading,
+            OciProgressLayerPhase::Downloaded => PullImageProgressLayerPhase::Downloaded,
+            OciProgressLayerPhase::Extracting => PullImageProgressLayerPhase::Extracting,
+            OciProgressLayerPhase::Extracted => PullImageProgressLayerPhase::Extracted,
         }
         .into(),
         value: layer.value,
@@ -19,16 +19,15 @@ fn convert_oci_layer_progress(layer: OciProgressLayer) -> OciProgressEventLayer 
     }
 }
 
-pub fn convert_oci_progress(oci: OciProgress) -> OciProgressEvent {
-    OciProgressEvent {
-        guest_id: oci.id,
+pub fn convert_oci_progress(oci: OciProgress) -> PullImageProgress {
+    PullImageProgress {
         phase: match oci.phase {
-            OciProgressPhase::Resolving => OciProgressEventPhase::Resolving,
-            OciProgressPhase::Resolved => OciProgressEventPhase::Resolved,
-            OciProgressPhase::ConfigAcquire => OciProgressEventPhase::ConfigAcquire,
-            OciProgressPhase::LayerAcquire => OciProgressEventPhase::LayerAcquire,
-            OciProgressPhase::Packing => OciProgressEventPhase::Packing,
-            OciProgressPhase::Complete => OciProgressEventPhase::Complete,
+            OciProgressPhase::Resolving => PullImageProgressPhase::Resolving,
+            OciProgressPhase::Resolved => PullImageProgressPhase::Resolved,
+            OciProgressPhase::ConfigAcquire => PullImageProgressPhase::ConfigAcquire,
+            OciProgressPhase::LayerAcquire => PullImageProgressPhase::LayerAcquire,
+            OciProgressPhase::Packing => PullImageProgressPhase::Packing,
+            OciProgressPhase::Complete => PullImageProgressPhase::Complete,
         }
         .into(),
         layers: oci

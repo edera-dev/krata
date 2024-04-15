@@ -2,21 +2,19 @@ use std::{net::SocketAddr, path::PathBuf, str::FromStr};
 
 use anyhow::Result;
 use console::{DaemonConsole, DaemonConsoleHandle};
-use control::RuntimeControlService;
+use control::DaemonControlService;
 use db::GuestStore;
 use event::{DaemonEventContext, DaemonEventGenerator};
 use idm::{DaemonIdm, DaemonIdmHandle};
 use krata::{dial::ControlDialAddress, v1::control::control_service_server::ControlServiceServer};
-use krataoci::progress::OciProgressContext;
+use krataoci::{packer::service::OciPackerService, registry::OciPlatform};
 use kratart::Runtime;
 use log::info;
 use reconcile::guest::GuestReconciler;
 use tokio::{
+    fs,
     net::UnixListener,
-    sync::{
-        broadcast,
-        mpsc::{channel, Sender},
-    },
+    sync::mpsc::{channel, Sender},
     task::JoinHandle,
 };
 use tokio_stream::wrappers::UnixListenerStream;
@@ -41,17 +39,21 @@ pub struct Daemon {
     generator_task: JoinHandle<()>,
     idm: DaemonIdmHandle,
     console: DaemonConsoleHandle,
+    packer: OciPackerService,
 }
 
 const GUEST_RECONCILER_QUEUE_LEN: usize = 1000;
-const OCI_PROGRESS_QUEUE_LEN: usize = 1000;
 
 impl Daemon {
     pub async fn new(store: String) -> Result<Self> {
-        let (oci_progress_sender, oci_progress_receiver) =
-            broadcast::channel(OCI_PROGRESS_QUEUE_LEN);
-        let runtime =
-            Runtime::new(OciProgressContext::new(oci_progress_sender), store.clone()).await?;
+        let mut image_cache_dir = PathBuf::from(store.clone());
+        image_cache_dir.push("cache");
+        image_cache_dir.push("image");
+        fs::create_dir_all(&image_cache_dir).await?;
+
+        let packer = OciPackerService::new(None, &image_cache_dir, OciPlatform::current())?;
+
+        let runtime = Runtime::new(store.clone()).await?;
         let guests_db_path = format!("{}/guests.db", store);
         let guests = GuestStore::open(&PathBuf::from(guests_db_path))?;
         let (guest_reconciler_notify, guest_reconciler_receiver) =
@@ -60,23 +62,21 @@ impl Daemon {
         let idm = idm.launch().await?;
         let console = DaemonConsole::new().await?;
         let console = console.launch().await?;
-        let (events, generator) = DaemonEventGenerator::new(
-            guests.clone(),
-            guest_reconciler_notify.clone(),
-            idm.clone(),
-            oci_progress_receiver,
-        )
-        .await?;
+        let (events, generator) =
+            DaemonEventGenerator::new(guests.clone(), guest_reconciler_notify.clone(), idm.clone())
+                .await?;
         let runtime_for_reconciler = runtime.dupe().await?;
         let guest_reconciler = GuestReconciler::new(
             guests.clone(),
             events.clone(),
             runtime_for_reconciler,
+            packer.clone(),
             guest_reconciler_notify.clone(),
         )?;
 
         let guest_reconciler_task = guest_reconciler.launch(guest_reconciler_receiver).await?;
         let generator_task = generator.launch().await?;
+
         Ok(Self {
             store,
             guests,
@@ -86,16 +86,18 @@ impl Daemon {
             generator_task,
             idm,
             console,
+            packer,
         })
     }
 
     pub async fn listen(&mut self, addr: ControlDialAddress) -> Result<()> {
-        let control_service = RuntimeControlService::new(
+        let control_service = DaemonControlService::new(
             self.events.clone(),
             self.console.clone(),
             self.idm.clone(),
             self.guests.clone(),
             self.guest_reconciler_notify.clone(),
+            self.packer.clone(),
         );
 
         let mut server = Server::builder();
@@ -121,7 +123,7 @@ impl Daemon {
             ControlDialAddress::UnixSocket { path } => {
                 let path = PathBuf::from(path);
                 if path.exists() {
-                    tokio::fs::remove_file(&path).await?;
+                    fs::remove_file(&path).await?;
                 }
                 let listener = UnixListener::bind(path)?;
                 let stream = UnixListenerStream::new(listener);

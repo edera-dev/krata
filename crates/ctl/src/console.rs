@@ -69,27 +69,26 @@ impl StdioConsoleStream {
         Ok(tokio::task::spawn(async move {
             let mut stream = events.subscribe();
             while let Ok(event) = stream.recv().await {
-                if let Event::GuestChanged(changed) = event {
-                    let Some(guest) = changed.guest else {
-                        continue;
-                    };
+                let Event::GuestChanged(changed) = event;
+                let Some(guest) = changed.guest else {
+                    continue;
+                };
 
-                    let Some(state) = guest.state else {
-                        continue;
-                    };
+                let Some(state) = guest.state else {
+                    continue;
+                };
 
-                    if guest.id != id {
-                        continue;
-                    }
+                if guest.id != id {
+                    continue;
+                }
 
-                    if let Some(exit_info) = state.exit_info {
-                        return Some(exit_info.code);
-                    }
+                if let Some(exit_info) = state.exit_info {
+                    return Some(exit_info.code);
+                }
 
-                    let status = state.status();
-                    if status == GuestStatus::Destroying || status == GuestStatus::Destroyed {
-                        return Some(10);
-                    }
+                let status = state.status();
+                if status == GuestStatus::Destroying || status == GuestStatus::Destroyed {
+                    return Some(10);
                 }
             }
             None

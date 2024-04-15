@@ -82,7 +82,7 @@ impl MultiMetricCollector {
             let collect = select! {
                 x = events.recv() => match x {
                     Ok(event) => {
-                        if let Event::GuestChanged(changed) = event {
+                        let Event::GuestChanged(changed) = event;
                             let Some(guest) = changed.guest else {
                                 continue;
                             };
@@ -93,7 +93,6 @@ impl MultiMetricCollector {
                             if state.status() != GuestStatus::Destroying {
                                 guests.push(guest);
                             }
-                        }
                         false
                     },
 

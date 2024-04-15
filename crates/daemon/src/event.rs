@@ -9,7 +9,6 @@ use krata::{
     idm::protocol::{idm_event::Event, IdmEvent},
     v1::common::{GuestExitInfo, GuestState, GuestStatus},
 };
-use krataoci::progress::OciProgress;
 use log::{error, warn};
 use tokio::{
     select,
@@ -22,7 +21,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-use crate::{db::GuestStore, idm::DaemonIdmHandle, oci::convert_oci_progress};
+use crate::{db::GuestStore, idm::DaemonIdmHandle};
 
 pub type DaemonEvent = krata::v1::control::watch_events_reply::Event;
 
@@ -53,8 +52,7 @@ pub struct DaemonEventGenerator {
     idms: HashMap<u32, (Uuid, JoinHandle<()>)>,
     idm_sender: Sender<(u32, IdmEvent)>,
     idm_receiver: Receiver<(u32, IdmEvent)>,
-    oci_progress_receiver: broadcast::Receiver<OciProgress>,
-    event_sender: broadcast::Sender<DaemonEvent>,
+    _event_sender: broadcast::Sender<DaemonEvent>,
 }
 
 impl DaemonEventGenerator {
@@ -62,7 +60,6 @@ impl DaemonEventGenerator {
         guests: GuestStore,
         guest_reconciler_notify: Sender<Uuid>,
         idm: DaemonIdmHandle,
-        oci_progress_receiver: broadcast::Receiver<OciProgress>,
     ) -> Result<(DaemonEventContext, DaemonEventGenerator)> {
         let (sender, _) = broadcast::channel(EVENT_CHANNEL_QUEUE_LEN);
         let (idm_sender, idm_receiver) = channel(IDM_EVENT_CHANNEL_QUEUE_LEN);
@@ -74,55 +71,53 @@ impl DaemonEventGenerator {
             idms: HashMap::new(),
             idm_sender,
             idm_receiver,
-            oci_progress_receiver,
-            event_sender: sender.clone(),
+            _event_sender: sender.clone(),
         };
         let context = DaemonEventContext { sender };
         Ok((context, generator))
     }
 
     async fn handle_feed_event(&mut self, event: &DaemonEvent) -> Result<()> {
-        if let DaemonEvent::GuestChanged(changed) = event {
-            let Some(ref guest) = changed.guest else {
-                return Ok(());
-            };
+        let DaemonEvent::GuestChanged(changed) = event;
+        let Some(ref guest) = changed.guest else {
+            return Ok(());
+        };
 
-            let Some(ref state) = guest.state else {
-                return Ok(());
-            };
+        let Some(ref state) = guest.state else {
+            return Ok(());
+        };
 
-            let status = state.status();
-            let id = Uuid::from_str(&guest.id)?;
-            let domid = state.domid;
-            match status {
-                GuestStatus::Started => {
-                    if let Entry::Vacant(e) = self.idms.entry(domid) {
-                        let client = self.idm.client(domid).await?;
-                        let mut receiver = client.subscribe().await?;
-                        let sender = self.idm_sender.clone();
-                        let task = tokio::task::spawn(async move {
-                            loop {
-                                let Ok(event) = receiver.recv().await else {
-                                    break;
-                                };
+        let status = state.status();
+        let id = Uuid::from_str(&guest.id)?;
+        let domid = state.domid;
+        match status {
+            GuestStatus::Started => {
+                if let Entry::Vacant(e) = self.idms.entry(domid) {
+                    let client = self.idm.client(domid).await?;
+                    let mut receiver = client.subscribe().await?;
+                    let sender = self.idm_sender.clone();
+                    let task = tokio::task::spawn(async move {
+                        loop {
+                            let Ok(event) = receiver.recv().await else {
+                                break;
+                            };
 
-                                if let Err(error) = sender.send((domid, event)).await {
-                                    warn!("unable to deliver idm event: {}", error);
-                                }
+                            if let Err(error) = sender.send((domid, event)).await {
+                                warn!("unable to deliver idm event: {}", error);
                             }
-                        });
-                        e.insert((id, task));
-                    }
+                        }
+                    });
+                    e.insert((id, task));
                 }
-
-                GuestStatus::Destroyed => {
-                    if let Some((_, handle)) = self.idms.remove(&domid) {
-                        handle.abort();
-                    }
-                }
-
-                _ => {}
             }
+
+            GuestStatus::Destroyed => {
+                if let Some((_, handle)) = self.idms.remove(&domid) {
+                    handle.abort();
+                }
+            }
+
+            _ => {}
         }
         Ok(())
     }
@@ -150,17 +145,6 @@ impl DaemonEventGenerator {
         Ok(())
     }
 
-    async fn handle_oci_progress_event(&mut self, progress: OciProgress) -> Result<()> {
-        let Some(_) = Uuid::from_str(&progress.id).ok() else {
-            return Ok(());
-        };
-
-        let event = convert_oci_progress(progress);
-        self.event_sender.send(DaemonEvent::OciProgress(event))?;
-
-        Ok(())
-    }
-
     async fn evaluate(&mut self) -> Result<()> {
         select! {
             x = self.idm_receiver.recv() => match x {
@@ -182,14 +166,6 @@ impl DaemonEventGenerator {
                     Err(error.into())
                 }
             },
-            x = self.oci_progress_receiver.recv() => match x {
-                Ok(event) => {
-                    self.handle_oci_progress_event(event).await
-                },
-                Err(error) => {
-                    Err(error.into())
-                }
-            }
         }
     }
 

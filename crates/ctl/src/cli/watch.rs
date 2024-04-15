@@ -29,10 +29,9 @@ impl WatchCommand {
         loop {
             let event = stream.recv().await?;
 
-            if let Event::GuestChanged(changed) = event {
-                let guest = changed.guest.clone();
-                self.print_event("guest.changed", changed, guest)?;
-            }
+            let Event::GuestChanged(changed) = event;
+            let guest = changed.guest.clone();
+            self.print_event("guest.changed", changed, guest)?;
         }
     }
 

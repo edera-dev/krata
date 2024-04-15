@@ -9,10 +9,11 @@ use krata::launchcfg::LaunchPackedFormat;
 use krata::v1::{
     common::{
         guest_image_spec::Image, Guest, GuestErrorInfo, GuestExitInfo, GuestNetworkState,
-        GuestState, GuestStatus,
+        GuestOciImageFormat, GuestState, GuestStatus,
     },
     control::GuestChangedEvent,
 };
+use krataoci::packer::{service::OciPackerService, OciPackedFormat};
 use kratart::{launch::GuestLaunchRequest, GuestInfo, Runtime};
 use log::{error, info, trace, warn};
 use tokio::{
@@ -55,6 +56,7 @@ pub struct GuestReconciler {
     guests: GuestStore,
     events: DaemonEventContext,
     runtime: Runtime,
+    packer: OciPackerService,
     tasks: Arc<Mutex<HashMap<Uuid, GuestReconcilerEntry>>>,
     guest_reconciler_notify: Sender<Uuid>,
     reconcile_lock: Arc<RwLock<()>>,
@@ -65,12 +67,14 @@ impl GuestReconciler {
         guests: GuestStore,
         events: DaemonEventContext,
         runtime: Runtime,
+        packer: OciPackerService,
         guest_reconciler_notify: Sender<Uuid>,
     ) -> Result<Self> {
         Ok(Self {
             guests,
             events,
             runtime,
+            packer,
             tasks: Arc::new(Mutex::new(HashMap::new())),
             guest_reconciler_notify,
             reconcile_lock: Arc::new(RwLock::with_max_readers((), PARALLEL_LIMIT)),
@@ -233,8 +237,26 @@ impl GuestReconciler {
                 return Err(anyhow!("oci spec not specified"));
             }
         };
-
         let task = spec.task.as_ref().cloned().unwrap_or_default();
+
+        let image = self
+            .packer
+            .recall(
+                &oci.digest,
+                match oci.format() {
+                    GuestOciImageFormat::Unknown => OciPackedFormat::Squashfs,
+                    GuestOciImageFormat::Squashfs => OciPackedFormat::Squashfs,
+                    GuestOciImageFormat::Erofs => OciPackedFormat::Erofs,
+                },
+            )
+            .await?;
+
+        let Some(image) = image else {
+            return Err(anyhow!(
+                "image {} in the requested format did not exist",
+                oci.digest
+            ));
+        };
 
         let info = self
             .runtime
@@ -244,9 +266,9 @@ impl GuestReconciler {
                 name: if spec.name.is_empty() {
                     None
                 } else {
-                    Some(&spec.name)
+                    Some(spec.name.clone())
                 },
-                image: &oci.image,
+                image,
                 vcpus: spec.vcpus,
                 mem: spec.mem,
                 env: task

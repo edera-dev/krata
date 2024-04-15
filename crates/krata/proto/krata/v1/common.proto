@@ -29,8 +29,15 @@ message GuestImageSpec {
     }
 }
 
+enum GuestOciImageFormat {
+    GUEST_OCI_IMAGE_FORMAT_UNKNOWN = 0;
+    GUEST_OCI_IMAGE_FORMAT_SQUASHFS = 1;
+    GUEST_OCI_IMAGE_FORMAT_EROFS = 2;
+}
+
 message GuestOciImageSpec {
-    string image = 1;
+    string digest = 1;
+    GuestOciImageFormat format = 2;
 }
 
 message GuestTaskSpec {
