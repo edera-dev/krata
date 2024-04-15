@@ -1,7 +1,4 @@
-use crate::{
-    fetch::OciResolvedImage,
-    packer::{OciImagePacked, OciPackedFormat},
-};
+use crate::packer::{OciImagePacked, OciPackedFormat};
 
 use anyhow::Result;
 use log::debug;
@@ -23,15 +20,15 @@ impl OciPackerCache {
 
     pub async fn recall(
         &self,
-        resolved: &OciResolvedImage,
+        digest: &str,
         format: OciPackedFormat,
     ) -> Result<Option<OciImagePacked>> {
         let mut fs_path = self.cache_dir.clone();
         let mut config_path = self.cache_dir.clone();
         let mut manifest_path = self.cache_dir.clone();
-        fs_path.push(format!("{}.{}", resolved.digest, format.extension()));
-        manifest_path.push(format!("{}.manifest.json", resolved.digest));
-        config_path.push(format!("{}.config.json", resolved.digest));
+        fs_path.push(format!("{}.{}", digest, format.extension()));
+        manifest_path.push(format!("{}.manifest.json", digest));
+        config_path.push(format!("{}.config.json", digest));
         Ok(
             if fs_path.exists() && manifest_path.exists() && config_path.exists() {
                 let image_metadata = fs::metadata(&fs_path).await?;
@@ -45,9 +42,9 @@ impl OciPackerCache {
                     let manifest: ImageManifest = serde_json::from_str(&manifest_text)?;
                     let config_text = fs::read_to_string(&config_path).await?;
                     let config: ImageConfiguration = serde_json::from_str(&config_text)?;
-                    debug!("cache hit digest={}", resolved.digest);
+                    debug!("cache hit digest={}", digest);
                     Some(OciImagePacked::new(
-                        resolved.digest.clone(),
+                        digest.to_string(),
                         fs_path.clone(),
                         format,
                         config,
@@ -57,7 +54,7 @@ impl OciPackerCache {
                     None
                 }
             } else {
-                debug!("cache miss digest={}", resolved.digest);
+                debug!("cache miss digest={}", digest);
                 None
             },
         )

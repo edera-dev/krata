@@ -8,19 +8,28 @@ use krata::{
         IdmMetricsRequest,
     },
     v1::{
-        common::{Guest, GuestState, GuestStatus},
+        common::{Guest, GuestOciImageFormat, GuestState, GuestStatus},
         control::{
             control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
             CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-            ListGuestsReply, ListGuestsRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
-            ResolveGuestReply, ResolveGuestRequest, SnoopIdmReply, SnoopIdmRequest,
-            WatchEventsReply, WatchEventsRequest,
+            ListGuestsReply, ListGuestsRequest, PullImageReply, PullImageRequest,
+            ReadGuestMetricsReply, ReadGuestMetricsRequest, ResolveGuestReply, ResolveGuestRequest,
+            SnoopIdmReply, SnoopIdmRequest, WatchEventsReply, WatchEventsRequest,
         },
     },
 };
+use krataoci::{
+    name::ImageName,
+    packer::{service::OciPackerService, OciImagePacked, OciPackedFormat},
+    progress::{OciProgress, OciProgressContext},
+};
 use tokio::{
     select,
-    sync::mpsc::{channel, Sender},
+    sync::{
+        broadcast,
+        mpsc::{channel, Sender},
+    },
+    task::JoinError,
 };
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
@@ -28,7 +37,7 @@ use uuid::Uuid;
 
 use crate::{
     console::DaemonConsoleHandle, db::GuestStore, event::DaemonEventContext, idm::DaemonIdmHandle,
-    metrics::idm_metric_to_api,
+    metrics::idm_metric_to_api, oci::convert_oci_progress,
 };
 
 pub struct ApiError {
@@ -50,21 +59,23 @@ impl From<ApiError> for Status {
 }
 
 #[derive(Clone)]
-pub struct RuntimeControlService {
+pub struct DaemonControlService {
     events: DaemonEventContext,
     console: DaemonConsoleHandle,
     idm: DaemonIdmHandle,
     guests: GuestStore,
     guest_reconciler_notify: Sender<Uuid>,
+    packer: OciPackerService,
 }
 
-impl RuntimeControlService {
+impl DaemonControlService {
     pub fn new(
         events: DaemonEventContext,
         console: DaemonConsoleHandle,
         idm: DaemonIdmHandle,
         guests: GuestStore,
         guest_reconciler_notify: Sender<Uuid>,
+        packer: OciPackerService,
     ) -> Self {
         Self {
             events,
@@ -72,6 +83,7 @@ impl RuntimeControlService {
             idm,
             guests,
             guest_reconciler_notify,
+            packer,
         }
     }
 }
@@ -81,10 +93,18 @@ enum ConsoleDataSelect {
     Write(Option<Result<ConsoleDataRequest, tonic::Status>>),
 }
 
+enum PullImageSelect {
+    Progress(Option<OciProgress>),
+    Completed(Result<Result<OciImagePacked, anyhow::Error>, JoinError>),
+}
+
 #[tonic::async_trait]
-impl ControlService for RuntimeControlService {
+impl ControlService for DaemonControlService {
     type ConsoleDataStream =
         Pin<Box<dyn Stream<Item = Result<ConsoleDataReply, Status>> + Send + 'static>>;
+
+    type PullImageStream =
+        Pin<Box<dyn Stream<Item = Result<PullImageReply, Status>> + Send + 'static>>;
 
     type WatchEventsStream =
         Pin<Box<dyn Stream<Item = Result<WatchEventsReply, Status>> + Send + 'static>>;
@@ -335,6 +355,70 @@ impl ControlService for RuntimeControlService {
             reply.root = metrics.root.map(idm_metric_to_api);
         }
         Ok(Response::new(reply))
+    }
+
+    async fn pull_image(
+        &self,
+        request: Request<PullImageRequest>,
+    ) -> Result<Response<Self::PullImageStream>, Status> {
+        let request = request.into_inner();
+        let name = ImageName::parse(&request.image).map_err(|err| ApiError {
+            message: err.to_string(),
+        })?;
+        let format = match request.format() {
+            GuestOciImageFormat::Unknown => OciPackedFormat::Squashfs,
+            GuestOciImageFormat::Squashfs => OciPackedFormat::Squashfs,
+            GuestOciImageFormat::Erofs => OciPackedFormat::Erofs,
+        };
+        let (sender, mut receiver) = broadcast::channel::<OciProgress>(100);
+        let context = OciProgressContext::new(sender);
+
+        let our_packer = self.packer.clone();
+
+        let output = try_stream! {
+            let mut task = tokio::task::spawn(async move {
+                our_packer.request(name, format, context).await
+            });
+            loop {
+                let what = select! {
+                    x = receiver.recv() => PullImageSelect::Progress(x.ok()),
+                    x = &mut task => PullImageSelect::Completed(x),
+                };
+
+                match what {
+                    PullImageSelect::Progress(Some(progress)) => {
+                        let reply = PullImageReply {
+                            progress: Some(convert_oci_progress(progress)),
+                            digest: String::new(),
+                            format: GuestOciImageFormat::Unknown.into(),
+                        };
+                        yield reply;
+                    },
+
+                    PullImageSelect::Completed(result) => {
+                        let result = result.map_err(|err| ApiError {
+                            message: err.to_string(),
+                        })?;
+                        let packed = result.map_err(|err| ApiError {
+                            message: err.to_string(),
+                        })?;
+                        let reply = PullImageReply {
+                            progress: None,
+                            digest: packed.digest,
+                            format: match packed.format {
+                                OciPackedFormat::Squashfs => GuestOciImageFormat::Squashfs.into(),
+                                OciPackedFormat::Erofs => GuestOciImageFormat::Erofs.into(),
+                            },
+                        };
+                        yield reply;
+                        break;
+                    },
+
+                    _ => {},
+                }
+            }
+        };
+        Ok(Response::new(Box::pin(output) as Self::PullImageStream))
     }
 
     async fn watch_events(

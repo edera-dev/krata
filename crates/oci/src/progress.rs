@@ -5,17 +5,21 @@ use tokio::sync::{broadcast::Sender, Mutex};
 
 #[derive(Clone, Debug)]
 pub struct OciProgress {
-    pub id: String,
     pub phase: OciProgressPhase,
     pub layers: IndexMap<String, OciProgressLayer>,
     pub value: u64,
     pub total: u64,
 }
 
+impl Default for OciProgress {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OciProgress {
-    pub fn new(id: &str) -> Self {
+    pub fn new() -> Self {
         OciProgress {
-            id: id.to_string(),
             phase: OciProgressPhase::Resolving,
             layers: IndexMap::new(),
             value: 0,

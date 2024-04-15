@@ -5,6 +5,7 @@ pub mod launch;
 pub mod list;
 pub mod logs;
 pub mod metrics;
+pub mod pull;
 pub mod resolve;
 pub mod top;
 pub mod watch;
@@ -21,7 +22,7 @@ use tonic::{transport::Channel, Request};
 use self::{
     attach::AttachCommand, destroy::DestroyCommand, idm_snoop::IdmSnoopCommand,
     launch::LauchCommand, list::ListCommand, logs::LogsCommand, metrics::MetricsCommand,
-    resolve::ResolveCommand, top::TopCommand, watch::WatchCommand,
+    pull::PullCommand, resolve::ResolveCommand, top::TopCommand, watch::WatchCommand,
 };
 
 #[derive(Parser)]
@@ -48,6 +49,7 @@ pub enum Commands {
     Destroy(DestroyCommand),
     List(ListCommand),
     Attach(AttachCommand),
+    Pull(PullCommand),
     Logs(LogsCommand),
     Watch(WatchCommand),
     Resolve(ResolveCommand),
@@ -100,6 +102,10 @@ impl ControlCommand {
 
             Commands::Top(top) => {
                 top.run(client, events).await?;
+            }
+
+            Commands::Pull(pull) => {
+                pull.run(client).await?;
             }
         }
         Ok(())

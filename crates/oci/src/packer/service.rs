@@ -17,7 +17,6 @@ pub struct OciPackerService {
     seed: Option<PathBuf>,
     platform: OciPlatform,
     cache: OciPackerCache,
-    progress: OciProgressContext,
 }
 
 impl OciPackerService {
@@ -25,28 +24,34 @@ impl OciPackerService {
         seed: Option<PathBuf>,
         cache_dir: &Path,
         platform: OciPlatform,
-        progress: OciProgressContext,
     ) -> Result<OciPackerService> {
         Ok(OciPackerService {
             seed,
             cache: OciPackerCache::new(cache_dir)?,
             platform,
-            progress,
         })
     }
 
-    pub async fn pack(
+    pub async fn recall(
         &self,
-        id: &str,
+        digest: &str,
+        format: OciPackedFormat,
+    ) -> Result<Option<OciImagePacked>> {
+        self.cache.recall(digest, format).await
+    }
+
+    pub async fn request(
+        &self,
         name: ImageName,
         format: OciPackedFormat,
+        progress_context: OciProgressContext,
     ) -> Result<OciImagePacked> {
-        let progress = OciProgress::new(id);
-        let progress = OciBoundProgress::new(self.progress.clone(), progress);
+        let progress = OciProgress::new();
+        let progress = OciBoundProgress::new(progress_context.clone(), progress);
         let fetcher =
             OciImageFetcher::new(self.seed.clone(), self.platform.clone(), progress.clone());
         let resolved = fetcher.resolve(name).await?;
-        if let Some(cached) = self.cache.recall(&resolved, format).await? {
+        if let Some(cached) = self.cache.recall(&resolved.digest, format).await? {
             return Ok(cached);
         }
         let assembler =

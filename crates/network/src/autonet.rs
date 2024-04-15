@@ -179,8 +179,6 @@ impl AutoNetworkWatcher {
                         break;
                     },
 
-                    Ok(_) => {},
-
                     Err(error) => {
                         warn!("failed to receive event: {}", error);
                     }

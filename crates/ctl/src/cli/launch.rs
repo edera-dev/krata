@@ -2,17 +2,16 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use clap::Parser;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use krata::{
     events::EventStream,
     v1::{
         common::{
-            guest_image_spec::Image, GuestImageSpec, GuestOciImageSpec, GuestSpec, GuestStatus,
-            GuestTaskSpec, GuestTaskSpecEnvVar,
+            guest_image_spec::Image, GuestImageSpec, GuestOciImageFormat, GuestOciImageSpec,
+            GuestSpec, GuestStatus, GuestTaskSpec, GuestTaskSpecEnvVar,
         },
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
-            CreateGuestRequest, OciProgressEventLayerPhase, OciProgressEventPhase,
+            CreateGuestRequest, PullImageRequest,
         },
     },
 };
@@ -20,11 +19,15 @@ use log::error;
 use tokio::select;
 use tonic::{transport::Channel, Request};
 
-use crate::console::StdioConsoleStream;
+use crate::{console::StdioConsoleStream, pull::pull_interactive_progress};
+
+use super::pull::PullImageFormat;
 
 #[derive(Parser)]
 #[command(about = "Launch a new guest")]
 pub struct LauchCommand {
+    #[arg(short = 'S', long, default_value = "squashfs", help = "Image format")]
+    image_format: PullImageFormat,
     #[arg(short, long, help = "Name of the guest")]
     name: Option<String>,
     #[arg(
@@ -71,11 +74,25 @@ impl LauchCommand {
         mut client: ControlServiceClient<Channel>,
         events: EventStream,
     ) -> Result<()> {
+        let response = client
+            .pull_image(PullImageRequest {
+                image: self.oci.clone(),
+                format: match self.image_format {
+                    PullImageFormat::Squashfs => GuestOciImageFormat::Squashfs.into(),
+                    PullImageFormat::Erofs => GuestOciImageFormat::Erofs.into(),
+                },
+            })
+            .await?;
+        let reply = pull_interactive_progress(response.into_inner()).await?;
+
         let request = CreateGuestRequest {
             spec: Some(GuestSpec {
                 name: self.name.unwrap_or_default(),
                 image: Some(GuestImageSpec {
-                    image: Some(Image::Oci(GuestOciImageSpec { image: self.oci })),
+                    image: Some(Image::Oci(GuestOciImageSpec {
+                        digest: reply.digest,
+                        format: reply.format,
+                    })),
                 }),
                 vcpus: self.cpus,
                 mem: self.mem,
@@ -126,14 +143,9 @@ impl LauchCommand {
 
 async fn wait_guest_started(id: &str, events: EventStream) -> Result<()> {
     let mut stream = events.subscribe();
-    let mut multi_progress: Option<(MultiProgress, HashMap<String, ProgressBar>)> = None;
     while let Ok(event) = stream.recv().await {
         match event {
             Event::GuestChanged(changed) => {
-                if let Some((multi_progress, _)) = multi_progress.as_mut() {
-                    let _ = multi_progress.clear();
-                }
-
                 let Some(guest) = changed.guest else {
                     continue;
                 };
@@ -162,102 +174,6 @@ async fn wait_guest_started(id: &str, events: EventStream) -> Result<()> {
 
                 if state.status() == GuestStatus::Started {
                     break;
-                }
-            }
-
-            Event::OciProgress(oci) => {
-                if multi_progress.is_none() {
-                    multi_progress = Some((MultiProgress::new(), HashMap::new()));
-                }
-
-                let Some((multi_progress, progresses)) = multi_progress.as_mut() else {
-                    continue;
-                };
-
-                match oci.phase() {
-                    OciProgressEventPhase::Resolved
-                    | OciProgressEventPhase::ConfigAcquire
-                    | OciProgressEventPhase::LayerAcquire => {
-                        if progresses.is_empty() && !oci.layers.is_empty() {
-                            for layer in &oci.layers {
-                                let bar = ProgressBar::new(layer.total);
-                                bar.set_style(
-                                    ProgressStyle::with_template("{msg} {wide_bar}").unwrap(),
-                                );
-                                progresses.insert(layer.id.clone(), bar.clone());
-                                multi_progress.add(bar);
-                            }
-                        }
-
-                        for layer in oci.layers {
-                            let Some(progress) = progresses.get_mut(&layer.id) else {
-                                continue;
-                            };
-
-                            let phase = match layer.phase() {
-                                OciProgressEventLayerPhase::Waiting => "waiting",
-                                OciProgressEventLayerPhase::Downloading => "downloading",
-                                OciProgressEventLayerPhase::Downloaded => "downloaded",
-                                OciProgressEventLayerPhase::Extracting => "extracting",
-                                OciProgressEventLayerPhase::Extracted => "extracted",
-                                _ => "unknown",
-                            };
-
-                            let simple = if let Some((_, hash)) = layer.id.split_once(':') {
-                                hash
-                            } else {
-                                id
-                            };
-                            let simple = if simple.len() > 10 {
-                                &simple[0..10]
-                            } else {
-                                simple
-                            };
-                            let message = format!("{:width$} {}", simple, phase, width = 10);
-
-                            if message != progress.message() {
-                                progress.set_message(message);
-                            }
-
-                            progress.update(|state| {
-                                state.set_len(layer.total);
-                                state.set_pos(layer.value);
-                            });
-                        }
-                    }
-
-                    OciProgressEventPhase::Packing => {
-                        for (key, bar) in &mut *progresses {
-                            if key == "packing" {
-                                continue;
-                            }
-                            bar.finish_and_clear();
-                            multi_progress.remove(bar);
-                        }
-                        progresses.retain(|k, _| k == "packing");
-                        if progresses.is_empty() {
-                            let progress = ProgressBar::new(100);
-                            progress.set_message("packing");
-                            progress.set_style(
-                                ProgressStyle::with_template("{msg} {wide_bar}").unwrap(),
-                            );
-                            progresses.insert("packing".to_string(), progress);
-                        }
-                        let Some(progress) = progresses.get("packing") else {
-                            continue;
-                        };
-
-                        progress.update(|state| {
-                            state.set_len(oci.total);
-                            state.set_pos(oci.value);
-                        });
-                    }
-
-                    _ => {}
-                }
-
-                for progress in progresses {
-                    progress.1.tick();
                 }
             }
         }

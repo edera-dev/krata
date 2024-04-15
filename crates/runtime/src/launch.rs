@@ -10,8 +10,7 @@ use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
     LaunchPackedFormat, LaunchRoot,
 };
-use krataoci::packer::service::OciPackerService;
-use krataoci::packer::{OciImagePacked, OciPackedFormat};
+use krataoci::packer::OciImagePacked;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
@@ -19,20 +18,19 @@ use xenstore::XsdInterface;
 
 use crate::cfgblk::ConfigBlock;
 use crate::RuntimeContext;
-use krataoci::name::ImageName;
 
 use super::{GuestInfo, GuestState};
 
-pub struct GuestLaunchRequest<'a> {
+pub struct GuestLaunchRequest {
     pub format: LaunchPackedFormat,
     pub uuid: Option<Uuid>,
-    pub name: Option<&'a str>,
-    pub image: &'a str,
+    pub name: Option<String>,
     pub vcpus: u32,
     pub mem: u64,
     pub env: HashMap<String, String>,
     pub run: Option<Vec<String>>,
     pub debug: bool,
+    pub image: OciImagePacked,
 }
 
 pub struct GuestLauncher {
@@ -44,25 +42,13 @@ impl GuestLauncher {
         Ok(Self { launch_semaphore })
     }
 
-    pub async fn launch<'r>(
+    pub async fn launch(
         &mut self,
         context: &RuntimeContext,
-        request: GuestLaunchRequest<'r>,
+        request: GuestLaunchRequest,
     ) -> Result<GuestInfo> {
         let uuid = request.uuid.unwrap_or_else(Uuid::new_v4);
         let xen_name = format!("krata-{uuid}");
-        let packed = self
-            .compile(
-                &uuid.to_string(),
-                request.image,
-                &context.packer,
-                match request.format {
-                    LaunchPackedFormat::Squashfs => OciPackedFormat::Squashfs,
-                    LaunchPackedFormat::Erofs => OciPackedFormat::Erofs,
-                },
-            )
-            .await?;
-
         let mut gateway_mac = MacAddr6::random();
         gateway_mac.set_local(true);
         gateway_mac.set_multicast(false);
@@ -85,6 +71,7 @@ impl GuestLauncher {
             hostname: Some(
                 request
                     .name
+                    .as_ref()
                     .map(|x| x.to_string())
                     .unwrap_or_else(|| format!("krata-{}", uuid)),
             ),
@@ -111,10 +98,11 @@ impl GuestLauncher {
             run: request.run,
         };
 
-        let cfgblk = ConfigBlock::new(&uuid, &packed)?;
+        let cfgblk = ConfigBlock::new(&uuid, &request.image)?;
         cfgblk.build(&launch_config)?;
 
-        let image_squashfs_path = packed
+        let image_squashfs_path = request
+            .image
             .path
             .to_str()
             .ok_or_else(|| anyhow!("failed to convert image path to string"))?;
@@ -153,7 +141,6 @@ impl GuestLauncher {
                     cfgblk_dir_path,
                 ),
             ),
-            ("krata/image".to_string(), request.image.to_string()),
             (
                 "krata/network/guest/ipv4".to_string(),
                 format!("{}/{}", guest_ipv4, ipv4_network_mask),
@@ -180,8 +167,8 @@ impl GuestLauncher {
             ),
         ];
 
-        if let Some(name) = request.name {
-            extra_keys.push(("krata/name".to_string(), name.to_string()));
+        if let Some(name) = request.name.as_ref() {
+            extra_keys.push(("krata/name".to_string(), name.clone()));
         }
 
         let config = DomainConfig {
@@ -222,10 +209,10 @@ impl GuestLauncher {
         };
         match context.xen.create(&config).await {
             Ok(created) => Ok(GuestInfo {
-                name: request.name.map(|x| x.to_string()),
+                name: request.name.as_ref().map(|x| x.to_string()),
                 uuid,
                 domid: created.domid,
-                image: request.image.to_string(),
+                image: request.image.digest,
                 loops: vec![],
                 guest_ipv4: Some(IpNetwork::new(
                     IpAddr::V4(guest_ipv4),
@@ -254,17 +241,6 @@ impl GuestLauncher {
                 Err(error.into())
             }
         }
-    }
-
-    async fn compile(
-        &self,
-        id: &str,
-        image: &str,
-        packer: &OciPackerService,
-        format: OciPackedFormat,
-    ) -> Result<OciImagePacked> {
-        let image = ImageName::parse(image)?;
-        packer.pack(id, image, format).await
     }
 
     async fn allocate_ipv4(&self, context: &RuntimeContext) -> Result<Ipv4Addr> {

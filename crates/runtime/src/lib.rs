@@ -17,9 +17,6 @@ use self::{
     autoloop::AutoLoop,
     launch::{GuestLaunchRequest, GuestLauncher},
 };
-use krataoci::{
-    packer::service::OciPackerService, progress::OciProgressContext, registry::OciPlatform,
-};
 
 pub mod autoloop;
 pub mod cfgblk;
@@ -53,8 +50,6 @@ pub struct GuestInfo {
 
 #[derive(Clone)]
 pub struct RuntimeContext {
-    pub oci_progress_context: OciProgressContext,
-    pub packer: OciPackerService,
     pub autoloop: AutoLoop,
     pub xen: XenClient,
     pub kernel: String,
@@ -62,7 +57,7 @@ pub struct RuntimeContext {
 }
 
 impl RuntimeContext {
-    pub async fn new(oci_progress_context: OciProgressContext, store: String) -> Result<Self> {
+    pub async fn new(store: String) -> Result<Self> {
         let mut image_cache_path = PathBuf::from(&store);
         image_cache_path.push("cache");
         fs::create_dir_all(&image_cache_path)?;
@@ -70,18 +65,10 @@ impl RuntimeContext {
         let xen = XenClient::open(0).await?;
         image_cache_path.push("image");
         fs::create_dir_all(&image_cache_path)?;
-        let packer = OciPackerService::new(
-            None,
-            &image_cache_path,
-            OciPlatform::current(),
-            oci_progress_context.clone(),
-        )?;
         let kernel = RuntimeContext::detect_guest_file(&store, "kernel")?;
         let initrd = RuntimeContext::detect_guest_file(&store, "initrd")?;
 
         Ok(RuntimeContext {
-            oci_progress_context,
-            packer,
             autoloop: AutoLoop::new(LoopControl::open()?),
             xen,
             kernel,
@@ -261,24 +248,22 @@ impl RuntimeContext {
 
 #[derive(Clone)]
 pub struct Runtime {
-    oci_progress_context: OciProgressContext,
     store: Arc<String>,
     context: RuntimeContext,
     launch_semaphore: Arc<Semaphore>,
 }
 
 impl Runtime {
-    pub async fn new(oci_progress_context: OciProgressContext, store: String) -> Result<Self> {
-        let context = RuntimeContext::new(oci_progress_context.clone(), store.clone()).await?;
+    pub async fn new(store: String) -> Result<Self> {
+        let context = RuntimeContext::new(store.clone()).await?;
         Ok(Self {
-            oci_progress_context,
             store: Arc::new(store),
             context,
             launch_semaphore: Arc::new(Semaphore::new(1)),
         })
     }
 
-    pub async fn launch<'a>(&self, request: GuestLaunchRequest<'a>) -> Result<GuestInfo> {
+    pub async fn launch(&self, request: GuestLaunchRequest) -> Result<GuestInfo> {
         let mut launcher = GuestLauncher::new(self.launch_semaphore.clone())?;
         launcher.launch(&self.context, request).await
     }
@@ -335,7 +320,7 @@ impl Runtime {
     }
 
     pub async fn dupe(&self) -> Result<Runtime> {
-        Runtime::new(self.oci_progress_context.clone(), (*self.store).clone()).await
+        Runtime::new((*self.store).clone()).await
     }
 }
 
