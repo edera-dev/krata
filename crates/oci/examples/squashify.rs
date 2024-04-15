@@ -8,7 +8,7 @@ use krataoci::{
     progress::{OciProgress, OciProgressContext},
     registry::OciPlatform,
 };
-use tokio::{fs, sync::broadcast};
+use tokio::{fs, sync::mpsc::channel};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -22,14 +22,16 @@ async fn main() -> Result<()> {
         fs::create_dir(&cache_dir).await?;
     }
 
-    let (sender, mut receiver) = broadcast::channel::<OciProgress>(1000);
+    let (sender, mut receiver) = channel::<OciProgress>(100);
     tokio::task::spawn(async move {
         loop {
-            let Some(progress) = receiver.recv().await.ok() else {
-                break;
+            let mut progresses = Vec::new();
+            let _ = receiver.recv_many(&mut progresses, 100).await;
+            let Some(progress) = progresses.last() else {
+                continue;
             };
             println!("phase {:?}", progress.phase);
-            for (id, layer) in progress.layers {
+            for (id, layer) in &progress.layers {
                 println!(
                     "{} {:?} {} of {}",
                     id, layer.phase, layer.value, layer.total

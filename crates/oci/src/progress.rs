@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use tokio::sync::{broadcast::Sender, Mutex};
+use tokio::sync::{mpsc::Sender, Mutex};
 
 #[derive(Clone, Debug)]
 pub struct OciProgress {
@@ -108,7 +108,7 @@ impl OciProgressContext {
     }
 
     pub fn update(&self, progress: &OciProgress) {
-        let _ = self.sender.send(progress.clone());
+        let _ = self.sender.try_send(progress.clone());
     }
 }
 

@@ -113,48 +113,21 @@ impl OciImageAssembler {
                     progress.extracting_layer(&layer.digest, 0, 1);
                 })
                 .await;
-            let (whiteouts, count) = self.process_layer_whiteout(&mut vfs, layer).await?;
-            self.progress
-                .update(|progress| {
-                    progress.extracting_layer(&layer.digest, 0, count);
-                })
-                .await;
-            debug!(
-                "process layer digest={} whiteouts={:?}",
-                &layer.digest, whiteouts
-            );
+            debug!("process layer digest={}", &layer.digest,);
             let mut archive = layer.archive().await?;
             let mut entries = archive.entries()?;
-            let mut completed = 0;
             while let Some(entry) = entries.next().await {
                 let mut entry = entry?;
                 let path = entry.path()?;
-                let mut maybe_whiteout_path_str =
-                    path.to_str().map(|x| x.to_string()).unwrap_or_default();
-                if (completed % 10) == 0 {
-                    self.progress
-                        .update(|progress| {
-                            progress.extracting_layer(&layer.digest, completed, count);
-                        })
-                        .await;
-                }
-                completed += 1;
-                if whiteouts.contains(&maybe_whiteout_path_str) {
-                    continue;
-                }
-                maybe_whiteout_path_str.push('/');
-                if whiteouts.contains(&maybe_whiteout_path_str) {
-                    continue;
-                }
                 let Some(name) = path.file_name() else {
                     continue;
                 };
                 let Some(name) = name.to_str() else {
                     continue;
                 };
-
                 if name.starts_with(".wh.") {
-                    continue;
+                    self.process_whiteout_entry(&mut vfs, &entry, name, layer)
+                        .await?;
                 } else {
                     vfs.insert_tar_entry(&entry)?;
                     self.process_write_entry(&mut vfs, &mut entry, layer)
@@ -181,45 +154,13 @@ impl OciImageAssembler {
         })
     }
 
-    async fn process_layer_whiteout(
-        &self,
-        vfs: &mut VfsTree,
-        layer: &OciImageLayer,
-    ) -> Result<(Vec<String>, usize)> {
-        let mut whiteouts = Vec::new();
-        let mut archive = layer.archive().await?;
-        let mut entries = archive.entries()?;
-        let mut count = 0usize;
-        while let Some(entry) = entries.next().await {
-            let entry = entry?;
-            count += 1;
-            let path = entry.path()?;
-            let Some(name) = path.file_name() else {
-                continue;
-            };
-            let Some(name) = name.to_str() else {
-                continue;
-            };
-
-            if name.starts_with(".wh.") {
-                let path = self
-                    .process_whiteout_entry(vfs, &entry, name, layer)
-                    .await?;
-                if let Some(path) = path {
-                    whiteouts.push(path);
-                }
-            }
-        }
-        Ok((whiteouts, count))
-    }
-
     async fn process_whiteout_entry(
         &self,
         vfs: &mut VfsTree,
         entry: &Entry<Archive<Pin<Box<dyn AsyncRead + Send>>>>,
         name: &str,
         layer: &OciImageLayer,
-    ) -> Result<Option<String>> {
+    ) -> Result<()> {
         let path = entry.path()?;
         let mut path = path.to_path_buf();
         path.pop();
@@ -231,24 +172,27 @@ impl OciImageAssembler {
             path.push(file);
         }
 
-        trace!("whiteout entry layer={} path={:?}", &layer.digest, path,);
+        trace!(
+            "whiteout entry {:?} layer={} path={:?}",
+            entry.path()?,
+            &layer.digest,
+            path
+        );
 
-        let whiteout = path
-            .to_str()
-            .ok_or(anyhow!("unable to convert path to string"))?
-            .to_string();
-
-        let removed = vfs.root.remove(&path);
-        if let Some(removed) = removed {
-            delete_disk_paths(removed).await?;
+        let result = vfs.root.remove(&path);
+        if let Some((parent, mut removed)) = result {
+            delete_disk_paths(&removed).await?;
+            if opaque {
+                removed.children.clear();
+                parent.children.push(removed);
+            }
         } else {
-            trace!(
+            warn!(
                 "whiteout entry layer={} path={:?} did not exist",
-                &layer.digest,
-                path
+                &layer.digest, path
             );
         }
-        Ok(if opaque { None } else { Some(whiteout) })
+        Ok(())
     }
 
     async fn process_write_entry(
@@ -266,6 +210,9 @@ impl OciImageAssembler {
             entry.path()?,
             entry.header().entry_type(),
         );
+        entry.set_preserve_permissions(false);
+        entry.set_unpack_xattrs(false);
+        entry.set_preserve_mtime(false);
         let path = entry
             .unpack_in(&self.disk_dir)
             .await?
@@ -275,7 +222,7 @@ impl OciImageAssembler {
     }
 }
 
-async fn delete_disk_paths(node: VfsNode) -> Result<()> {
+async fn delete_disk_paths(node: &VfsNode) -> Result<()> {
     let mut queue = vec![node];
     while !queue.is_empty() {
         let node = queue.remove(0);
@@ -285,7 +232,8 @@ async fn delete_disk_paths(node: VfsNode) -> Result<()> {
             }
             fs::remove_file(disk_path).await?;
         }
-        queue.extend_from_slice(&node.children);
+        let children = node.children.iter().collect::<Vec<_>>();
+        queue.extend_from_slice(&children);
     }
     Ok(())
 }

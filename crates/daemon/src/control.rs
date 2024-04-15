@@ -1,5 +1,3 @@
-use std::{pin::Pin, str::FromStr};
-
 use async_stream::try_stream;
 use futures::Stream;
 use krata::{
@@ -23,12 +21,10 @@ use krataoci::{
     packer::{service::OciPackerService, OciImagePacked, OciPackedFormat},
     progress::{OciProgress, OciProgressContext},
 };
+use std::{pin::Pin, str::FromStr};
 use tokio::{
     select,
-    sync::{
-        broadcast,
-        mpsc::{channel, Sender},
-    },
+    sync::mpsc::{channel, Sender},
     task::JoinError,
 };
 use tokio_stream::StreamExt;
@@ -94,7 +90,7 @@ enum ConsoleDataSelect {
 }
 
 enum PullImageSelect {
-    Progress(Option<OciProgress>),
+    Progress(usize),
     Completed(Result<Result<OciImagePacked, anyhow::Error>, JoinError>),
 }
 
@@ -370,7 +366,7 @@ impl ControlService for DaemonControlService {
             GuestOciImageFormat::Squashfs => OciPackedFormat::Squashfs,
             GuestOciImageFormat::Erofs => OciPackedFormat::Erofs,
         };
-        let (sender, mut receiver) = broadcast::channel::<OciProgress>(100);
+        let (sender, mut receiver) = channel::<OciProgress>(100);
         let context = OciProgressContext::new(sender);
 
         let our_packer = self.packer.clone();
@@ -380,19 +376,22 @@ impl ControlService for DaemonControlService {
                 our_packer.request(name, format, context).await
             });
             loop {
+                let mut progresses = Vec::new();
                 let what = select! {
-                    x = receiver.recv() => PullImageSelect::Progress(x.ok()),
+                    x = receiver.recv_many(&mut progresses, 10) => PullImageSelect::Progress(x),
                     x = &mut task => PullImageSelect::Completed(x),
                 };
-
                 match what {
-                    PullImageSelect::Progress(Some(progress)) => {
-                        let reply = PullImageReply {
-                            progress: Some(convert_oci_progress(progress)),
-                            digest: String::new(),
-                            format: GuestOciImageFormat::Unknown.into(),
-                        };
-                        yield reply;
+                    PullImageSelect::Progress(count) => {
+                        if count > 0 {
+                            let progress = progresses.remove(progresses.len() - 1);
+                            let reply = PullImageReply {
+                                progress: Some(convert_oci_progress(progress)),
+                                digest: String::new(),
+                                format: GuestOciImageFormat::Unknown.into(),
+                            };
+                            yield reply;
+                        }
                     },
 
                     PullImageSelect::Completed(result) => {
@@ -413,8 +412,6 @@ impl ControlService for DaemonControlService {
                         yield reply;
                         break;
                     },
-
-                    _ => {},
                 }
             }
         };

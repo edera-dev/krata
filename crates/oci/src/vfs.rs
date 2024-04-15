@@ -7,7 +7,7 @@ use tokio::{
 };
 use tokio_tar::{Builder, Entry, EntryType, Header};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum VfsNodeType {
     Directory,
     RegularFile,
@@ -100,7 +100,7 @@ impl VfsNode {
         Some(node)
     }
 
-    pub fn remove(&mut self, path: &Path) -> Option<VfsNode> {
+    pub fn remove(&mut self, path: &Path) -> Option<(&mut VfsNode, VfsNode)> {
         let parent = path.parent()?;
         let node = self.lookup_mut(parent)?;
         let file_name = path.file_name()?;
@@ -109,7 +109,8 @@ impl VfsNode {
             .children
             .iter()
             .position(|child| file_name == child.name)?;
-        Some(node.children.remove(position))
+        let removed = node.children.remove(position);
+        Some((node, removed))
     }
 
     pub fn create_tar_header(&self) -> Result<Header> {
@@ -194,7 +195,7 @@ impl VfsTree {
     }
 
     pub fn insert_tar_entry<X: AsyncRead + Unpin>(&mut self, entry: &Entry<X>) -> Result<()> {
-        let meta = VfsNode::from(entry)?;
+        let mut meta = VfsNode::from(entry)?;
         let path = entry.path()?.to_path_buf();
         let parent = if let Some(parent) = path.parent() {
             self.root.lookup_mut(parent)
@@ -206,7 +207,17 @@ impl VfsTree {
             return Err(anyhow!("unable to find parent of entry"));
         };
 
-        parent.children.retain(|child| child.name != meta.name);
+        let position = parent
+            .children
+            .iter()
+            .position(|child| meta.name == child.name);
+
+        if let Some(position) = position {
+            let old = parent.children.remove(position);
+            if meta.typ == VfsNodeType::Directory {
+                meta.children = old.children;
+            }
+        }
         parent.children.push(meta);
         Ok(())
     }
@@ -237,7 +248,6 @@ impl VfsTree {
             if path.components().count() != 0 {
                 node.write_to_tar(&path, &mut builder).await?;
             }
-
             for child in &node.children {
                 queue.push((path.clone(), child));
             }
