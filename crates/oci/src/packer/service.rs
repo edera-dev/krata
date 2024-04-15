@@ -63,12 +63,11 @@ impl OciPackerService {
             .ok_or(anyhow!("tmp_dir was missing when packing image"))?;
         file.push("image.pack");
         let target = file.clone();
-        let directory = assembled.path.clone();
-        tokio::task::spawn_blocking(move || {
-            let packer = format.detect_best_backend().create();
-            packer.pack(progress, &directory, &target)
-        })
-        .await??;
+        let packer = format.backend().create();
+        packer
+            .pack(progress, assembled.vfs.clone(), &target)
+            .await?;
+
         let packed = OciImagePacked::new(
             assembled.digest.clone(),
             file,

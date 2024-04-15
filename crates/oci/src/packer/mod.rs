@@ -1,9 +1,7 @@
+use std::path::PathBuf;
+
 use self::backend::OciPackerBackendType;
 use oci_spec::image::{ImageConfiguration, ImageManifest};
-use std::{
-    path::PathBuf,
-    process::{Command, Stdio},
-};
 
 pub mod backend;
 pub mod cache;
@@ -24,27 +22,9 @@ impl OciPackedFormat {
         }
     }
 
-    pub fn detect_best_backend(&self) -> OciPackerBackendType {
+    pub fn backend(&self) -> OciPackerBackendType {
         match self {
-            OciPackedFormat::Squashfs => {
-                let status = Command::new("mksquashfs")
-                    .arg("-version")
-                    .stdin(Stdio::null())
-                    .stderr(Stdio::null())
-                    .stdout(Stdio::null())
-                    .status()
-                    .ok();
-
-                let Some(code) = status.and_then(|x| x.code()) else {
-                    return OciPackerBackendType::Backhand;
-                };
-
-                if code == 0 {
-                    OciPackerBackendType::MkSquashfs
-                } else {
-                    OciPackerBackendType::Backhand
-                }
-            }
+            OciPackedFormat::Squashfs => OciPackerBackendType::MkSquashfs,
             OciPackedFormat::Erofs => OciPackerBackendType::MkfsErofs,
         }
     }

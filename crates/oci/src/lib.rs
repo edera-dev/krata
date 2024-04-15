@@ -4,3 +4,4 @@ pub mod name;
 pub mod packer;
 pub mod progress;
 pub mod registry;
+pub mod vfs;

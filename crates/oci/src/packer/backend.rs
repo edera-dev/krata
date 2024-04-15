@@ -1,143 +1,16 @@
-use std::{
-    fs::File,
-    io::{BufWriter, ErrorKind, Read},
-    os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-};
-
-use crate::progress::{OciBoundProgress, OciProgressPhase};
-use anyhow::{anyhow, Result};
-use backhand::{compression::Compressor, FilesystemCompressor, FilesystemWriter, NodeHeader};
-use log::{trace, warn};
-use walkdir::WalkDir;
+use std::{path::Path, process::Stdio, sync::Arc};
 
 use super::OciPackedFormat;
-
-pub struct OciPackerBackhand {}
-
-impl OciPackerBackend for OciPackerBackhand {
-    fn pack(&self, progress: OciBoundProgress, directory: &Path, file: &Path) -> Result<()> {
-        progress.update_blocking(|progress| {
-            progress.phase = OciProgressPhase::Packing;
-            progress.total = 1;
-            progress.value = 0;
-        });
-        let mut writer = FilesystemWriter::default();
-        writer.set_compressor(FilesystemCompressor::new(Compressor::Gzip, None)?);
-        let walk = WalkDir::new(directory).follow_links(false);
-        for entry in walk {
-            let entry = entry?;
-            let rel = entry
-                .path()
-                .strip_prefix(directory)?
-                .to_str()
-                .ok_or_else(|| anyhow!("failed to strip prefix of tmpdir"))?;
-            let rel = format!("/{}", rel);
-            trace!("squash write {}", rel);
-            let typ = entry.file_type();
-            let metadata = std::fs::symlink_metadata(entry.path())?;
-            let uid = metadata.uid();
-            let gid = metadata.gid();
-            let mode = metadata.permissions().mode();
-            let mtime = metadata.mtime();
-
-            if rel == "/" {
-                writer.set_root_uid(uid);
-                writer.set_root_gid(gid);
-                writer.set_root_mode(mode as u16);
-                continue;
-            }
-
-            let header = NodeHeader {
-                permissions: mode as u16,
-                uid,
-                gid,
-                mtime: mtime as u32,
-            };
-            if typ.is_symlink() {
-                let symlink = std::fs::read_link(entry.path())?;
-                let symlink = symlink
-                    .to_str()
-                    .ok_or_else(|| anyhow!("failed to read symlink"))?;
-                writer.push_symlink(symlink, rel, header)?;
-            } else if typ.is_dir() {
-                writer.push_dir(rel, header)?;
-            } else if typ.is_file() {
-                writer.push_file(ConsumingFileReader::new(entry.path()), rel, header)?;
-            } else if typ.is_block_device() {
-                let device = metadata.dev();
-                writer.push_block_device(device as u32, rel, header)?;
-            } else if typ.is_char_device() {
-                let device = metadata.dev();
-                writer.push_char_device(device as u32, rel, header)?;
-            } else if typ.is_fifo() {
-                writer.push_fifo(rel, header)?;
-            } else if typ.is_socket() {
-                writer.push_socket(rel, header)?;
-            } else {
-                return Err(anyhow!("invalid file type"));
-            }
-        }
-        let squash_file_path = file
-            .to_str()
-            .ok_or_else(|| anyhow!("failed to convert squashfs string"))?;
-
-        let file = File::create(file)?;
-        let mut bufwrite = BufWriter::new(file);
-        trace!("squash generate: {}", squash_file_path);
-        writer.write(&mut bufwrite)?;
-        progress.update_blocking(|progress| {
-            progress.phase = OciProgressPhase::Packing;
-            progress.total = 1;
-            progress.value = 1;
-        });
-        Ok(())
-    }
-}
-
-struct ConsumingFileReader {
-    path: PathBuf,
-    file: Option<File>,
-}
-
-impl ConsumingFileReader {
-    fn new(path: &Path) -> ConsumingFileReader {
-        ConsumingFileReader {
-            path: path.to_path_buf(),
-            file: None,
-        }
-    }
-}
-
-impl Read for ConsumingFileReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.file.is_none() {
-            self.file = Some(File::open(&self.path)?);
-        }
-        let Some(ref mut file) = self.file else {
-            return Err(std::io::Error::new(
-                ErrorKind::NotFound,
-                "file was not opened",
-            ));
-        };
-        file.read(buf)
-    }
-}
-
-impl Drop for ConsumingFileReader {
-    fn drop(&mut self) {
-        let file = self.file.take();
-        drop(file);
-        if let Err(error) = std::fs::remove_file(&self.path) {
-            warn!("failed to delete consuming file {:?}: {}", self.path, error);
-        }
-    }
-}
+use crate::{
+    progress::{OciBoundProgress, OciProgressPhase},
+    vfs::VfsTree,
+};
+use anyhow::{anyhow, Result};
+use log::warn;
+use tokio::{pin, process::Command, select};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OciPackerBackendType {
-    Backhand,
     MkSquashfs,
     MkfsErofs,
 }
@@ -145,7 +18,6 @@ pub enum OciPackerBackendType {
 impl OciPackerBackendType {
     pub fn format(&self) -> OciPackedFormat {
         match self {
-            OciPackerBackendType::Backhand => OciPackedFormat::Squashfs,
             OciPackerBackendType::MkSquashfs => OciPackedFormat::Squashfs,
             OciPackerBackendType::MkfsErofs => OciPackedFormat::Erofs,
         }
@@ -153,9 +25,6 @@ impl OciPackerBackendType {
 
     pub fn create(&self) -> Box<dyn OciPackerBackend> {
         match self {
-            OciPackerBackendType::Backhand => {
-                Box::new(OciPackerBackhand {}) as Box<dyn OciPackerBackend>
-            }
             OciPackerBackendType::MkSquashfs => {
                 Box::new(OciPackerMkSquashfs {}) as Box<dyn OciPackerBackend>
             }
@@ -166,40 +35,88 @@ impl OciPackerBackendType {
     }
 }
 
-pub trait OciPackerBackend {
-    fn pack(&self, progress: OciBoundProgress, directory: &Path, file: &Path) -> Result<()>;
+#[async_trait::async_trait]
+pub trait OciPackerBackend: Send + Sync {
+    async fn pack(&self, progress: OciBoundProgress, vfs: Arc<VfsTree>, file: &Path) -> Result<()>;
 }
 
 pub struct OciPackerMkSquashfs {}
 
+#[async_trait::async_trait]
 impl OciPackerBackend for OciPackerMkSquashfs {
-    fn pack(&self, progress: OciBoundProgress, directory: &Path, file: &Path) -> Result<()> {
-        progress.update_blocking(|progress| {
-            progress.phase = OciProgressPhase::Packing;
-            progress.total = 1;
-            progress.value = 0;
-        });
+    async fn pack(&self, progress: OciBoundProgress, vfs: Arc<VfsTree>, file: &Path) -> Result<()> {
+        progress
+            .update(|progress| {
+                progress.phase = OciProgressPhase::Packing;
+                progress.total = 1;
+                progress.value = 0;
+            })
+            .await;
+
         let mut child = Command::new("mksquashfs")
-            .arg(directory)
+            .arg("-")
             .arg(file)
             .arg("-comp")
             .arg("gzip")
-            .stdin(Stdio::null())
+            .arg("-tar")
+            .stdin(Stdio::piped())
             .stderr(Stdio::null())
             .stdout(Stdio::null())
             .spawn()?;
-        let status = child.wait()?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or(anyhow!("unable to acquire stdin stream"))?;
+        let mut writer = Some(tokio::task::spawn(async move {
+            if let Err(error) = vfs.write_to_tar(stdin).await {
+                warn!("failed to write tar: {}", error);
+                return Err(error);
+            }
+            Ok(())
+        }));
+        let wait = child.wait();
+        pin!(wait);
+        let status_result = loop {
+            if let Some(inner) = writer.as_mut() {
+                select! {
+                    x = inner => {
+                        writer = None;
+                        match x {
+                            Ok(_) => {},
+                            Err(error) => {
+                                return Err(error.into());
+                            }
+                        }
+                    },
+                    status = &mut wait => {
+                        break status;
+                    }
+                };
+            } else {
+                select! {
+                    status = &mut wait => {
+                        break status;
+                    }
+                };
+            }
+        };
+        if let Some(writer) = writer {
+            writer.await??;
+        }
+        let status = status_result?;
         if !status.success() {
             Err(anyhow!(
                 "mksquashfs failed with exit code: {}",
                 status.code().unwrap()
             ))
         } else {
-            progress.update_blocking(|progress| {
-                progress.phase = OciProgressPhase::Packing;
-                progress.total = 1;
-                progress.value = 1;
-            });
+            progress
+                .update(|progress| {
+                    progress.phase = OciProgressPhase::Packing;
+                    progress.total = 1;
+                    progress.value = 1;
+                })
+                .await;
             Ok(())
         }
     }
@@ -207,34 +124,77 @@ impl OciPackerBackend for OciPackerMkSquashfs {
 
 pub struct OciPackerMkfsErofs {}
 
+#[async_trait::async_trait]
 impl OciPackerBackend for OciPackerMkfsErofs {
-    fn pack(&self, progress: OciBoundProgress, directory: &Path, file: &Path) -> Result<()> {
-        progress.update_blocking(|progress| {
-            progress.phase = OciProgressPhase::Packing;
-            progress.total = 1;
-            progress.value = 0;
-        });
+    async fn pack(&self, progress: OciBoundProgress, vfs: Arc<VfsTree>, path: &Path) -> Result<()> {
+        progress
+            .update(|progress| {
+                progress.phase = OciProgressPhase::Packing;
+                progress.total = 1;
+                progress.value = 0;
+            })
+            .await;
+
         let mut child = Command::new("mkfs.erofs")
             .arg("-L")
             .arg("root")
-            .arg(file)
-            .arg(directory)
-            .stdin(Stdio::null())
+            .arg("--tar=-")
+            .arg(path)
+            .stdin(Stdio::piped())
             .stderr(Stdio::null())
             .stdout(Stdio::null())
             .spawn()?;
-        let status = child.wait()?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or(anyhow!("unable to acquire stdin stream"))?;
+        let mut writer = Some(tokio::task::spawn(
+            async move { vfs.write_to_tar(stdin).await },
+        ));
+        let wait = child.wait();
+        pin!(wait);
+        let status_result = loop {
+            if let Some(inner) = writer.as_mut() {
+                select! {
+                    x = inner => {
+                        match x {
+                            Ok(_) => {
+                                writer = None;
+                            },
+                            Err(error) => {
+                                return Err(error.into());
+                            }
+                        }
+                    },
+                    status = &mut wait => {
+                        break status;
+                    }
+                };
+            } else {
+                select! {
+                    status = &mut wait => {
+                        break status;
+                    }
+                };
+            }
+        };
+        if let Some(writer) = writer {
+            writer.await??;
+        }
+        let status = status_result?;
         if !status.success() {
             Err(anyhow!(
                 "mkfs.erofs failed with exit code: {}",
                 status.code().unwrap()
             ))
         } else {
-            progress.update_blocking(|progress| {
-                progress.phase = OciProgressPhase::Packing;
-                progress.total = 1;
-                progress.value = 1;
-            });
+            progress
+                .update(|progress| {
+                    progress.phase = OciProgressPhase::Packing;
+                    progress.total = 1;
+                    progress.value = 1;
+                })
+                .await;
             Ok(())
         }
     }

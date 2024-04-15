@@ -37,7 +37,7 @@ pub async fn pull_interactive_progress(
                 if progresses.is_empty() && !oci.layers.is_empty() {
                     for layer in &oci.layers {
                         let bar = ProgressBar::new(layer.total);
-                        bar.set_style(ProgressStyle::with_template("{msg} {wide_bar}").unwrap());
+                        bar.set_style(ProgressStyle::with_template("{msg} {bar}").unwrap());
                         progresses.insert(layer.id.clone(), bar.clone());
                         multi_progress.add(bar);
                     }
@@ -98,7 +98,7 @@ pub async fn pull_interactive_progress(
                 if progresses.is_empty() {
                     let progress = ProgressBar::new(100);
                     progress.set_message("packing    ");
-                    progress.set_style(ProgressStyle::with_template("{msg} {wide_bar}").unwrap());
+                    progress.set_style(ProgressStyle::with_template("{msg} {bar}").unwrap());
                     progresses.insert("packing".to_string(), progress);
                 }
                 let Some(progress) = progresses.get("packing") else {

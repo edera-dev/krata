@@ -1,11 +1,12 @@
 use crate::fetch::{OciImageFetcher, OciImageLayer, OciResolvedImage};
 use crate::progress::OciBoundProgress;
+use crate::vfs::{VfsNode, VfsTree};
 use anyhow::{anyhow, Result};
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use oci_spec::image::{ImageConfiguration, ImageManifest};
-use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncRead;
 use tokio_stream::StreamExt;
@@ -14,9 +15,9 @@ use uuid::Uuid;
 
 pub struct OciImageAssembled {
     pub digest: String,
-    pub path: PathBuf,
     pub manifest: ImageManifest,
     pub config: ImageConfiguration,
+    pub vfs: Arc<VfsTree>,
     pub tmp_dir: Option<PathBuf>,
 }
 
@@ -35,7 +36,7 @@ pub struct OciImageAssembler {
     resolved: OciResolvedImage,
     progress: OciBoundProgress,
     work_dir: PathBuf,
-    target_dir: PathBuf,
+    disk_dir: PathBuf,
     tmp_dir: Option<PathBuf>,
 }
 
@@ -45,9 +46,9 @@ impl OciImageAssembler {
         resolved: OciResolvedImage,
         progress: OciBoundProgress,
         work_dir: Option<PathBuf>,
-        target_dir: Option<PathBuf>,
+        disk_dir: Option<PathBuf>,
     ) -> Result<OciImageAssembler> {
-        let tmp_dir = if work_dir.is_none() || target_dir.is_none() {
+        let tmp_dir = if work_dir.is_none() || disk_dir.is_none() {
             let mut tmp_dir = std::env::temp_dir().clone();
             tmp_dir.push(format!("oci-assemble-{}", Uuid::new_v4()));
             Some(tmp_dir)
@@ -65,7 +66,7 @@ impl OciImageAssembler {
             tmp_dir
         };
 
-        let target_dir = if let Some(target_dir) = target_dir {
+        let target_dir = if let Some(target_dir) = disk_dir {
             target_dir
         } else {
             let mut tmp_dir = tmp_dir
@@ -83,7 +84,7 @@ impl OciImageAssembler {
             resolved,
             progress,
             work_dir,
-            target_dir,
+            disk_dir: target_dir,
             tmp_dir,
         })
     }
@@ -101,6 +102,7 @@ impl OciImageAssembler {
             .downloader
             .download(self.resolved.clone(), layer_dir)
             .await?;
+        let mut vfs = VfsTree::new();
         for layer in &local.layers {
             debug!(
                 "process layer digest={} compression={:?}",
@@ -111,7 +113,7 @@ impl OciImageAssembler {
                     progress.extracting_layer(&layer.digest, 0, 1);
                 })
                 .await;
-            let (whiteouts, count) = self.process_layer_whiteout(layer).await?;
+            let (whiteouts, count) = self.process_layer_whiteout(&mut vfs, layer).await?;
             self.progress
                 .update(|progress| {
                     progress.extracting_layer(&layer.digest, 0, count);
@@ -154,7 +156,9 @@ impl OciImageAssembler {
                 if name.starts_with(".wh.") {
                     continue;
                 } else {
-                    self.process_write_entry(&mut entry, layer).await?;
+                    vfs.insert_tar_entry(&entry)?;
+                    self.process_write_entry(&mut vfs, &mut entry, layer)
+                        .await?;
                 }
             }
             self.progress
@@ -163,22 +167,25 @@ impl OciImageAssembler {
                 })
                 .await;
         }
-
         for layer in &local.layers {
             if layer.path.exists() {
                 fs::remove_file(&layer.path).await?;
             }
         }
         Ok(OciImageAssembled {
+            vfs: Arc::new(vfs),
             digest: self.resolved.digest,
-            path: self.target_dir,
             manifest: self.resolved.manifest,
             config: local.config,
             tmp_dir: self.tmp_dir,
         })
     }
 
-    async fn process_layer_whiteout(&self, layer: &OciImageLayer) -> Result<(Vec<String>, usize)> {
+    async fn process_layer_whiteout(
+        &self,
+        vfs: &mut VfsTree,
+        layer: &OciImageLayer,
+    ) -> Result<(Vec<String>, usize)> {
         let mut whiteouts = Vec::new();
         let mut archive = layer.archive().await?;
         let mut entries = archive.entries()?;
@@ -195,7 +202,9 @@ impl OciImageAssembler {
             };
 
             if name.starts_with(".wh.") {
-                let path = self.process_whiteout_entry(&entry, name, layer).await?;
+                let path = self
+                    .process_whiteout_entry(vfs, &entry, name, layer)
+                    .await?;
                 if let Some(path) = path {
                     whiteouts.push(path);
                 }
@@ -206,13 +215,12 @@ impl OciImageAssembler {
 
     async fn process_whiteout_entry(
         &self,
+        vfs: &mut VfsTree,
         entry: &Entry<Archive<Pin<Box<dyn AsyncRead + Send>>>>,
         name: &str,
         layer: &OciImageLayer,
     ) -> Result<Option<String>> {
         let path = entry.path()?;
-        let mut dst = self.check_safe_entry(path.clone())?;
-        dst.pop();
         let mut path = path.to_path_buf();
         path.pop();
 
@@ -220,9 +228,7 @@ impl OciImageAssembler {
 
         if !opaque {
             let file = &name[4..];
-            dst.push(file);
             path.push(file);
-            self.check_safe_path(&dst)?;
         }
 
         trace!("whiteout entry layer={} path={:?}", &layer.digest, path,);
@@ -232,37 +238,14 @@ impl OciImageAssembler {
             .ok_or(anyhow!("unable to convert path to string"))?
             .to_string();
 
-        if opaque {
-            if dst.is_dir() {
-                let mut reader = fs::read_dir(dst).await?;
-                while let Some(entry) = reader.next_entry().await? {
-                    let path = entry.path();
-                    if path.is_symlink() || path.is_file() {
-                        fs::remove_file(&path).await?;
-                    } else if path.is_dir() {
-                        fs::remove_dir_all(&path).await?;
-                    } else {
-                        return Err(anyhow!("opaque whiteout entry did not exist"));
-                    }
-                }
-            } else {
-                debug!(
-                    "whiteout opaque entry missing locally layer={} path={:?} local={:?}",
-                    &layer.digest,
-                    entry.path()?,
-                    dst,
-                );
-            }
-        } else if dst.is_file() || dst.is_symlink() {
-            fs::remove_file(&dst).await?;
-        } else if dst.is_dir() {
-            fs::remove_dir_all(&dst).await?;
+        let removed = vfs.root.remove(&path);
+        if let Some(removed) = removed {
+            delete_disk_paths(removed).await?;
         } else {
-            debug!(
-                "whiteout entry missing locally layer={} path={:?} local={:?}",
+            trace!(
+                "whiteout entry layer={} path={:?} did not exist",
                 &layer.digest,
-                entry.path()?,
-                dst,
+                path
             );
         }
         Ok(if opaque { None } else { Some(whiteout) })
@@ -270,52 +253,39 @@ impl OciImageAssembler {
 
     async fn process_write_entry(
         &self,
+        vfs: &mut VfsTree,
         entry: &mut Entry<Archive<Pin<Box<dyn AsyncRead + Send>>>>,
         layer: &OciImageLayer,
     ) -> Result<()> {
-        let uid = entry.header().uid()?;
-        let gid = entry.header().gid()?;
+        if !entry.header().entry_type().is_file() {
+            return Ok(());
+        }
         trace!(
-            "unpack entry layer={} path={:?} type={:?} uid={} gid={}",
+            "unpack entry layer={} path={:?} type={:?}",
             &layer.digest,
             entry.path()?,
             entry.header().entry_type(),
-            uid,
-            gid,
         );
-        entry.set_preserve_mtime(true);
-        entry.set_preserve_permissions(true);
-        entry.set_unpack_xattrs(true);
-        if let Some(path) = entry.unpack_in(&self.target_dir).await? {
-            if !path.is_symlink() {
-                std::os::unix::fs::chown(path, Some(uid as u32), Some(gid as u32))?;
-            }
-        }
+        let path = entry
+            .unpack_in(&self.disk_dir)
+            .await?
+            .ok_or(anyhow!("unpack did not return a path"))?;
+        vfs.set_disk_path(&entry.path()?, &path)?;
         Ok(())
     }
+}
 
-    fn check_safe_entry(&self, path: Cow<Path>) -> Result<PathBuf> {
-        let mut dst = self.target_dir.to_path_buf();
-        dst.push(path);
-        if let Some(name) = dst.file_name() {
-            if let Some(name) = name.to_str() {
-                if name.starts_with(".wh.") {
-                    let copy = dst.clone();
-                    dst.pop();
-                    self.check_safe_path(&dst)?;
-                    return Ok(copy);
-                }
+async fn delete_disk_paths(node: VfsNode) -> Result<()> {
+    let mut queue = vec![node];
+    while !queue.is_empty() {
+        let node = queue.remove(0);
+        if let Some(ref disk_path) = node.disk_path {
+            if !disk_path.exists() {
+                warn!("disk path {:?} does not exist", disk_path);
             }
+            fs::remove_file(disk_path).await?;
         }
-        self.check_safe_path(&dst)?;
-        Ok(dst)
+        queue.extend_from_slice(&node.children);
     }
-
-    fn check_safe_path(&self, dst: &Path) -> Result<()> {
-        let resolved = path_clean::clean(dst);
-        if !resolved.starts_with(&self.target_dir) {
-            return Err(anyhow!("layer attempts to work outside image dir"));
-        }
-        Ok(())
-    }
+    Ok(())
 }
