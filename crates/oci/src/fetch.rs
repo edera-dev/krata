@@ -20,7 +20,8 @@ use anyhow::{anyhow, Result};
 use async_compression::tokio::bufread::{GzipDecoder, ZstdDecoder};
 use log::debug;
 use oci_spec::image::{
-    Descriptor, ImageConfiguration, ImageIndex, ImageManifest, MediaType, ToDockerV2S2,
+    Descriptor, DescriptorBuilder, ImageConfiguration, ImageIndex, ImageManifest, MediaType,
+    ToDockerV2S2,
 };
 use serde::de::DeserializeOwned;
 use tokio::{
@@ -99,6 +100,7 @@ impl OciImageLayer {
 pub struct OciResolvedImage {
     pub name: ImageName,
     pub digest: String,
+    pub descriptor: Descriptor,
     pub manifest: OciSchema<ImageManifest>,
 }
 
@@ -228,6 +230,7 @@ impl OciImageFetcher {
                     );
                     return Ok(OciResolvedImage {
                         name: image,
+                        descriptor: found.clone(),
                         digest: found.digest().clone(),
                         manifest,
                     });
@@ -236,11 +239,20 @@ impl OciImageFetcher {
         }
 
         let mut client = OciRegistryClient::new(image.registry_url()?, self.platform.clone())?;
-        let (manifest, digest) = client
+        let (manifest, descriptor, digest) = client
             .get_manifest_with_digest(&image.name, &image.reference)
             .await?;
+        let descriptor = descriptor.unwrap_or_else(|| {
+            DescriptorBuilder::default()
+                .media_type(MediaType::ImageManifest)
+                .size(manifest.raw().len() as i64)
+                .digest(digest.clone())
+                .build()
+                .unwrap()
+        });
         Ok(OciResolvedImage {
             name: image,
+            descriptor,
             digest,
             manifest,
         })

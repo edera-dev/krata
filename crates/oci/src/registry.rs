@@ -203,7 +203,7 @@ impl OciRegistryClient {
         &mut self,
         name: N,
         reference: R,
-    ) -> Result<(OciSchema<ImageManifest>, String)> {
+    ) -> Result<(OciSchema<ImageManifest>, Option<Descriptor>, String)> {
         let url = self.url.join(&format!(
             "/v2/{}/manifests/{}",
             name.as_ref(),
@@ -231,9 +231,10 @@ impl OciRegistryClient {
             let descriptor = self
                 .pick_manifest(index)
                 .ok_or_else(|| anyhow!("unable to pick manifest from index"))?;
-            return self
+            let (manifest, digest) = self
                 .get_raw_manifest_with_digest(name, descriptor.digest())
-                .await;
+                .await?;
+            return Ok((manifest, Some(descriptor), digest));
         }
         let digest = response
             .headers()
@@ -243,7 +244,7 @@ impl OciRegistryClient {
             .to_string();
         let bytes = response.bytes().await?;
         let manifest = serde_json::from_slice(&bytes)?;
-        Ok((OciSchema::new(bytes.to_vec(), manifest), digest))
+        Ok((OciSchema::new(bytes.to_vec(), manifest), None, digest))
     }
 
     fn pick_manifest(&mut self, index: ImageIndex) -> Option<Descriptor> {
