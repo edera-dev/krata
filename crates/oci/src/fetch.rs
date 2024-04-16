@@ -1,4 +1,7 @@
-use crate::progress::{OciBoundProgress, OciProgressPhase};
+use crate::{
+    progress::{OciBoundProgress, OciProgressPhase},
+    schema::OciSchema,
+};
 
 use super::{
     name::ImageName,
@@ -6,6 +9,7 @@ use super::{
 };
 
 use std::{
+    fmt::Debug,
     path::{Path, PathBuf},
     pin::Pin,
 };
@@ -66,13 +70,13 @@ impl OciImageLayer {
 pub struct OciResolvedImage {
     pub name: ImageName,
     pub digest: String,
-    pub manifest: ImageManifest,
+    pub manifest: OciSchema<ImageManifest>,
 }
 
 #[derive(Clone, Debug)]
 pub struct OciLocalImage {
     pub image: OciResolvedImage,
-    pub config: ImageConfiguration,
+    pub config: OciSchema<ImageConfiguration>,
     pub layers: Vec<OciImageLayer>,
 }
 
@@ -89,10 +93,10 @@ impl OciImageFetcher {
         }
     }
 
-    async fn load_seed_json_blob<T: DeserializeOwned>(
+    async fn load_seed_json_blob<T: Clone + Debug + DeserializeOwned>(
         &self,
         descriptor: &Descriptor,
-    ) -> Result<Option<T>> {
+    ) -> Result<Option<OciSchema<T>>> {
         let digest = descriptor.digest();
         let Some((digest_type, digest_content)) = digest.split_once(':') else {
             return Err(anyhow!("digest content was not properly formatted"));
@@ -101,7 +105,10 @@ impl OciImageFetcher {
         self.load_seed_json(&want).await
     }
 
-    async fn load_seed_json<T: DeserializeOwned>(&self, want: &str) -> Result<Option<T>> {
+    async fn load_seed_json<T: Clone + Debug + DeserializeOwned>(
+        &self,
+        want: &str,
+    ) -> Result<Option<OciSchema<T>>> {
         let Some(ref seed) = self.seed else {
             return Ok(None);
         };
@@ -113,10 +120,10 @@ impl OciImageFetcher {
             let mut entry = entry?;
             let path = String::from_utf8(entry.path_bytes().to_vec())?;
             if path == want {
-                let mut content = String::new();
-                entry.read_to_string(&mut content).await?;
-                let data = serde_json::from_str::<T>(&content)?;
-                return Ok(Some(data));
+                let mut content = Vec::new();
+                entry.read_to_end(&mut content).await?;
+                let item = serde_json::from_slice::<T>(&content)?;
+                return Ok(Some(OciSchema::new(content, item)));
             }
         }
         Ok(None)
@@ -154,7 +161,7 @@ impl OciImageFetcher {
 
         if let Some(index) = self.load_seed_json::<ImageIndex>("index.json").await? {
             let mut found: Option<&Descriptor> = None;
-            for manifest in index.manifests() {
+            for manifest in index.item().manifests() {
                 let Some(annotations) = manifest.annotations() else {
                     continue;
                 };
@@ -215,7 +222,7 @@ impl OciImageFetcher {
         image: OciResolvedImage,
         layer_dir: &Path,
     ) -> Result<OciLocalImage> {
-        let config: ImageConfiguration;
+        let config: OciSchema<ImageConfiguration>;
         self.progress
             .update(|progress| {
                 progress.phase = OciProgressPhase::ConfigAcquire;
@@ -223,27 +230,30 @@ impl OciImageFetcher {
             .await;
         let mut client = OciRegistryClient::new(image.name.registry_url()?, self.platform.clone())?;
         if let Some(seeded) = self
-            .load_seed_json_blob::<ImageConfiguration>(image.manifest.config())
+            .load_seed_json_blob::<ImageConfiguration>(image.manifest.item().config())
             .await?
         {
             config = seeded;
         } else {
             let config_bytes = client
-                .get_blob(&image.name.name, image.manifest.config())
+                .get_blob(&image.name.name, image.manifest.item().config())
                 .await?;
-            config = serde_json::from_slice(&config_bytes)?;
+            config = OciSchema::new(
+                config_bytes.to_vec(),
+                serde_json::from_slice(&config_bytes)?,
+            );
         }
         self.progress
             .update(|progress| {
                 progress.phase = OciProgressPhase::LayerAcquire;
 
-                for layer in image.manifest.layers() {
+                for layer in image.manifest.item().layers() {
                     progress.add_layer(layer.digest(), layer.size() as usize);
                 }
             })
             .await;
         let mut layers = Vec::new();
-        for layer in image.manifest.layers() {
+        for layer in image.manifest.item().layers() {
             self.progress
                 .update(|progress| {
                     progress.downloading_layer(layer.digest(), 0, layer.size() as usize);

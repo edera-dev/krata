@@ -1,4 +1,7 @@
-use crate::packer::{OciImagePacked, OciPackedFormat};
+use crate::{
+    packer::{OciImagePacked, OciPackedFormat},
+    schema::OciSchema,
+};
 
 use anyhow::Result;
 use log::debug;
@@ -38,17 +41,17 @@ impl OciPackerCache {
                     && manifest_metadata.is_file()
                     && config_metadata.is_file()
                 {
-                    let manifest_text = fs::read_to_string(&manifest_path).await?;
-                    let manifest: ImageManifest = serde_json::from_str(&manifest_text)?;
-                    let config_text = fs::read_to_string(&config_path).await?;
-                    let config: ImageConfiguration = serde_json::from_str(&config_text)?;
+                    let manifest_bytes = fs::read(&manifest_path).await?;
+                    let manifest: ImageManifest = serde_json::from_slice(&manifest_bytes)?;
+                    let config_bytes = fs::read(&config_path).await?;
+                    let config: ImageConfiguration = serde_json::from_slice(&config_bytes)?;
                     debug!("cache hit digest={}", digest);
                     Some(OciImagePacked::new(
                         digest.to_string(),
                         fs_path.clone(),
                         format,
-                        config,
-                        manifest,
+                        OciSchema::new(config_bytes, config),
+                        OciSchema::new(manifest_bytes, manifest),
                     ))
                 } else {
                     None
@@ -68,11 +71,9 @@ impl OciPackerCache {
         fs_path.push(format!("{}.{}", packed.digest, packed.format.extension()));
         manifest_path.push(format!("{}.manifest.json", packed.digest));
         config_path.push(format!("{}.config.json", packed.digest));
-        fs::copy(&packed.path, &fs_path).await?;
-        let manifest_text = serde_json::to_string_pretty(&packed.manifest)?;
-        fs::write(&manifest_path, manifest_text).await?;
-        let config_text = serde_json::to_string_pretty(&packed.config)?;
-        fs::write(&config_path, config_text).await?;
+        fs::rename(&packed.path, &fs_path).await?;
+        fs::write(&config_path, packed.config.raw()).await?;
+        fs::write(&manifest_path, packed.manifest.raw()).await?;
         Ok(OciImagePacked::new(
             packed.digest,
             fs_path.clone(),

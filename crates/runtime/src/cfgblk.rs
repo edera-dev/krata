@@ -26,7 +26,7 @@ impl ConfigBlock<'_> {
 
     pub fn build(&self, launch_config: &LaunchInfo) -> Result<()> {
         trace!("build launch_config={:?}", launch_config);
-        let manifest = self.image.config.to_string()?;
+        let config = self.image.config.raw();
         let launch = serde_json::to_string(launch_config)?;
         let mut writer = FilesystemWriter::default();
         writer.push_dir(
@@ -39,7 +39,7 @@ impl ConfigBlock<'_> {
             },
         )?;
         writer.push_file(
-            manifest.as_bytes(),
+            config,
             "/image/config.json",
             NodeHeader {
                 permissions: 384,

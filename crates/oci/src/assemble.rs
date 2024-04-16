@@ -1,5 +1,6 @@
 use crate::fetch::{OciImageFetcher, OciImageLayer, OciResolvedImage};
 use crate::progress::OciBoundProgress;
+use crate::schema::OciSchema;
 use crate::vfs::{VfsNode, VfsTree};
 use anyhow::{anyhow, Result};
 use log::{debug, trace, warn};
@@ -15,8 +16,8 @@ use uuid::Uuid;
 
 pub struct OciImageAssembled {
     pub digest: String,
-    pub manifest: ImageManifest,
-    pub config: ImageConfiguration,
+    pub manifest: OciSchema<ImageManifest>,
+    pub config: OciSchema<ImageConfiguration>,
     pub vfs: Arc<VfsTree>,
     pub tmp_dir: Option<PathBuf>,
 }

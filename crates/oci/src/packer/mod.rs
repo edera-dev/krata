@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::schema::OciSchema;
+
 use self::backend::OciPackerBackendType;
 use oci_spec::image::{ImageConfiguration, ImageManifest};
 
@@ -35,8 +37,8 @@ pub struct OciImagePacked {
     pub digest: String,
     pub path: PathBuf,
     pub format: OciPackedFormat,
-    pub config: ImageConfiguration,
-    pub manifest: ImageManifest,
+    pub config: OciSchema<ImageConfiguration>,
+    pub manifest: OciSchema<ImageManifest>,
 }
 
 impl OciImagePacked {
@@ -44,8 +46,8 @@ impl OciImagePacked {
         digest: String,
         path: PathBuf,
         format: OciPackedFormat,
-        config: ImageConfiguration,
-        manifest: ImageManifest,
+        config: OciSchema<ImageConfiguration>,
+        manifest: OciSchema<ImageManifest>,
     ) -> OciImagePacked {
         OciImagePacked {
             digest,

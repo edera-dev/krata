@@ -67,7 +67,6 @@ impl OciPackerService {
         packer
             .pack(progress, assembled.vfs.clone(), &target)
             .await?;
-
         let packed = OciImagePacked::new(
             assembled.digest.clone(),
             file,
