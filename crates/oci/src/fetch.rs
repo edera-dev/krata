@@ -219,7 +219,7 @@ impl OciImageFetcher {
 
     pub async fn download(
         &self,
-        image: OciResolvedImage,
+        image: &OciResolvedImage,
         layer_dir: &Path,
     ) -> Result<OciLocalImage> {
         let config: OciSchema<ImageConfiguration>;
@@ -270,7 +270,7 @@ impl OciImageFetcher {
                 .await;
         }
         Ok(OciLocalImage {
-            image,
+            image: image.clone(),
             config,
             layers,
         })

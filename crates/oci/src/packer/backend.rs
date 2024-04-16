@@ -7,7 +7,12 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use log::warn;
-use tokio::{fs::File, pin, process::Command, select};
+use tokio::{
+    fs::File,
+    pin,
+    process::{Child, Command},
+    select,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OciPackerBackendType {
@@ -56,7 +61,7 @@ impl OciPackerBackend for OciPackerMkSquashfs {
             })
             .await;
 
-        let mut child = Command::new("mksquashfs")
+        let child = Command::new("mksquashfs")
             .arg("-")
             .arg(file)
             .arg("-comp")
@@ -66,7 +71,9 @@ impl OciPackerBackend for OciPackerMkSquashfs {
             .stderr(Stdio::null())
             .stdout(Stdio::null())
             .spawn()?;
+        let mut child = ChildProcessKillGuard(child);
         let stdin = child
+            .0
             .stdin
             .take()
             .ok_or(anyhow!("unable to acquire stdin stream"))?;
@@ -77,7 +84,7 @@ impl OciPackerBackend for OciPackerMkSquashfs {
             }
             Ok(())
         }));
-        let wait = child.wait();
+        let wait = child.0.wait();
         pin!(wait);
         let status_result = loop {
             if let Some(inner) = writer.as_mut() {
@@ -138,7 +145,7 @@ impl OciPackerBackend for OciPackerMkfsErofs {
             })
             .await;
 
-        let mut child = Command::new("mkfs.erofs")
+        let child = Command::new("mkfs.erofs")
             .arg("-L")
             .arg("root")
             .arg("--tar=-")
@@ -147,14 +154,16 @@ impl OciPackerBackend for OciPackerMkfsErofs {
             .stderr(Stdio::null())
             .stdout(Stdio::null())
             .spawn()?;
+        let mut child = ChildProcessKillGuard(child);
         let stdin = child
+            .0
             .stdin
             .take()
             .ok_or(anyhow!("unable to acquire stdin stream"))?;
         let mut writer = Some(tokio::task::spawn(
             async move { vfs.write_to_tar(stdin).await },
         ));
-        let wait = child.wait();
+        let wait = child.0.wait();
         pin!(wait);
         let status_result = loop {
             if let Some(inner) = writer.as_mut() {
@@ -227,5 +236,13 @@ impl OciPackerBackend for OciPackerTar {
             })
             .await;
         Ok(())
+    }
+}
+
+struct ChildProcessKillGuard(Child);
+
+impl Drop for ChildProcessKillGuard {
+    fn drop(&mut self) {
+        let _ = self.0.start_kill();
     }
 }

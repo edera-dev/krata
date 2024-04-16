@@ -1,22 +1,40 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    fmt::Display,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Result};
+use tokio::{
+    sync::{watch, Mutex},
+    task::JoinHandle,
+};
 
 use crate::{
     assemble::OciImageAssembler,
-    fetch::OciImageFetcher,
+    fetch::{OciImageFetcher, OciResolvedImage},
     name::ImageName,
     progress::{OciBoundProgress, OciProgress, OciProgressContext},
     registry::OciPlatform,
 };
 
-use super::{cache::OciPackerCache, OciImagePacked, OciPackedFormat};
+use log::{error, info, warn};
+
+use super::{cache::OciPackerCache, OciPackedFormat, OciPackedImage};
+
+pub struct OciPackerTask {
+    progress: OciBoundProgress,
+    watch: watch::Sender<Option<Result<OciPackedImage>>>,
+    task: JoinHandle<()>,
+}
 
 #[derive(Clone)]
 pub struct OciPackerService {
     seed: Option<PathBuf>,
     platform: OciPlatform,
     cache: OciPackerCache,
+    tasks: Arc<Mutex<HashMap<OciPackerTaskKey, OciPackerTask>>>,
 }
 
 impl OciPackerService {
@@ -29,6 +47,7 @@ impl OciPackerService {
             seed,
             cache: OciPackerCache::new(cache_dir)?,
             platform,
+            tasks: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -36,7 +55,7 @@ impl OciPackerService {
         &self,
         digest: &str,
         format: OciPackedFormat,
-    ) -> Result<Option<OciImagePacked>> {
+    ) -> Result<Option<OciPackedImage>> {
         self.cache.recall(digest, format).await
     }
 
@@ -45,14 +64,98 @@ impl OciPackerService {
         name: ImageName,
         format: OciPackedFormat,
         progress_context: OciProgressContext,
-    ) -> Result<OciImagePacked> {
+    ) -> Result<OciPackedImage> {
         let progress = OciProgress::new();
         let progress = OciBoundProgress::new(progress_context.clone(), progress);
         let fetcher =
             OciImageFetcher::new(self.seed.clone(), self.platform.clone(), progress.clone());
         let resolved = fetcher.resolve(name).await?;
+        let key = OciPackerTaskKey {
+            digest: resolved.digest.clone(),
+            format,
+        };
+        let (progress_copy_task, mut receiver) = match self.tasks.lock().await.entry(key.clone()) {
+            Entry::Occupied(entry) => {
+                let entry = entry.get();
+                (
+                    Some(entry.progress.also_update(progress_context).await),
+                    entry.watch.subscribe(),
+                )
+            }
+
+            Entry::Vacant(entry) => {
+                let task = self
+                    .clone()
+                    .launch(key.clone(), format, resolved, fetcher, progress.clone())
+                    .await;
+                let (watch, receiver) = watch::channel(None);
+
+                let task = OciPackerTask {
+                    progress: progress.clone(),
+                    task,
+                    watch,
+                };
+                entry.insert(task);
+                (None, receiver)
+            }
+        };
+
+        let _progress_task_guard = scopeguard::guard(progress_copy_task, |task| {
+            if let Some(task) = task {
+                task.abort();
+            }
+        });
+
+        let _task_cancel_guard = scopeguard::guard(self.clone(), |service| {
+            service.maybe_cancel_task(key);
+        });
+
+        loop {
+            receiver.changed().await?;
+            let current = receiver.borrow_and_update();
+            if current.is_some() {
+                return current
+                    .as_ref()
+                    .map(|x| x.as_ref().map_err(|err| anyhow!("{}", err)).cloned())
+                    .unwrap();
+            }
+        }
+    }
+
+    async fn launch(
+        self,
+        key: OciPackerTaskKey,
+        format: OciPackedFormat,
+        resolved: OciResolvedImage,
+        fetcher: OciImageFetcher,
+        progress: OciBoundProgress,
+    ) -> JoinHandle<()> {
+        info!("packer task {} started", key);
+        tokio::task::spawn(async move {
+            let _task_drop_guard =
+                scopeguard::guard((key.clone(), self.clone()), |(key, service)| {
+                    service.ensure_task_gone(key);
+                });
+            if let Err(error) = self
+                .task(key.clone(), format, resolved, fetcher, progress)
+                .await
+            {
+                self.finish(&key, Err(error)).await;
+            }
+        })
+    }
+
+    async fn task(
+        &self,
+        key: OciPackerTaskKey,
+        format: OciPackedFormat,
+        resolved: OciResolvedImage,
+        fetcher: OciImageFetcher,
+        progress: OciBoundProgress,
+    ) -> Result<()> {
         if let Some(cached) = self.cache.recall(&resolved.digest, format).await? {
-            return Ok(cached);
+            self.finish(&key, Ok(cached)).await;
+            return Ok(());
         }
         let assembler =
             OciImageAssembler::new(fetcher, resolved, progress.clone(), None, None).await?;
@@ -67,7 +170,7 @@ impl OciPackerService {
         packer
             .pack(progress, assembled.vfs.clone(), &target)
             .await?;
-        let packed = OciImagePacked::new(
+        let packed = OciPackedImage::new(
             assembled.digest.clone(),
             file,
             format,
@@ -75,6 +178,59 @@ impl OciPackerService {
             assembled.manifest.clone(),
         );
         let packed = self.cache.store(packed).await?;
-        Ok(packed)
+        self.finish(&key, Ok(packed)).await;
+        Ok(())
+    }
+
+    async fn finish(&self, key: &OciPackerTaskKey, result: Result<OciPackedImage>) {
+        let Some(task) = self.tasks.lock().await.remove(key) else {
+            error!("packer task {} was not found when task completed", key);
+            return;
+        };
+
+        match result.as_ref() {
+            Ok(_) => {
+                info!("packer task {} completed", key);
+            }
+
+            Err(err) => {
+                warn!("packer task {} failed: {}", key, err);
+            }
+        }
+
+        task.watch.send_replace(Some(result));
+    }
+
+    fn maybe_cancel_task(self, key: OciPackerTaskKey) {
+        tokio::task::spawn(async move {
+            let tasks = self.tasks.lock().await;
+            if let Some(task) = tasks.get(&key) {
+                if task.watch.is_closed() {
+                    task.task.abort();
+                }
+            }
+        });
+    }
+
+    fn ensure_task_gone(self, key: OciPackerTaskKey) {
+        tokio::task::spawn(async move {
+            let mut tasks = self.tasks.lock().await;
+            if let Some(task) = tasks.remove(&key) {
+                warn!("packer task {} aborted", key);
+                task.watch.send_replace(Some(Err(anyhow!("task aborted"))));
+            }
+        });
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+struct OciPackerTaskKey {
+    digest: String,
+    format: OciPackedFormat,
+}
+
+impl Display for OciPackerTaskKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}:{}", self.digest, self.format.extension()))
     }
 }

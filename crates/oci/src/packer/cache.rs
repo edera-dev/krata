@@ -1,5 +1,5 @@
 use crate::{
-    packer::{OciImagePacked, OciPackedFormat},
+    packer::{OciPackedFormat, OciPackedImage},
     schema::OciSchema,
 };
 
@@ -25,7 +25,7 @@ impl OciPackerCache {
         &self,
         digest: &str,
         format: OciPackedFormat,
-    ) -> Result<Option<OciImagePacked>> {
+    ) -> Result<Option<OciPackedImage>> {
         let mut fs_path = self.cache_dir.clone();
         let mut config_path = self.cache_dir.clone();
         let mut manifest_path = self.cache_dir.clone();
@@ -46,7 +46,7 @@ impl OciPackerCache {
                     let config_bytes = fs::read(&config_path).await?;
                     let config: ImageConfiguration = serde_json::from_slice(&config_bytes)?;
                     debug!("cache hit digest={}", digest);
-                    Some(OciImagePacked::new(
+                    Some(OciPackedImage::new(
                         digest.to_string(),
                         fs_path.clone(),
                         format,
@@ -63,7 +63,7 @@ impl OciPackerCache {
         )
     }
 
-    pub async fn store(&self, packed: OciImagePacked) -> Result<OciImagePacked> {
+    pub async fn store(&self, packed: OciPackedImage) -> Result<OciPackedImage> {
         debug!("cache store digest={}", packed.digest);
         let mut fs_path = self.cache_dir.clone();
         let mut manifest_path = self.cache_dir.clone();
@@ -74,7 +74,7 @@ impl OciPackerCache {
         fs::rename(&packed.path, &fs_path).await?;
         fs::write(&config_path, packed.config.raw()).await?;
         fs::write(&manifest_path, packed.manifest.raw()).await?;
-        Ok(OciImagePacked::new(
+        Ok(OciPackedImage::new(
             packed.digest,
             fs_path.clone(),
             packed.format,

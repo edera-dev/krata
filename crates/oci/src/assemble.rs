@@ -5,8 +5,10 @@ use crate::vfs::{VfsNode, VfsTree};
 use anyhow::{anyhow, Result};
 use log::{debug, trace, warn};
 use oci_spec::image::{ImageConfiguration, ImageManifest};
+
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncRead;
@@ -34,11 +36,12 @@ impl Drop for OciImageAssembled {
 
 pub struct OciImageAssembler {
     downloader: OciImageFetcher,
-    resolved: OciResolvedImage,
+    resolved: Option<OciResolvedImage>,
     progress: OciBoundProgress,
     work_dir: PathBuf,
     disk_dir: PathBuf,
     tmp_dir: Option<PathBuf>,
+    success: AtomicBool,
 }
 
 impl OciImageAssembler {
@@ -82,11 +85,12 @@ impl OciImageAssembler {
 
         Ok(OciImageAssembler {
             downloader,
-            resolved,
+            resolved: Some(resolved),
             progress,
             work_dir,
             disk_dir: target_dir,
             tmp_dir,
+            success: AtomicBool::new(false),
         })
     }
 
@@ -98,11 +102,11 @@ impl OciImageAssembler {
         self.assemble_with(&layer_dir).await
     }
 
-    async fn assemble_with(self, layer_dir: &Path) -> Result<OciImageAssembled> {
-        let local = self
-            .downloader
-            .download(self.resolved.clone(), layer_dir)
-            .await?;
+    async fn assemble_with(mut self, layer_dir: &Path) -> Result<OciImageAssembled> {
+        let Some(ref resolved) = self.resolved else {
+            return Err(anyhow!("resolved image was not available when expected"));
+        };
+        let local = self.downloader.download(resolved, layer_dir).await?;
         let mut vfs = VfsTree::new();
         for layer in &local.layers {
             debug!(
@@ -146,13 +150,20 @@ impl OciImageAssembler {
                 fs::remove_file(&layer.path).await?;
             }
         }
-        Ok(OciImageAssembled {
+
+        let Some(resolved) = self.resolved.take() else {
+            return Err(anyhow!("resolved image was not available when expected"));
+        };
+
+        let assembled = OciImageAssembled {
             vfs: Arc::new(vfs),
-            digest: self.resolved.digest,
-            manifest: self.resolved.manifest,
+            digest: resolved.digest,
+            manifest: resolved.manifest,
             config: local.config,
-            tmp_dir: self.tmp_dir,
-        })
+            tmp_dir: self.tmp_dir.clone(),
+        };
+        self.success.store(true, Ordering::Release);
+        Ok(assembled)
     }
 
     async fn process_whiteout_entry(
@@ -220,6 +231,18 @@ impl OciImageAssembler {
             .ok_or(anyhow!("unpack did not return a path"))?;
         vfs.set_disk_path(&entry.path()?, &path)?;
         Ok(())
+    }
+}
+
+impl Drop for OciImageAssembler {
+    fn drop(&mut self) {
+        if !self.success.load(Ordering::Acquire) {
+            if let Some(tmp_dir) = self.tmp_dir.clone() {
+                tokio::task::spawn(async move {
+                    let _ = fs::remove_dir_all(tmp_dir).await;
+                });
+            }
+        }
     }
 }
 

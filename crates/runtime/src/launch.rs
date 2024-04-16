@@ -10,7 +10,7 @@ use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
     LaunchPackedFormat, LaunchRoot,
 };
-use krataoci::packer::OciImagePacked;
+use krataoci::packer::OciPackedImage;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
@@ -30,7 +30,7 @@ pub struct GuestLaunchRequest {
     pub env: HashMap<String, String>,
     pub run: Option<Vec<String>>,
     pub debug: bool,
-    pub image: OciImagePacked,
+    pub image: OciPackedImage,
 }
 
 pub struct GuestLauncher {

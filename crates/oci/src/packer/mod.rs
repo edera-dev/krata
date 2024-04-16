@@ -9,7 +9,7 @@ pub mod backend;
 pub mod cache;
 pub mod service;
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum OciPackedFormat {
     #[default]
     Squashfs,
@@ -36,7 +36,7 @@ impl OciPackedFormat {
 }
 
 #[derive(Clone)]
-pub struct OciImagePacked {
+pub struct OciPackedImage {
     pub digest: String,
     pub path: PathBuf,
     pub format: OciPackedFormat,
@@ -44,15 +44,15 @@ pub struct OciImagePacked {
     pub manifest: OciSchema<ImageManifest>,
 }
 
-impl OciImagePacked {
+impl OciPackedImage {
     pub fn new(
         digest: String,
         path: PathBuf,
         format: OciPackedFormat,
         config: OciSchema<ImageConfiguration>,
         manifest: OciSchema<ImageManifest>,
-    ) -> OciImagePacked {
-        OciImagePacked {
+    ) -> OciPackedImage {
+        OciPackedImage {
             digest,
             path,
             format,
