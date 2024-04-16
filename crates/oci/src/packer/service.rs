@@ -38,14 +38,14 @@ pub struct OciPackerService {
 }
 
 impl OciPackerService {
-    pub fn new(
+    pub async fn new(
         seed: Option<PathBuf>,
         cache_dir: &Path,
         platform: OciPlatform,
     ) -> Result<OciPackerService> {
         Ok(OciPackerService {
             seed,
-            cache: OciPackerCache::new(cache_dir)?,
+            cache: OciPackerCache::new(cache_dir).await?,
             platform,
             tasks: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -56,7 +56,9 @@ impl OciPackerService {
         digest: &str,
         format: OciPackedFormat,
     ) -> Result<Option<OciPackedImage>> {
-        self.cache.recall(digest, format).await
+        self.cache
+            .recall(ImageName::parse("cached:latest")?, digest, format)
+            .await
     }
 
     pub async fn request(
@@ -70,7 +72,7 @@ impl OciPackerService {
         let progress = OciBoundProgress::new(progress_context.clone(), progress);
         let fetcher =
             OciImageFetcher::new(self.seed.clone(), self.platform.clone(), progress.clone());
-        let resolved = fetcher.resolve(name).await?;
+        let resolved = fetcher.resolve(name.clone()).await?;
         let key = OciPackerTaskKey {
             digest: resolved.digest.clone(),
             format,
@@ -88,6 +90,7 @@ impl OciPackerService {
                 let task = self
                     .clone()
                     .launch(
+                        name,
                         key.clone(),
                         format,
                         overwrite,
@@ -130,8 +133,10 @@ impl OciPackerService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn launch(
         self,
+        name: ImageName,
         key: OciPackerTaskKey,
         format: OciPackedFormat,
         overwrite: bool,
@@ -146,7 +151,15 @@ impl OciPackerService {
                     service.ensure_task_gone(key);
                 });
             if let Err(error) = self
-                .task(key.clone(), format, overwrite, resolved, fetcher, progress)
+                .task(
+                    name,
+                    key.clone(),
+                    format,
+                    overwrite,
+                    resolved,
+                    fetcher,
+                    progress,
+                )
                 .await
             {
                 self.finish(&key, Err(error)).await;
@@ -154,8 +167,10 @@ impl OciPackerService {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn task(
         &self,
+        name: ImageName,
         key: OciPackerTaskKey,
         format: OciPackedFormat,
         overwrite: bool,
@@ -164,7 +179,11 @@ impl OciPackerService {
         progress: OciBoundProgress,
     ) -> Result<()> {
         if !overwrite {
-            if let Some(cached) = self.cache.recall(&resolved.digest, format).await? {
+            if let Some(cached) = self
+                .cache
+                .recall(name.clone(), &resolved.digest, format)
+                .await?
+            {
                 self.finish(&key, Ok(cached)).await;
                 return Ok(());
             }
@@ -183,9 +202,11 @@ impl OciPackerService {
             .pack(progress, assembled.vfs.clone(), &target)
             .await?;
         let packed = OciPackedImage::new(
+            name,
             assembled.digest.clone(),
             file,
             format,
+            assembled.descriptor.clone(),
             assembled.config.clone(),
             assembled.manifest.clone(),
         );

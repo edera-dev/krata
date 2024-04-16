@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
             }
         }
     });
-    let service = OciPackerService::new(seed, &cache_dir, OciPlatform::current())?;
+    let service = OciPackerService::new(seed, &cache_dir, OciPlatform::current()).await?;
     let packed = service
         .request(image.clone(), OciPackedFormat::Squashfs, false, context)
         .await?;

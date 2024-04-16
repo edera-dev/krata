@@ -15,7 +15,13 @@ pub struct ImageName {
 
 impl fmt::Display for ImageName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(port) = self.port {
+        if DOCKER_HUB_MIRROR == self.hostname && self.port.is_none() {
+            if self.name.starts_with("library/") {
+                write!(f, "{}:{}", &self.name[8..], self.reference)
+            } else {
+                write!(f, "{}:{}", self.name, self.reference)
+            }
+        } else if let Some(port) = self.port {
             write!(
                 f,
                 "{}:{}/{}:{}",

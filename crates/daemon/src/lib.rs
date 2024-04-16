@@ -51,7 +51,7 @@ impl Daemon {
         image_cache_dir.push("image");
         fs::create_dir_all(&image_cache_dir).await?;
 
-        let packer = OciPackerService::new(None, &image_cache_dir, OciPlatform::current())?;
+        let packer = OciPackerService::new(None, &image_cache_dir, OciPlatform::current()).await?;
 
         let runtime = Runtime::new(store.clone()).await?;
         let guests_db_path = format!("{}/guests.db", store);

@@ -4,7 +4,7 @@ use crate::schema::OciSchema;
 use crate::vfs::{VfsNode, VfsTree};
 use anyhow::{anyhow, Result};
 use log::{debug, trace, warn};
-use oci_spec::image::{ImageConfiguration, ImageManifest};
+use oci_spec::image::{Descriptor, ImageConfiguration, ImageManifest};
 
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 pub struct OciImageAssembled {
     pub digest: String,
+    pub descriptor: Descriptor,
     pub manifest: OciSchema<ImageManifest>,
     pub config: OciSchema<ImageConfiguration>,
     pub vfs: Arc<VfsTree>,
@@ -165,6 +166,7 @@ impl OciImageAssembler {
 
         let assembled = OciImageAssembled {
             vfs: Arc::new(vfs),
+            descriptor: resolved.descriptor,
             digest: resolved.digest,
             manifest: resolved.manifest,
             config: local.config,
