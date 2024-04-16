@@ -25,37 +25,19 @@ async fn main() -> Result<()> {
     let (context, mut receiver) = OciProgressContext::create();
     tokio::task::spawn(async move {
         loop {
-            let Ok(mut progress) = receiver.recv().await else {
-                return;
-            };
-
-            let mut drain = 0;
-            loop {
-                if drain >= 10 {
-                    break;
-                }
-
-                if let Ok(latest) = receiver.try_recv() {
-                    progress = latest;
-                } else {
-                    break;
-                }
-
-                drain += 1;
+            if (receiver.changed().await).is_err() {
+                break;
             }
-
+            let progress = receiver.borrow_and_update();
             println!("phase {:?}", progress.phase);
             for (id, layer) in &progress.layers {
-                println!(
-                    "{} {:?} {} of {}",
-                    id, layer.phase, layer.value, layer.total
-                )
+                println!("{} {:?} {:?}", id, layer.phase, layer.indication,)
             }
         }
     });
-    let service = OciPackerService::new(seed, &cache_dir, OciPlatform::current())?;
+    let service = OciPackerService::new(seed, &cache_dir, OciPlatform::current()).await?;
     let packed = service
-        .request(image.clone(), OciPackedFormat::Squashfs, context)
+        .request(image.clone(), OciPackedFormat::Squashfs, false, context)
         .await?;
     println!(
         "generated squashfs of {} to {}",

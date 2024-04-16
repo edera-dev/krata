@@ -372,7 +372,7 @@ impl ControlService for DaemonControlService {
 
         let output = try_stream! {
             let mut task = tokio::task::spawn(async move {
-                our_packer.request(name, format, context).await
+                our_packer.request(name, format, request.overwrite_cache, context).await
             });
             let abort_handle = task.abort_handle();
             let _task_cancel_guard = scopeguard::guard(abort_handle, |handle| {
@@ -381,26 +381,14 @@ impl ControlService for DaemonControlService {
 
             loop {
                 let what = select! {
-                    x = receiver.recv() => PullImageSelect::Progress(x.ok()),
+                    x = receiver.changed() => match x {
+                        Ok(_) => PullImageSelect::Progress(Some(receiver.borrow_and_update().clone())),
+                        Err(_) => PullImageSelect::Progress(None),
+                    },
                     x = &mut task => PullImageSelect::Completed(x),
                 };
                 match what {
-                    PullImageSelect::Progress(Some(mut progress)) => {
-                        let mut drain = 0;
-                        loop {
-                            if drain >= 10 {
-                                break;
-                            }
-
-                            if let Ok(latest) = receiver.try_recv() {
-                                progress = latest;
-                            } else {
-                                break;
-                            }
-
-                            drain += 1;
-                        }
-
+                    PullImageSelect::Progress(Some(progress)) => {
                         let reply = PullImageReply {
                             progress: Some(convert_oci_progress(progress)),
                             digest: String::new(),

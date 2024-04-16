@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use oci_spec::image::Descriptor;
 use tokio::{
     sync::{watch, Mutex},
     task::JoinHandle,
@@ -38,17 +39,21 @@ pub struct OciPackerService {
 }
 
 impl OciPackerService {
-    pub fn new(
+    pub async fn new(
         seed: Option<PathBuf>,
         cache_dir: &Path,
         platform: OciPlatform,
     ) -> Result<OciPackerService> {
         Ok(OciPackerService {
             seed,
-            cache: OciPackerCache::new(cache_dir)?,
+            cache: OciPackerCache::new(cache_dir).await?,
             platform,
             tasks: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    pub async fn list(&self) -> Result<Vec<Descriptor>> {
+        self.cache.list().await
     }
 
     pub async fn recall(
@@ -56,20 +61,23 @@ impl OciPackerService {
         digest: &str,
         format: OciPackedFormat,
     ) -> Result<Option<OciPackedImage>> {
-        self.cache.recall(digest, format).await
+        self.cache
+            .recall(ImageName::parse("cached:latest")?, digest, format)
+            .await
     }
 
     pub async fn request(
         &self,
         name: ImageName,
         format: OciPackedFormat,
+        overwrite: bool,
         progress_context: OciProgressContext,
     ) -> Result<OciPackedImage> {
         let progress = OciProgress::new();
         let progress = OciBoundProgress::new(progress_context.clone(), progress);
         let fetcher =
             OciImageFetcher::new(self.seed.clone(), self.platform.clone(), progress.clone());
-        let resolved = fetcher.resolve(name).await?;
+        let resolved = fetcher.resolve(name.clone()).await?;
         let key = OciPackerTaskKey {
             digest: resolved.digest.clone(),
             format,
@@ -86,7 +94,15 @@ impl OciPackerService {
             Entry::Vacant(entry) => {
                 let task = self
                     .clone()
-                    .launch(key.clone(), format, resolved, fetcher, progress.clone())
+                    .launch(
+                        name,
+                        key.clone(),
+                        format,
+                        overwrite,
+                        resolved,
+                        fetcher,
+                        progress.clone(),
+                    )
                     .await;
                 let (watch, receiver) = watch::channel(None);
 
@@ -122,22 +138,33 @@ impl OciPackerService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn launch(
         self,
+        name: ImageName,
         key: OciPackerTaskKey,
         format: OciPackedFormat,
+        overwrite: bool,
         resolved: OciResolvedImage,
         fetcher: OciImageFetcher,
         progress: OciBoundProgress,
     ) -> JoinHandle<()> {
-        info!("packer task {} started", key);
+        info!("started packer task {}", key);
         tokio::task::spawn(async move {
             let _task_drop_guard =
                 scopeguard::guard((key.clone(), self.clone()), |(key, service)| {
                     service.ensure_task_gone(key);
                 });
             if let Err(error) = self
-                .task(key.clone(), format, resolved, fetcher, progress)
+                .task(
+                    name,
+                    key.clone(),
+                    format,
+                    overwrite,
+                    resolved,
+                    fetcher,
+                    progress,
+                )
                 .await
             {
                 self.finish(&key, Err(error)).await;
@@ -145,17 +172,26 @@ impl OciPackerService {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn task(
         &self,
+        name: ImageName,
         key: OciPackerTaskKey,
         format: OciPackedFormat,
+        overwrite: bool,
         resolved: OciResolvedImage,
         fetcher: OciImageFetcher,
         progress: OciBoundProgress,
     ) -> Result<()> {
-        if let Some(cached) = self.cache.recall(&resolved.digest, format).await? {
-            self.finish(&key, Ok(cached)).await;
-            return Ok(());
+        if !overwrite {
+            if let Some(cached) = self
+                .cache
+                .recall(name.clone(), &resolved.digest, format)
+                .await?
+            {
+                self.finish(&key, Ok(cached)).await;
+                return Ok(());
+            }
         }
         let assembler =
             OciImageAssembler::new(fetcher, resolved, progress.clone(), None, None).await?;
@@ -171,9 +207,11 @@ impl OciPackerService {
             .pack(progress, assembled.vfs.clone(), &target)
             .await?;
         let packed = OciPackedImage::new(
+            name,
             assembled.digest.clone(),
             file,
             format,
+            assembled.descriptor.clone(),
             assembled.config.clone(),
             assembled.manifest.clone(),
         );
@@ -190,7 +228,7 @@ impl OciPackerService {
 
         match result.as_ref() {
             Ok(_) => {
-                info!("packer task {} completed", key);
+                info!("completed packer task {}", key);
             }
 
             Err(err) => {
@@ -216,7 +254,7 @@ impl OciPackerService {
         tokio::task::spawn(async move {
             let mut tasks = self.tasks.lock().await;
             if let Some(task) = tasks.remove(&key) {
-                warn!("packer task {} aborted", key);
+                warn!("aborted packer task {}", key);
                 task.watch.send_replace(Some(Err(anyhow!("task aborted"))));
             }
         });
