@@ -14,12 +14,12 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::{fs, sync::Mutex};
+use tokio::{fs, sync::RwLock};
 
 #[derive(Clone)]
 pub struct OciPackerCache {
     cache_dir: PathBuf,
-    index: Arc<Mutex<ImageIndex>>,
+    index: Arc<RwLock<ImageIndex>>,
 }
 
 const ANNOTATION_IMAGE_NAME: &str = "io.containerd.image.name";
@@ -34,15 +34,20 @@ impl OciPackerCache {
             .build()?;
         let cache = OciPackerCache {
             cache_dir: cache_dir.to_path_buf(),
-            index: Arc::new(Mutex::new(index)),
+            index: Arc::new(RwLock::new(index)),
         };
 
         {
-            let mut mutex = cache.index.lock().await;
+            let mut mutex = cache.index.write().await;
             *mutex = cache.load_index().await?;
         }
 
         Ok(cache)
+    }
+
+    pub async fn list(&self) -> Result<Vec<Descriptor>> {
+        let index = self.index.read().await;
+        Ok(index.manifests().clone())
     }
 
     pub async fn recall(
@@ -51,7 +56,7 @@ impl OciPackerCache {
         digest: &str,
         format: OciPackedFormat,
     ) -> Result<Option<OciPackedImage>> {
-        let index = self.index.lock().await;
+        let index = self.index.read().await;
 
         let mut descriptor: Option<Descriptor> = None;
         for manifest in index.manifests() {
@@ -109,7 +114,7 @@ impl OciPackerCache {
     }
 
     pub async fn store(&self, packed: OciPackedImage) -> Result<OciPackedImage> {
-        let mut index = self.index.lock().await;
+        let mut index = self.index.write().await;
         let mut manifests = index.manifests().clone();
         debug!("cache store digest={}", packed.digest);
         let mut fs_path = self.cache_dir.clone();
