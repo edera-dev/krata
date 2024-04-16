@@ -123,7 +123,10 @@ impl OciPackerCache {
         fs_path.push(format!("{}.{}", packed.digest, packed.format.extension()));
         manifest_path.push(format!("{}.manifest.json", packed.digest));
         config_path.push(format!("{}.config.json", packed.digest));
-        fs::rename(&packed.path, &fs_path).await?;
+        if fs::rename(&packed.path, &fs_path).await.is_err() {
+            fs::copy(&packed.path, &fs_path).await?;
+            fs::remove_file(&packed.path).await?;
+        }
         fs::write(&config_path, packed.config.raw()).await?;
         fs::write(&manifest_path, packed.manifest.raw()).await?;
         manifests.retain(|item| {
