@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use oci_spec::image::Descriptor;
 use tokio::{
     sync::{watch, Mutex},
     task::JoinHandle,
@@ -49,6 +50,10 @@ impl OciPackerService {
             platform,
             tasks: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    pub async fn list(&self) -> Result<Vec<Descriptor>> {
+        self.cache.list().await
     }
 
     pub async fn recall(
@@ -144,7 +149,7 @@ impl OciPackerService {
         fetcher: OciImageFetcher,
         progress: OciBoundProgress,
     ) -> JoinHandle<()> {
-        info!("packer task {} started", key);
+        info!("started packer task {}", key);
         tokio::task::spawn(async move {
             let _task_drop_guard =
                 scopeguard::guard((key.clone(), self.clone()), |(key, service)| {
@@ -223,7 +228,7 @@ impl OciPackerService {
 
         match result.as_ref() {
             Ok(_) => {
-                info!("packer task {} completed", key);
+                info!("completed packer task {}", key);
             }
 
             Err(err) => {
@@ -249,7 +254,7 @@ impl OciPackerService {
         tokio::task::spawn(async move {
             let mut tasks = self.tasks.lock().await;
             if let Some(task) = tasks.remove(&key) {
-                warn!("packer task {} aborted", key);
+                warn!("aborted packer task {}", key);
                 task.watch.send_replace(Some(Err(anyhow!("task aborted"))));
             }
         });
