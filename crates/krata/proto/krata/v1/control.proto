@@ -89,46 +89,75 @@ message SnoopIdmReply {
     krata.bus.idm.IdmPacket packet = 3;
 }
 
-enum PullImageProgressLayerPhase {
-    PULL_IMAGE_PROGRESS_LAYER_PHASE_UNKNOWN = 0;
-    PULL_IMAGE_PROGRESS_LAYER_PHASE_WAITING = 1;
-    PULL_IMAGE_PROGRESS_LAYER_PHASE_DOWNLOADING = 2;
-    PULL_IMAGE_PROGRESS_LAYER_PHASE_DOWNLOADED = 3;
-    PULL_IMAGE_PROGRESS_LAYER_PHASE_EXTRACTING = 4;
-    PULL_IMAGE_PROGRESS_LAYER_PHASE_EXTRACTED = 5;
+message ImageProgress {
+    ImageProgressPhase phase = 1;
+    repeated ImageProgressLayer layers = 2;
+    ImageProgressIndication indication = 3;
 }
 
-message PullImageProgressLayer {
+enum ImageProgressPhase {
+    IMAGE_PROGRESS_PHASE_UNKNOWN = 0;
+    IMAGE_PROGRESS_PHASE_STARTED = 1;
+    IMAGE_PROGRESS_PHASE_RESOLVING = 2;
+    IMAGE_PROGRESS_PHASE_RESOLVED = 3;
+    IMAGE_PROGRESS_PHASE_CONFIG_DOWNLOAD = 4;
+    IMAGE_PROGRESS_PHASE_LAYER_DOWNLOAD = 5;
+    IMAGE_PROGRESS_PHASE_ASSEMBLE = 6;
+    IMAGE_PROGRESS_PHASE_PACK = 7;
+    IMAGE_PROGRESS_PHASE_COMPLETE = 8;
+}
+
+message ImageProgressLayer {
     string id = 1;
-    PullImageProgressLayerPhase phase = 2;
-    uint64 value = 3;
-    uint64 total = 4;
+    ImageProgressLayerPhase phase = 2;
+    ImageProgressIndication indication = 3;
 }
 
-enum PullImageProgressPhase {
-    PULL_IMAGE_PROGRESS_PHASE_UNKNOWN = 0;
-    PULL_IMAGE_PROGRESS_PHASE_RESOLVING = 1;
-    PULL_IMAGE_PROGRESS_PHASE_RESOLVED = 2;
-    PULL_IMAGE_PROGRESS_PHASE_CONFIG_ACQUIRE = 3;
-    PULL_IMAGE_PROGRESS_PHASE_LAYER_ACQUIRE = 4;
-    PULL_IMAGE_PROGRESS_PHASE_PACKING = 5;
-    PULL_IMAGE_PROGRESS_PHASE_COMPLETE = 6;
+enum ImageProgressLayerPhase {
+    IMAGE_PROGRESS_LAYER_PHASE_UNKNOWN = 0;
+    IMAGE_PROGRESS_LAYER_PHASE_WAITING = 1;
+    IMAGE_PROGRESS_LAYER_PHASE_DOWNLOADING = 2;
+    IMAGE_PROGRESS_LAYER_PHASE_DOWNLOADED = 3;
+    IMAGE_PROGRESS_LAYER_PHASE_EXTRACTING = 4;
+    IMAGE_PROGRESS_LAYER_PHASE_EXTRACTED = 5;
 }
 
-message PullImageProgress {
-    PullImageProgressPhase phase = 1;
-    repeated PullImageProgressLayer layers = 2;
-    uint64 value = 3;
-    uint64 total = 4;
+message ImageProgressIndication {
+    oneof indication {
+        ImageProgressIndicationBar bar = 1;
+        ImageProgressIndicationSpinner spinner = 2;
+        ImageProgressIndicationHidden hidden = 3;
+        ImageProgressIndicationCompleted completed = 4;
+    }
+}
+
+message ImageProgressIndicationBar {
+    string message = 1;
+    uint64 current = 2;
+    uint64 total = 3;
+    bool is_bytes = 4;
+}
+
+message ImageProgressIndicationSpinner {
+    string message = 1;
+}
+
+message ImageProgressIndicationHidden {}
+
+message ImageProgressIndicationCompleted {
+    string message = 1;
+    uint64 total = 2;
+    bool is_bytes = 3;
 }
 
 message PullImageRequest {
     string image = 1;
     krata.v1.common.OciImageFormat format = 2;
+    bool overwrite_cache = 3;
 }
 
 message PullImageReply {
-    PullImageProgress progress = 1;
+    ImageProgress progress = 1;
     string digest = 2;
     krata.v1.common.OciImageFormat format = 3;
 }

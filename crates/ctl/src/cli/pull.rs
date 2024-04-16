@@ -23,6 +23,8 @@ pub struct PullCommand {
     image: String,
     #[arg(short = 's', long, default_value = "squashfs", help = "Image format")]
     image_format: PullImageFormat,
+    #[arg(short = 'o', long, help = "Overwrite image cache")]
+    overwrite_cache: bool,
 }
 
 impl PullCommand {
@@ -35,6 +37,7 @@ impl PullCommand {
                     PullImageFormat::Erofs => OciImageFormat::Erofs.into(),
                     PullImageFormat::Tar => OciImageFormat::Tar.into(),
                 },
+                overwrite_cache: self.overwrite_cache,
             })
             .await?;
         let reply = pull_interactive_progress(response.into_inner()).await?;

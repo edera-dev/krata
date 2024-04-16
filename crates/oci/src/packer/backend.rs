@@ -1,14 +1,12 @@
-use std::{path::Path, process::Stdio, sync::Arc};
+use std::{os::unix::fs::MetadataExt, path::Path, process::Stdio, sync::Arc};
 
 use super::OciPackedFormat;
-use crate::{
-    progress::{OciBoundProgress, OciProgressPhase},
-    vfs::VfsTree,
-};
+use crate::{progress::OciBoundProgress, vfs::VfsTree};
 use anyhow::{anyhow, Result};
 use log::warn;
 use tokio::{
-    fs::File,
+    fs::{self, File},
+    io::BufWriter,
     pin,
     process::{Child, Command},
     select,
@@ -55,9 +53,7 @@ impl OciPackerBackend for OciPackerMkSquashfs {
     async fn pack(&self, progress: OciBoundProgress, vfs: Arc<VfsTree>, file: &Path) -> Result<()> {
         progress
             .update(|progress| {
-                progress.phase = OciProgressPhase::Packing;
-                progress.total = 1;
-                progress.value = 0;
+                progress.start_packing();
             })
             .await;
 
@@ -120,12 +116,9 @@ impl OciPackerBackend for OciPackerMkSquashfs {
                 status.code().unwrap()
             ))
         } else {
+            let metadata = fs::metadata(&file).await?;
             progress
-                .update(|progress| {
-                    progress.phase = OciProgressPhase::Packing;
-                    progress.total = 1;
-                    progress.value = 1;
-                })
+                .update(|progress| progress.complete(metadata.size()))
                 .await;
             Ok(())
         }
@@ -136,12 +129,10 @@ pub struct OciPackerMkfsErofs {}
 
 #[async_trait::async_trait]
 impl OciPackerBackend for OciPackerMkfsErofs {
-    async fn pack(&self, progress: OciBoundProgress, vfs: Arc<VfsTree>, path: &Path) -> Result<()> {
+    async fn pack(&self, progress: OciBoundProgress, vfs: Arc<VfsTree>, file: &Path) -> Result<()> {
         progress
             .update(|progress| {
-                progress.phase = OciProgressPhase::Packing;
-                progress.total = 1;
-                progress.value = 0;
+                progress.start_packing();
             })
             .await;
 
@@ -149,7 +140,7 @@ impl OciPackerBackend for OciPackerMkfsErofs {
             .arg("-L")
             .arg("root")
             .arg("--tar=-")
-            .arg(path)
+            .arg(file)
             .stdin(Stdio::piped())
             .stderr(Stdio::null())
             .stdout(Stdio::null())
@@ -200,11 +191,10 @@ impl OciPackerBackend for OciPackerMkfsErofs {
                 status.code().unwrap()
             ))
         } else {
+            let metadata = fs::metadata(&file).await?;
             progress
                 .update(|progress| {
-                    progress.phase = OciProgressPhase::Packing;
-                    progress.total = 1;
-                    progress.value = 1;
+                    progress.complete(metadata.size());
                 })
                 .await;
             Ok(())
@@ -219,20 +209,18 @@ impl OciPackerBackend for OciPackerTar {
     async fn pack(&self, progress: OciBoundProgress, vfs: Arc<VfsTree>, file: &Path) -> Result<()> {
         progress
             .update(|progress| {
-                progress.phase = OciProgressPhase::Packing;
-                progress.total = 1;
-                progress.value = 0;
+                progress.start_packing();
             })
             .await;
 
-        let file = File::create(file).await?;
-        vfs.write_to_tar(file).await?;
+        let output = File::create(file).await?;
+        let output = BufWriter::new(output);
+        vfs.write_to_tar(output).await?;
 
+        let metadata = fs::metadata(file).await?;
         progress
             .update(|progress| {
-                progress.phase = OciProgressPhase::Packing;
-                progress.total = 1;
-                progress.value = 1;
+                progress.complete(metadata.size());
             })
             .await;
         Ok(())

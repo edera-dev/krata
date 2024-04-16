@@ -30,8 +30,10 @@ pub enum LaunchImageFormat {
 #[derive(Parser)]
 #[command(about = "Launch a new guest")]
 pub struct LauchCommand {
-    #[arg(short = 'S', long, default_value = "squashfs", help = "Image format")]
+    #[arg(long, default_value = "squashfs", help = "Image format")]
     image_format: LaunchImageFormat,
+    #[arg(long, help = "Overwrite image cache on pull")]
+    pull_overwrite_cache: bool,
     #[arg(short, long, help = "Name of the guest")]
     name: Option<String>,
     #[arg(
@@ -85,6 +87,7 @@ impl LauchCommand {
                     LaunchImageFormat::Squashfs => OciImageFormat::Squashfs.into(),
                     LaunchImageFormat::Erofs => OciImageFormat::Erofs.into(),
                 },
+                overwrite_cache: self.pull_overwrite_cache,
             })
             .await?;
         let reply = pull_interactive_progress(response.into_inner()).await?;
