@@ -14,6 +14,7 @@ pub enum OciPackedFormat {
     #[default]
     Squashfs,
     Erofs,
+    Tar,
 }
 
 impl OciPackedFormat {
@@ -21,6 +22,7 @@ impl OciPackedFormat {
         match self {
             OciPackedFormat::Squashfs => "squashfs",
             OciPackedFormat::Erofs => "erofs",
+            OciPackedFormat::Tar => "tar",
         }
     }
 
@@ -28,6 +30,7 @@ impl OciPackedFormat {
         match self {
             OciPackedFormat::Squashfs => OciPackerBackendType::MkSquashfs,
             OciPackedFormat::Erofs => OciPackerBackendType::MkfsErofs,
+            OciPackedFormat::Tar => OciPackerBackendType::Tar,
         }
     }
 }

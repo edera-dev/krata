@@ -124,11 +124,11 @@ message PullImageProgress {
 
 message PullImageRequest {
     string image = 1;
-    krata.v1.common.GuestOciImageFormat format = 2;
+    krata.v1.common.OciImageFormat format = 2;
 }
 
 message PullImageReply {
     PullImageProgress progress = 1;
     string digest = 2;
-    krata.v1.common.GuestOciImageFormat format = 3;
+    krata.v1.common.OciImageFormat format = 3;
 }

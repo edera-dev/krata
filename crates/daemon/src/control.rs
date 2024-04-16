@@ -6,7 +6,7 @@ use krata::{
         IdmMetricsRequest,
     },
     v1::{
-        common::{Guest, GuestOciImageFormat, GuestState, GuestStatus},
+        common::{Guest, GuestState, GuestStatus, OciImageFormat},
         control::{
             control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
             CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
@@ -362,9 +362,10 @@ impl ControlService for DaemonControlService {
             message: err.to_string(),
         })?;
         let format = match request.format() {
-            GuestOciImageFormat::Unknown => OciPackedFormat::Squashfs,
-            GuestOciImageFormat::Squashfs => OciPackedFormat::Squashfs,
-            GuestOciImageFormat::Erofs => OciPackedFormat::Erofs,
+            OciImageFormat::Unknown => OciPackedFormat::Squashfs,
+            OciImageFormat::Squashfs => OciPackedFormat::Squashfs,
+            OciImageFormat::Erofs => OciPackedFormat::Erofs,
+            OciImageFormat::Tar => OciPackedFormat::Tar,
         };
         let (sender, mut receiver) = channel::<OciProgress>(100);
         let context = OciProgressContext::new(sender);
@@ -388,7 +389,7 @@ impl ControlService for DaemonControlService {
                             let reply = PullImageReply {
                                 progress: Some(convert_oci_progress(progress)),
                                 digest: String::new(),
-                                format: GuestOciImageFormat::Unknown.into(),
+                                format: OciImageFormat::Unknown.into(),
                             };
                             yield reply;
                         }
@@ -405,8 +406,9 @@ impl ControlService for DaemonControlService {
                             progress: None,
                             digest: packed.digest,
                             format: match packed.format {
-                                OciPackedFormat::Squashfs => GuestOciImageFormat::Squashfs.into(),
-                                OciPackedFormat::Erofs => GuestOciImageFormat::Erofs.into(),
+                                OciPackedFormat::Squashfs => OciImageFormat::Squashfs.into(),
+                                OciPackedFormat::Erofs => OciImageFormat::Erofs.into(),
+                                _ => OciImageFormat::Unknown.into(),
                             },
                         };
                         yield reply;

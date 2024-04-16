@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use krata::v1::{
-    common::GuestOciImageFormat,
+    common::OciImageFormat,
     control::{control_service_client::ControlServiceClient, PullImageRequest},
 };
 
@@ -13,6 +13,7 @@ use crate::pull::pull_interactive_progress;
 pub enum PullImageFormat {
     Squashfs,
     Erofs,
+    Tar,
 }
 
 #[derive(Parser)]
@@ -30,8 +31,9 @@ impl PullCommand {
             .pull_image(PullImageRequest {
                 image: self.image.clone(),
                 format: match self.image_format {
-                    PullImageFormat::Squashfs => GuestOciImageFormat::Squashfs.into(),
-                    PullImageFormat::Erofs => GuestOciImageFormat::Erofs.into(),
+                    PullImageFormat::Squashfs => OciImageFormat::Squashfs.into(),
+                    PullImageFormat::Erofs => OciImageFormat::Erofs.into(),
+                    PullImageFormat::Tar => OciImageFormat::Tar.into(),
                 },
             })
             .await?;

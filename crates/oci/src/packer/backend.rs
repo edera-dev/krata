@@ -7,12 +7,13 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use log::warn;
-use tokio::{pin, process::Command, select};
+use tokio::{fs::File, pin, process::Command, select};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OciPackerBackendType {
     MkSquashfs,
     MkfsErofs,
+    Tar,
 }
 
 impl OciPackerBackendType {
@@ -20,6 +21,7 @@ impl OciPackerBackendType {
         match self {
             OciPackerBackendType::MkSquashfs => OciPackedFormat::Squashfs,
             OciPackerBackendType::MkfsErofs => OciPackedFormat::Erofs,
+            OciPackerBackendType::Tar => OciPackedFormat::Tar,
         }
     }
 
@@ -31,6 +33,7 @@ impl OciPackerBackendType {
             OciPackerBackendType::MkfsErofs => {
                 Box::new(OciPackerMkfsErofs {}) as Box<dyn OciPackerBackend>
             }
+            OciPackerBackendType::Tar => Box::new(OciPackerTar {}) as Box<dyn OciPackerBackend>,
         }
     }
 }
@@ -197,5 +200,32 @@ impl OciPackerBackend for OciPackerMkfsErofs {
                 .await;
             Ok(())
         }
+    }
+}
+
+pub struct OciPackerTar {}
+
+#[async_trait::async_trait]
+impl OciPackerBackend for OciPackerTar {
+    async fn pack(&self, progress: OciBoundProgress, vfs: Arc<VfsTree>, file: &Path) -> Result<()> {
+        progress
+            .update(|progress| {
+                progress.phase = OciProgressPhase::Packing;
+                progress.total = 1;
+                progress.value = 0;
+            })
+            .await;
+
+        let file = File::create(file).await?;
+        vfs.write_to_tar(file).await?;
+
+        progress
+            .update(|progress| {
+                progress.phase = OciProgressPhase::Packing;
+                progress.total = 1;
+                progress.value = 1;
+            })
+            .await;
+        Ok(())
     }
 }
