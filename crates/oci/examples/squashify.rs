@@ -5,10 +5,10 @@ use env_logger::Env;
 use krataoci::{
     name::ImageName,
     packer::{service::OciPackerService, OciPackedFormat},
-    progress::{OciProgress, OciProgressContext},
+    progress::OciProgressContext,
     registry::OciPlatform,
 };
-use tokio::{fs, sync::mpsc::channel};
+use tokio::fs;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -22,14 +22,28 @@ async fn main() -> Result<()> {
         fs::create_dir(&cache_dir).await?;
     }
 
-    let (sender, mut receiver) = channel::<OciProgress>(100);
+    let (context, mut receiver) = OciProgressContext::create();
     tokio::task::spawn(async move {
         loop {
-            let mut progresses = Vec::new();
-            let _ = receiver.recv_many(&mut progresses, 100).await;
-            let Some(progress) = progresses.last() else {
-                continue;
+            let Ok(mut progress) = receiver.recv().await else {
+                return;
             };
+
+            let mut drain = 0;
+            loop {
+                if drain >= 10 {
+                    break;
+                }
+
+                if let Ok(latest) = receiver.try_recv() {
+                    progress = latest;
+                } else {
+                    break;
+                }
+
+                drain += 1;
+            }
+
             println!("phase {:?}", progress.phase);
             for (id, layer) in &progress.layers {
                 println!(
@@ -39,7 +53,6 @@ async fn main() -> Result<()> {
             }
         }
     });
-    let context = OciProgressContext::new(sender);
     let service = OciPackerService::new(seed, &cache_dir, OciPlatform::current())?;
     let packed = service
         .request(image.clone(), OciPackedFormat::Squashfs, context)

@@ -9,7 +9,7 @@ use krata::launchcfg::LaunchPackedFormat;
 use krata::v1::{
     common::{
         guest_image_spec::Image, Guest, GuestErrorInfo, GuestExitInfo, GuestNetworkState,
-        GuestOciImageFormat, GuestState, GuestStatus,
+        GuestState, GuestStatus, OciImageFormat,
     },
     control::GuestChangedEvent,
 };
@@ -244,9 +244,12 @@ impl GuestReconciler {
             .recall(
                 &oci.digest,
                 match oci.format() {
-                    GuestOciImageFormat::Unknown => OciPackedFormat::Squashfs,
-                    GuestOciImageFormat::Squashfs => OciPackedFormat::Squashfs,
-                    GuestOciImageFormat::Erofs => OciPackedFormat::Erofs,
+                    OciImageFormat::Unknown => OciPackedFormat::Squashfs,
+                    OciImageFormat::Squashfs => OciPackedFormat::Squashfs,
+                    OciImageFormat::Erofs => OciPackedFormat::Erofs,
+                    OciImageFormat::Tar => {
+                        return Err(anyhow!("tar image format is not supported for guests"));
+                    }
                 },
             )
             .await?;

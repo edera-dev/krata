@@ -1,7 +1,7 @@
 use anyhow::Result;
 use backhand::{FilesystemWriter, NodeHeader};
 use krata::launchcfg::LaunchInfo;
-use krataoci::packer::OciImagePacked;
+use krataoci::packer::OciPackedImage;
 use log::trace;
 use std::fs;
 use std::fs::File;
@@ -9,13 +9,13 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub struct ConfigBlock<'a> {
-    pub image: &'a OciImagePacked,
+    pub image: &'a OciPackedImage,
     pub file: PathBuf,
     pub dir: PathBuf,
 }
 
 impl ConfigBlock<'_> {
-    pub fn new<'a>(uuid: &Uuid, image: &'a OciImagePacked) -> Result<ConfigBlock<'a>> {
+    pub fn new<'a>(uuid: &Uuid, image: &'a OciPackedImage) -> Result<ConfigBlock<'a>> {
         let mut dir = std::env::temp_dir().clone();
         dir.push(format!("krata-cfg-{}", uuid));
         fs::create_dir_all(&dir)?;
@@ -26,7 +26,7 @@ impl ConfigBlock<'_> {
 
     pub fn build(&self, launch_config: &LaunchInfo) -> Result<()> {
         trace!("build launch_config={:?}", launch_config);
-        let manifest = self.image.config.to_string()?;
+        let config = self.image.config.raw();
         let launch = serde_json::to_string(launch_config)?;
         let mut writer = FilesystemWriter::default();
         writer.push_dir(
@@ -39,7 +39,7 @@ impl ConfigBlock<'_> {
             },
         )?;
         writer.push_file(
-            manifest.as_bytes(),
+            config,
             "/image/config.json",
             NodeHeader {
                 permissions: 384,

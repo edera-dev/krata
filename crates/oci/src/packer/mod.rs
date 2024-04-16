@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::schema::OciSchema;
+
 use self::backend::OciPackerBackendType;
 use oci_spec::image::{ImageConfiguration, ImageManifest};
 
@@ -7,11 +9,12 @@ pub mod backend;
 pub mod cache;
 pub mod service;
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum OciPackedFormat {
     #[default]
     Squashfs,
     Erofs,
+    Tar,
 }
 
 impl OciPackedFormat {
@@ -19,6 +22,7 @@ impl OciPackedFormat {
         match self {
             OciPackedFormat::Squashfs => "squashfs",
             OciPackedFormat::Erofs => "erofs",
+            OciPackedFormat::Tar => "tar",
         }
     }
 
@@ -26,28 +30,29 @@ impl OciPackedFormat {
         match self {
             OciPackedFormat::Squashfs => OciPackerBackendType::MkSquashfs,
             OciPackedFormat::Erofs => OciPackerBackendType::MkfsErofs,
+            OciPackedFormat::Tar => OciPackerBackendType::Tar,
         }
     }
 }
 
 #[derive(Clone)]
-pub struct OciImagePacked {
+pub struct OciPackedImage {
     pub digest: String,
     pub path: PathBuf,
     pub format: OciPackedFormat,
-    pub config: ImageConfiguration,
-    pub manifest: ImageManifest,
+    pub config: OciSchema<ImageConfiguration>,
+    pub manifest: OciSchema<ImageManifest>,
 }
 
-impl OciImagePacked {
+impl OciPackedImage {
     pub fn new(
         digest: String,
         path: PathBuf,
         format: OciPackedFormat,
-        config: ImageConfiguration,
-        manifest: ImageManifest,
-    ) -> OciImagePacked {
-        OciImagePacked {
+        config: OciSchema<ImageConfiguration>,
+        manifest: OciSchema<ImageManifest>,
+    ) -> OciPackedImage {
+        OciPackedImage {
             digest,
             path,
             format,

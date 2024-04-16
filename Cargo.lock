@@ -1452,6 +1452,7 @@ dependencies = [
  "log",
  "prost",
  "redb",
+ "scopeguard",
  "signal-hook",
  "tokio",
  "tokio-stream",

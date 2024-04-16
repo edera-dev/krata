@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use krata::{
     events::EventStream,
     v1::{
         common::{
-            guest_image_spec::Image, GuestImageSpec, GuestOciImageFormat, GuestOciImageSpec,
-            GuestSpec, GuestStatus, GuestTaskSpec, GuestTaskSpecEnvVar,
+            guest_image_spec::Image, GuestImageSpec, GuestOciImageSpec, GuestSpec, GuestStatus,
+            GuestTaskSpec, GuestTaskSpecEnvVar, OciImageFormat,
         },
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
@@ -21,13 +21,17 @@ use tonic::{transport::Channel, Request};
 
 use crate::{console::StdioConsoleStream, pull::pull_interactive_progress};
 
-use super::pull::PullImageFormat;
+#[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
+pub enum LaunchImageFormat {
+    Squashfs,
+    Erofs,
+}
 
 #[derive(Parser)]
 #[command(about = "Launch a new guest")]
 pub struct LauchCommand {
     #[arg(short = 'S', long, default_value = "squashfs", help = "Image format")]
-    image_format: PullImageFormat,
+    image_format: LaunchImageFormat,
     #[arg(short, long, help = "Name of the guest")]
     name: Option<String>,
     #[arg(
@@ -78,8 +82,8 @@ impl LauchCommand {
             .pull_image(PullImageRequest {
                 image: self.oci.clone(),
                 format: match self.image_format {
-                    PullImageFormat::Squashfs => GuestOciImageFormat::Squashfs.into(),
-                    PullImageFormat::Erofs => GuestOciImageFormat::Erofs.into(),
+                    LaunchImageFormat::Squashfs => OciImageFormat::Squashfs.into(),
+                    LaunchImageFormat::Erofs => OciImageFormat::Erofs.into(),
                 },
             })
             .await?;

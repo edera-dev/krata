@@ -23,6 +23,7 @@ krata-runtime = { path = "../runtime", version = "^0.0.9" }
 log = { workspace = true }
 prost = { workspace = true }
 redb = { workspace = true }
+scopeguard = { workspace = true }
 signal-hook = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }

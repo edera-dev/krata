@@ -7,12 +7,18 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use log::warn;
-use tokio::{pin, process::Command, select};
+use tokio::{
+    fs::File,
+    pin,
+    process::{Child, Command},
+    select,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OciPackerBackendType {
     MkSquashfs,
     MkfsErofs,
+    Tar,
 }
 
 impl OciPackerBackendType {
@@ -20,6 +26,7 @@ impl OciPackerBackendType {
         match self {
             OciPackerBackendType::MkSquashfs => OciPackedFormat::Squashfs,
             OciPackerBackendType::MkfsErofs => OciPackedFormat::Erofs,
+            OciPackerBackendType::Tar => OciPackedFormat::Tar,
         }
     }
 
@@ -31,6 +38,7 @@ impl OciPackerBackendType {
             OciPackerBackendType::MkfsErofs => {
                 Box::new(OciPackerMkfsErofs {}) as Box<dyn OciPackerBackend>
             }
+            OciPackerBackendType::Tar => Box::new(OciPackerTar {}) as Box<dyn OciPackerBackend>,
         }
     }
 }
@@ -53,7 +61,7 @@ impl OciPackerBackend for OciPackerMkSquashfs {
             })
             .await;
 
-        let mut child = Command::new("mksquashfs")
+        let child = Command::new("mksquashfs")
             .arg("-")
             .arg(file)
             .arg("-comp")
@@ -63,7 +71,9 @@ impl OciPackerBackend for OciPackerMkSquashfs {
             .stderr(Stdio::null())
             .stdout(Stdio::null())
             .spawn()?;
+        let mut child = ChildProcessKillGuard(child);
         let stdin = child
+            .0
             .stdin
             .take()
             .ok_or(anyhow!("unable to acquire stdin stream"))?;
@@ -74,7 +84,7 @@ impl OciPackerBackend for OciPackerMkSquashfs {
             }
             Ok(())
         }));
-        let wait = child.wait();
+        let wait = child.0.wait();
         pin!(wait);
         let status_result = loop {
             if let Some(inner) = writer.as_mut() {
@@ -135,7 +145,7 @@ impl OciPackerBackend for OciPackerMkfsErofs {
             })
             .await;
 
-        let mut child = Command::new("mkfs.erofs")
+        let child = Command::new("mkfs.erofs")
             .arg("-L")
             .arg("root")
             .arg("--tar=-")
@@ -144,14 +154,16 @@ impl OciPackerBackend for OciPackerMkfsErofs {
             .stderr(Stdio::null())
             .stdout(Stdio::null())
             .spawn()?;
+        let mut child = ChildProcessKillGuard(child);
         let stdin = child
+            .0
             .stdin
             .take()
             .ok_or(anyhow!("unable to acquire stdin stream"))?;
         let mut writer = Some(tokio::task::spawn(
             async move { vfs.write_to_tar(stdin).await },
         ));
-        let wait = child.wait();
+        let wait = child.0.wait();
         pin!(wait);
         let status_result = loop {
             if let Some(inner) = writer.as_mut() {
@@ -197,5 +209,40 @@ impl OciPackerBackend for OciPackerMkfsErofs {
                 .await;
             Ok(())
         }
+    }
+}
+
+pub struct OciPackerTar {}
+
+#[async_trait::async_trait]
+impl OciPackerBackend for OciPackerTar {
+    async fn pack(&self, progress: OciBoundProgress, vfs: Arc<VfsTree>, file: &Path) -> Result<()> {
+        progress
+            .update(|progress| {
+                progress.phase = OciProgressPhase::Packing;
+                progress.total = 1;
+                progress.value = 0;
+            })
+            .await;
+
+        let file = File::create(file).await?;
+        vfs.write_to_tar(file).await?;
+
+        progress
+            .update(|progress| {
+                progress.phase = OciProgressPhase::Packing;
+                progress.total = 1;
+                progress.value = 1;
+            })
+            .await;
+        Ok(())
+    }
+}
+
+struct ChildProcessKillGuard(Child);
+
+impl Drop for ChildProcessKillGuard {
+    fn drop(&mut self) {
+        let _ = self.0.start_kill();
     }
 }

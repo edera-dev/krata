@@ -29,15 +29,17 @@ message GuestImageSpec {
     }
 }
 
-enum GuestOciImageFormat {
-    GUEST_OCI_IMAGE_FORMAT_UNKNOWN = 0;
-    GUEST_OCI_IMAGE_FORMAT_SQUASHFS = 1;
-    GUEST_OCI_IMAGE_FORMAT_EROFS = 2;
+enum OciImageFormat {
+    OCI_IMAGE_FORMAT_UNKNOWN = 0;
+    OCI_IMAGE_FORMAT_SQUASHFS = 1;
+    OCI_IMAGE_FORMAT_EROFS = 2;
+    // Tar format is not launchable, and is intended for kernel images.
+    OCI_IMAGE_FORMAT_TAR = 3;
 }
 
 message GuestOciImageSpec {
     string digest = 1;
-    GuestOciImageFormat format = 2;
+    OciImageFormat format = 2;
 }
 
 message GuestTaskSpec {

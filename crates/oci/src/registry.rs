@@ -7,7 +7,7 @@ use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use tokio::{fs::File, io::AsyncWriteExt};
 use url::Url;
 
-use crate::progress::OciBoundProgress;
+use crate::{progress::OciBoundProgress, schema::OciSchema};
 
 #[derive(Clone, Debug)]
 pub struct OciPlatform {
@@ -176,7 +176,7 @@ impl OciRegistryClient {
         &mut self,
         name: N,
         reference: R,
-    ) -> Result<(ImageManifest, String)> {
+    ) -> Result<(OciSchema<ImageManifest>, String)> {
         let url = self.url.join(&format!(
             "/v2/{}/manifests/{}",
             name.as_ref(),
@@ -198,15 +198,16 @@ impl OciRegistryClient {
             .ok_or_else(|| anyhow!("fetching manifest did not yield a content digest"))?
             .to_str()?
             .to_string();
-        let manifest = serde_json::from_str(&response.text().await?)?;
-        Ok((manifest, digest))
+        let bytes = response.bytes().await?;
+        let manifest = serde_json::from_slice(&bytes)?;
+        Ok((OciSchema::new(bytes.to_vec(), manifest), digest))
     }
 
     pub async fn get_manifest_with_digest<N: AsRef<str>, R: AsRef<str>>(
         &mut self,
         name: N,
         reference: R,
-    ) -> Result<(ImageManifest, String)> {
+    ) -> Result<(OciSchema<ImageManifest>, String)> {
         let url = self.url.join(&format!(
             "/v2/{}/manifests/{}",
             name.as_ref(),
@@ -244,8 +245,9 @@ impl OciRegistryClient {
             .ok_or_else(|| anyhow!("fetching manifest did not yield a content digest"))?
             .to_str()?
             .to_string();
-        let manifest = serde_json::from_str(&response.text().await?)?;
-        Ok((manifest, digest))
+        let bytes = response.bytes().await?;
+        let manifest = serde_json::from_slice(&bytes)?;
+        Ok((OciSchema::new(bytes.to_vec(), manifest), digest))
     }
 
     fn pick_manifest(&mut self, index: ImageIndex) -> Option<Descriptor> {
