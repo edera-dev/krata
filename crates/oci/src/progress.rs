@@ -1,18 +1,16 @@
 use indexmap::IndexMap;
 use std::sync::Arc;
 use tokio::{
-    sync::{broadcast, Mutex},
+    sync::{watch, Mutex},
     task::JoinHandle,
 };
-
-const OCI_PROGRESS_QUEUE_LEN: usize = 100;
 
 #[derive(Clone, Debug)]
 pub struct OciProgress {
     pub phase: OciProgressPhase,
+    pub digest: Option<String>,
     pub layers: IndexMap<String, OciProgressLayer>,
-    pub value: u64,
-    pub total: u64,
+    pub indication: OciProgressIndication,
 }
 
 impl Default for OciProgress {
@@ -24,72 +22,146 @@ impl Default for OciProgress {
 impl OciProgress {
     pub fn new() -> Self {
         OciProgress {
-            phase: OciProgressPhase::Resolving,
+            phase: OciProgressPhase::Started,
+            digest: None,
             layers: IndexMap::new(),
-            value: 0,
-            total: 1,
+            indication: OciProgressIndication::Hidden,
         }
     }
 
-    pub fn add_layer(&mut self, id: &str, size: usize) {
+    pub fn start_resolving(&mut self) {
+        self.phase = OciProgressPhase::Resolving;
+        self.indication = OciProgressIndication::Spinner { message: None };
+    }
+
+    pub fn resolved(&mut self, digest: &str) {
+        self.digest = Some(digest.to_string());
+        self.indication = OciProgressIndication::Hidden;
+    }
+
+    pub fn add_layer(&mut self, id: &str) {
         self.layers.insert(
             id.to_string(),
             OciProgressLayer {
                 id: id.to_string(),
                 phase: OciProgressLayerPhase::Waiting,
-                value: 0,
-                total: size as u64,
+                indication: OciProgressIndication::Spinner { message: None },
             },
         );
     }
 
-    pub fn downloading_layer(&mut self, id: &str, downloaded: usize, total: usize) {
+    pub fn downloading_layer(&mut self, id: &str, downloaded: u64, total: u64) {
         if let Some(entry) = self.layers.get_mut(id) {
             entry.phase = OciProgressLayerPhase::Downloading;
-            entry.value = downloaded as u64;
-            entry.total = total as u64;
+            entry.indication = OciProgressIndication::ProgressBar {
+                message: None,
+                current: downloaded,
+                total,
+                bytes: true,
+            };
         }
     }
 
-    pub fn downloaded_layer(&mut self, id: &str) {
+    pub fn downloaded_layer(&mut self, id: &str, total: u64) {
         if let Some(entry) = self.layers.get_mut(id) {
             entry.phase = OciProgressLayerPhase::Downloaded;
-            entry.value = entry.total;
+            entry.indication = OciProgressIndication::Completed {
+                message: None,
+                total: Some(total),
+                bytes: true,
+            };
         }
     }
 
-    pub fn extracting_layer(&mut self, id: &str, extracted: usize, total: usize) {
+    pub fn start_assemble(&mut self) {
+        self.phase = OciProgressPhase::Assemble;
+        self.indication = OciProgressIndication::Hidden;
+    }
+
+    pub fn start_extracting_layer(&mut self, id: &str) {
         if let Some(entry) = self.layers.get_mut(id) {
             entry.phase = OciProgressLayerPhase::Extracting;
-            entry.value = extracted as u64;
-            entry.total = total as u64;
+            entry.indication = OciProgressIndication::Spinner { message: None };
         }
     }
 
-    pub fn extracted_layer(&mut self, id: &str) {
+    pub fn extracting_layer(&mut self, id: &str, file: &str) {
+        if let Some(entry) = self.layers.get_mut(id) {
+            entry.phase = OciProgressLayerPhase::Extracting;
+            entry.indication = OciProgressIndication::Spinner {
+                message: Some(file.to_string()),
+            };
+        }
+    }
+
+    pub fn extracted_layer(&mut self, id: &str, count: u64, total_size: u64) {
         if let Some(entry) = self.layers.get_mut(id) {
             entry.phase = OciProgressLayerPhase::Extracted;
-            entry.value = entry.total;
+            entry.indication = OciProgressIndication::Completed {
+                message: Some(format!("{} files", count)),
+                total: Some(total_size),
+                bytes: true,
+            };
+        }
+    }
+
+    pub fn start_packing(&mut self) {
+        self.phase = OciProgressPhase::Pack;
+        for layer in self.layers.values_mut() {
+            layer.indication = OciProgressIndication::Hidden;
+        }
+        self.indication = OciProgressIndication::Spinner { message: None };
+    }
+
+    pub fn complete(&mut self, size: u64) {
+        self.phase = OciProgressPhase::Complete;
+        self.indication = OciProgressIndication::Completed {
+            message: None,
+            total: Some(size),
+            bytes: true,
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub enum OciProgressPhase {
+    Started,
     Resolving,
     Resolved,
-    ConfigAcquire,
-    LayerAcquire,
-    Packing,
+    ConfigDownload,
+    LayerDownload,
+    Assemble,
+    Pack,
     Complete,
+}
+
+#[derive(Clone, Debug)]
+pub enum OciProgressIndication {
+    Hidden,
+
+    ProgressBar {
+        message: Option<String>,
+        current: u64,
+        total: u64,
+        bytes: bool,
+    },
+
+    Spinner {
+        message: Option<String>,
+    },
+
+    Completed {
+        message: Option<String>,
+        total: Option<u64>,
+        bytes: bool,
+    },
 }
 
 #[derive(Clone, Debug)]
 pub struct OciProgressLayer {
     pub id: String,
     pub phase: OciProgressLayerPhase,
-    pub value: u64,
-    pub total: u64,
+    pub indication: OciProgressIndication,
 }
 
 #[derive(Clone, Debug)]
@@ -103,16 +175,16 @@ pub enum OciProgressLayerPhase {
 
 #[derive(Clone)]
 pub struct OciProgressContext {
-    sender: broadcast::Sender<OciProgress>,
+    sender: watch::Sender<OciProgress>,
 }
 
 impl OciProgressContext {
-    pub fn create() -> (OciProgressContext, broadcast::Receiver<OciProgress>) {
-        let (sender, receiver) = broadcast::channel(OCI_PROGRESS_QUEUE_LEN);
+    pub fn create() -> (OciProgressContext, watch::Receiver<OciProgress>) {
+        let (sender, receiver) = watch::channel(OciProgress::new());
         (OciProgressContext::new(sender), receiver)
     }
 
-    pub fn new(sender: broadcast::Sender<OciProgress>) -> OciProgressContext {
+    pub fn new(sender: watch::Sender<OciProgress>) -> OciProgressContext {
         OciProgressContext { sender }
     }
 
@@ -120,7 +192,7 @@ impl OciProgressContext {
         let _ = self.sender.send(progress.clone());
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<OciProgress> {
+    pub fn subscribe(&self) -> watch::Receiver<OciProgress> {
         self.sender.subscribe()
     }
 }
@@ -156,13 +228,10 @@ impl OciBoundProgress {
         context.update(&progress);
         let mut receiver = self.context.subscribe();
         tokio::task::spawn(async move {
-            while let Ok(progress) = receiver.recv().await {
-                match context.sender.send(progress) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        break;
-                    }
-                }
+            while (receiver.changed().await).is_ok() {
+                context
+                    .sender
+                    .send_replace(receiver.borrow_and_update().clone());
             }
         })
     }

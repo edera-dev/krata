@@ -1,4 +1,4 @@
-use crate::fetch::{OciImageFetcher, OciImageLayer, OciResolvedImage};
+use crate::fetch::{OciImageFetcher, OciImageLayer, OciImageLayerReader, OciResolvedImage};
 use crate::progress::OciBoundProgress;
 use crate::schema::OciSchema;
 use crate::vfs::{VfsNode, VfsTree};
@@ -11,7 +11,6 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::fs;
-use tokio::io::AsyncRead;
 use tokio_stream::StreamExt;
 use tokio_tar::{Archive, Entry};
 use uuid::Uuid;
@@ -115,12 +114,14 @@ impl OciImageAssembler {
             );
             self.progress
                 .update(|progress| {
-                    progress.extracting_layer(&layer.digest, 0, 1);
+                    progress.start_extracting_layer(&layer.digest);
                 })
                 .await;
             debug!("process layer digest={}", &layer.digest,);
             let mut archive = layer.archive().await?;
             let mut entries = archive.entries()?;
+            let mut count = 0u64;
+            let mut size = 0u64;
             while let Some(entry) = entries.next().await {
                 let mut entry = entry?;
                 let path = entry.path()?;
@@ -134,14 +135,21 @@ impl OciImageAssembler {
                     self.process_whiteout_entry(&mut vfs, &entry, name, layer)
                         .await?;
                 } else {
-                    vfs.insert_tar_entry(&entry)?;
-                    self.process_write_entry(&mut vfs, &mut entry, layer)
+                    let reference = vfs.insert_tar_entry(&entry)?;
+                    self.progress
+                        .update(|progress| {
+                            progress.extracting_layer(&layer.digest, &reference.name);
+                        })
+                        .await;
+                    size += self
+                        .process_write_entry(&mut vfs, &mut entry, layer)
                         .await?;
+                    count += 1;
                 }
             }
             self.progress
                 .update(|progress| {
-                    progress.extracted_layer(&layer.digest);
+                    progress.extracted_layer(&layer.digest, count, size);
                 })
                 .await;
         }
@@ -169,7 +177,7 @@ impl OciImageAssembler {
     async fn process_whiteout_entry(
         &self,
         vfs: &mut VfsTree,
-        entry: &Entry<Archive<Pin<Box<dyn AsyncRead + Send>>>>,
+        entry: &Entry<Archive<Pin<Box<dyn OciImageLayerReader + Send>>>>,
         name: &str,
         layer: &OciImageLayer,
     ) -> Result<()> {
@@ -210,11 +218,11 @@ impl OciImageAssembler {
     async fn process_write_entry(
         &self,
         vfs: &mut VfsTree,
-        entry: &mut Entry<Archive<Pin<Box<dyn AsyncRead + Send>>>>,
+        entry: &mut Entry<Archive<Pin<Box<dyn OciImageLayerReader + Send>>>>,
         layer: &OciImageLayer,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         if !entry.header().entry_type().is_file() {
-            return Ok(());
+            return Ok(0);
         }
         trace!(
             "unpack entry layer={} path={:?} type={:?}",
@@ -230,7 +238,7 @@ impl OciImageAssembler {
             .await?
             .ok_or(anyhow!("unpack did not return a path"))?;
         vfs.set_disk_path(&entry.path()?, &path)?;
-        Ok(())
+        Ok(entry.header().size()?)
     }
 }
 

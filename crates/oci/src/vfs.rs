@@ -194,7 +194,7 @@ impl VfsTree {
         }
     }
 
-    pub fn insert_tar_entry<X: AsyncRead + Unpin>(&mut self, entry: &Entry<X>) -> Result<()> {
+    pub fn insert_tar_entry<X: AsyncRead + Unpin>(&mut self, entry: &Entry<X>) -> Result<&VfsNode> {
         let mut meta = VfsNode::from(entry)?;
         let path = entry.path()?.to_path_buf();
         let parent = if let Some(parent) = path.parent() {
@@ -218,8 +218,11 @@ impl VfsTree {
                 meta.children = old.children;
             }
         }
-        parent.children.push(meta);
-        Ok(())
+        parent.children.push(meta.clone());
+        let Some(reference) = parent.children.iter().find(|child| child.name == meta.name) else {
+            return Err(anyhow!("unable to find inserted child in vfs"));
+        };
+        Ok(reference)
     }
 
     pub fn set_disk_path(&mut self, path: &Path, disk_path: &Path) -> Result<()> {

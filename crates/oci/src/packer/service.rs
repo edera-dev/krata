@@ -63,6 +63,7 @@ impl OciPackerService {
         &self,
         name: ImageName,
         format: OciPackedFormat,
+        overwrite: bool,
         progress_context: OciProgressContext,
     ) -> Result<OciPackedImage> {
         let progress = OciProgress::new();
@@ -86,7 +87,14 @@ impl OciPackerService {
             Entry::Vacant(entry) => {
                 let task = self
                     .clone()
-                    .launch(key.clone(), format, resolved, fetcher, progress.clone())
+                    .launch(
+                        key.clone(),
+                        format,
+                        overwrite,
+                        resolved,
+                        fetcher,
+                        progress.clone(),
+                    )
                     .await;
                 let (watch, receiver) = watch::channel(None);
 
@@ -126,6 +134,7 @@ impl OciPackerService {
         self,
         key: OciPackerTaskKey,
         format: OciPackedFormat,
+        overwrite: bool,
         resolved: OciResolvedImage,
         fetcher: OciImageFetcher,
         progress: OciBoundProgress,
@@ -137,7 +146,7 @@ impl OciPackerService {
                     service.ensure_task_gone(key);
                 });
             if let Err(error) = self
-                .task(key.clone(), format, resolved, fetcher, progress)
+                .task(key.clone(), format, overwrite, resolved, fetcher, progress)
                 .await
             {
                 self.finish(&key, Err(error)).await;
@@ -149,13 +158,16 @@ impl OciPackerService {
         &self,
         key: OciPackerTaskKey,
         format: OciPackedFormat,
+        overwrite: bool,
         resolved: OciResolvedImage,
         fetcher: OciImageFetcher,
         progress: OciBoundProgress,
     ) -> Result<()> {
-        if let Some(cached) = self.cache.recall(&resolved.digest, format).await? {
-            self.finish(&key, Ok(cached)).await;
-            return Ok(());
+        if !overwrite {
+            if let Some(cached) = self.cache.recall(&resolved.digest, format).await? {
+                self.finish(&key, Ok(cached)).await;
+                return Ok(());
+            }
         }
         let assembler =
             OciImageAssembler::new(fetcher, resolved, progress.clone(), None, None).await?;

@@ -149,24 +149,20 @@ impl OciRegistryClient {
         ))?;
         let mut response = self.call(self.agent.get(url.as_str())).await?;
         let mut size: u64 = 0;
-        let mut last_progress_size: u64 = 0;
         while let Some(chunk) = response.chunk().await? {
             dest.write_all(&chunk).await?;
             size += chunk.len() as u64;
 
-            if (size - last_progress_size) > (5 * 1024 * 1024) {
-                last_progress_size = size;
-                if let Some(ref progress) = progress {
-                    progress
-                        .update(|progress| {
-                            progress.downloading_layer(
-                                descriptor.digest(),
-                                size as usize,
-                                descriptor.size() as usize,
-                            );
-                        })
-                        .await;
-                }
+            if let Some(ref progress) = progress {
+                progress
+                    .update(|progress| {
+                        progress.downloading_layer(
+                            descriptor.digest(),
+                            size,
+                            descriptor.size() as u64,
+                        );
+                    })
+                    .await;
             }
         }
         Ok(size)

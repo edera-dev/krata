@@ -10,6 +10,8 @@ use super::{
 
 use std::{
     fmt::Debug,
+    io::SeekFrom,
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     pin::Pin,
 };
@@ -22,8 +24,8 @@ use oci_spec::image::{
 };
 use serde::de::DeserializeOwned;
 use tokio::{
-    fs::File,
-    io::{AsyncRead, AsyncReadExt, BufReader, BufWriter},
+    fs::{self, File},
+    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, BufReader, BufWriter},
 };
 use tokio_stream::StreamExt;
 use tokio_tar::Archive;
@@ -43,16 +45,43 @@ pub enum OciImageLayerCompression {
 
 #[derive(Clone, Debug)]
 pub struct OciImageLayer {
+    pub metadata: Descriptor,
     pub path: PathBuf,
     pub digest: String,
     pub compression: OciImageLayerCompression,
 }
 
+#[async_trait::async_trait]
+pub trait OciImageLayerReader: AsyncRead + Sync {
+    async fn position(&mut self) -> Result<u64>;
+}
+
+#[async_trait::async_trait]
+impl OciImageLayerReader for BufReader<File> {
+    async fn position(&mut self) -> Result<u64> {
+        Ok(self.seek(SeekFrom::Current(0)).await?)
+    }
+}
+
+#[async_trait::async_trait]
+impl OciImageLayerReader for GzipDecoder<BufReader<File>> {
+    async fn position(&mut self) -> Result<u64> {
+        self.get_mut().position().await
+    }
+}
+
+#[async_trait::async_trait]
+impl OciImageLayerReader for ZstdDecoder<BufReader<File>> {
+    async fn position(&mut self) -> Result<u64> {
+        self.get_mut().position().await
+    }
+}
+
 impl OciImageLayer {
-    pub async fn decompress(&self) -> Result<Pin<Box<dyn AsyncRead + Send>>> {
+    pub async fn decompress(&self) -> Result<Pin<Box<dyn OciImageLayerReader + Send>>> {
         let file = File::open(&self.path).await?;
         let reader = BufReader::new(file);
-        let reader: Pin<Box<dyn AsyncRead + Send>> = match self.compression {
+        let reader: Pin<Box<dyn OciImageLayerReader + Send>> = match self.compression {
             OciImageLayerCompression::None => Box::pin(reader),
             OciImageLayerCompression::Gzip => Box::pin(GzipDecoder::new(reader)),
             OciImageLayerCompression::Zstd => Box::pin(ZstdDecoder::new(reader)),
@@ -60,7 +89,7 @@ impl OciImageLayer {
         Ok(reader)
     }
 
-    pub async fn archive(&self) -> Result<Archive<Pin<Box<dyn AsyncRead + Send>>>> {
+    pub async fn archive(&self) -> Result<Archive<Pin<Box<dyn OciImageLayerReader + Send>>>> {
         let decompress = self.decompress().await?;
         Ok(Archive::new(decompress))
     }
@@ -225,7 +254,7 @@ impl OciImageFetcher {
         let config: OciSchema<ImageConfiguration>;
         self.progress
             .update(|progress| {
-                progress.phase = OciProgressPhase::ConfigAcquire;
+                progress.phase = OciProgressPhase::ConfigDownload;
             })
             .await;
         let mut client = OciRegistryClient::new(image.name.registry_url()?, self.platform.clone())?;
@@ -245,10 +274,10 @@ impl OciImageFetcher {
         }
         self.progress
             .update(|progress| {
-                progress.phase = OciProgressPhase::LayerAcquire;
+                progress.phase = OciProgressPhase::LayerDownload;
 
                 for layer in image.manifest.item().layers() {
-                    progress.add_layer(layer.digest(), layer.size() as usize);
+                    progress.add_layer(layer.digest());
                 }
             })
             .await;
@@ -256,7 +285,7 @@ impl OciImageFetcher {
         for layer in image.manifest.item().layers() {
             self.progress
                 .update(|progress| {
-                    progress.downloading_layer(layer.digest(), 0, layer.size() as usize);
+                    progress.downloading_layer(layer.digest(), 0, layer.size() as u64);
                 })
                 .await;
             layers.push(
@@ -265,7 +294,7 @@ impl OciImageFetcher {
             );
             self.progress
                 .update(|progress| {
-                    progress.downloaded_layer(layer.digest());
+                    progress.downloaded_layer(layer.digest(), layer.size() as u64);
                 })
                 .await;
         }
@@ -304,6 +333,12 @@ impl OciImageFetcher {
             }
         }
 
+        let metadata = fs::metadata(&layer_path).await?;
+
+        if layer.size() as u64 != metadata.size() {
+            return Err(anyhow!("layer size differs from size in manifest",));
+        }
+
         let mut media_type = layer.media_type().clone();
 
         // docker layer compatibility
@@ -318,6 +353,7 @@ impl OciImageFetcher {
             other => return Err(anyhow!("found layer with unknown media type: {}", other)),
         };
         Ok(OciImageLayer {
+            metadata: layer.clone(),
             path: layer_path,
             digest: layer.digest().clone(),
             compression,
