@@ -96,7 +96,7 @@ default-features = false
 features = ["rustls-tls"]
 
 [workspace.dependencies.serde]
-version = "1.0.196"
+version = "1.0.198"
 features = ["derive"]
 
 [workspace.dependencies.sys-mount]
