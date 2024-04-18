@@ -69,8 +69,8 @@ $ ./hack/kernel/build.sh
 ```
 
 7. Copy the guest kernel image at `target/kernel/kernel-x86_64` to `/var/lib/krata/guest/kernel` to have it automatically detected by kratad.
-8. Launch `./hack/debug/kratanet.sh` and keep it running in the foreground.
-9. Launch `./hack/debug/kratad.sh` and keep it running in the foreground.
+8. Launch `./hack/debug/kratad.sh` and keep it running in the foreground.
+9. Launch `./hack/debug/kratanet.sh` and keep it running in the foreground.
 10. Run kratactl to launch a guest:
 
 ```sh
