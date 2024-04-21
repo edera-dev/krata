@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package krata.idm.transport;
+
+option java_multiple_files = true;
+option java_package = "dev.krata.proto.idm.transport";
+option java_outer_classname = "IdmTransportProto";
+
+message IdmTransportPacket {
+    uint64 id = 1;
+    uint64 channel = 2;
+    IdmTransportPacketForm form = 3;
+    bytes data = 4;
+}
+
+enum IdmTransportPacketForm {
+    IDM_TRANSPORT_PACKET_FORM_UNKNOWN = 0;
+    IDM_TRANSPORT_PACKET_FORM_RAW = 1;
+    IDM_TRANSPORT_PACKET_FORM_EVENT = 2;
+    IDM_TRANSPORT_PACKET_FORM_REQUEST = 3;
+    IDM_TRANSPORT_PACKET_FORM_RESPONSE = 4;
+}

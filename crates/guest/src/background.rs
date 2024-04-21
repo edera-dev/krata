@@ -6,10 +6,11 @@ use crate::{
 use anyhow::Result;
 use cgroups_rs::Cgroup;
 use krata::idm::{
-    client::IdmClient,
-    protocol::{
-        idm_event::Event, idm_request::Request, idm_response::Response, IdmEvent, IdmExitEvent,
-        IdmMetricsResponse, IdmPingResponse, IdmRequest,
+    client::IdmInternalClient,
+    internal::{
+        event::Event as EventType, request::Request as RequestType,
+        response::Response as ResponseType, Event, ExitEvent, MetricsResponse, PingResponse,
+        Request, Response,
     },
 };
 use log::debug;
@@ -17,14 +18,18 @@ use nix::unistd::Pid;
 use tokio::{select, sync::broadcast};
 
 pub struct GuestBackground {
-    idm: IdmClient,
+    idm: IdmInternalClient,
     child: Pid,
     _cgroup: Cgroup,
     wait: ChildWait,
 }
 
 impl GuestBackground {
-    pub async fn new(idm: IdmClient, cgroup: Cgroup, child: Pid) -> Result<GuestBackground> {
+    pub async fn new(
+        idm: IdmInternalClient,
+        cgroup: Cgroup,
+        child: Pid,
+    ) -> Result<GuestBackground> {
         Ok(GuestBackground {
             idm,
             child,
@@ -54,8 +59,8 @@ impl GuestBackground {
                 },
 
                 x = requests_subscription.recv() => match x {
-                    Ok(request) => {
-                        self.handle_idm_request(request).await?;
+                    Ok((id, request)) => {
+                        self.handle_idm_request(id, request).await?;
                     },
 
                     Err(broadcast::error::RecvError::Closed) => {
@@ -79,22 +84,27 @@ impl GuestBackground {
         Ok(())
     }
 
-    async fn handle_idm_request(&mut self, packet: IdmRequest) -> Result<()> {
-        let id = packet.id;
-
+    async fn handle_idm_request(&mut self, id: u64, packet: Request) -> Result<()> {
         match packet.request {
-            Some(Request::Ping(_)) => {
+            Some(RequestType::Ping(_)) => {
                 self.idm
-                    .respond(id, Response::Ping(IdmPingResponse {}))
+                    .respond(
+                        id,
+                        Response {
+                            response: Some(ResponseType::Ping(PingResponse {})),
+                        },
+                    )
                     .await?;
             }
 
-            Some(Request::Metrics(_)) => {
+            Some(RequestType::Metrics(_)) => {
                 let metrics = MetricsCollector::new()?;
                 let root = metrics.collect()?;
-                let response = IdmMetricsResponse { root: Some(root) };
+                let response = Response {
+                    response: Some(ResponseType::Metrics(MetricsResponse { root: Some(root) })),
+                };
 
-                self.idm.respond(id, Response::Metrics(response)).await?;
+                self.idm.respond(id, response).await?;
             }
 
             None => {}
@@ -105,8 +115,8 @@ impl GuestBackground {
     async fn child_event(&mut self, event: ChildEvent) -> Result<()> {
         if event.pid == self.child {
             self.idm
-                .emit(IdmEvent {
-                    event: Some(Event::Exit(IdmExitEvent { code: event.status })),
+                .emit(Event {
+                    event: Some(EventType::Exit(ExitEvent { code: event.status })),
                 })
                 .await?;
             death(event.status).await?;

@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Result;
 use krata::{
-    idm::protocol::{idm_event::Event, IdmEvent},
+    idm::{internal::event::Event as EventType, internal::Event},
     v1::common::{GuestExitInfo, GuestState, GuestStatus},
 };
 use log::{error, warn};
@@ -50,8 +50,8 @@ pub struct DaemonEventGenerator {
     feed: broadcast::Receiver<DaemonEvent>,
     idm: DaemonIdmHandle,
     idms: HashMap<u32, (Uuid, JoinHandle<()>)>,
-    idm_sender: Sender<(u32, IdmEvent)>,
-    idm_receiver: Receiver<(u32, IdmEvent)>,
+    idm_sender: Sender<(u32, Event)>,
+    idm_receiver: Receiver<(u32, Event)>,
     _event_sender: broadcast::Sender<DaemonEvent>,
 }
 
@@ -122,9 +122,9 @@ impl DaemonEventGenerator {
         Ok(())
     }
 
-    async fn handle_idm_event(&mut self, id: Uuid, event: IdmEvent) -> Result<()> {
+    async fn handle_idm_event(&mut self, id: Uuid, event: Event) -> Result<()> {
         match event.event {
-            Some(Event::Exit(exit)) => self.handle_exit_code(id, exit.code).await,
+            Some(EventType::Exit(exit)) => self.handle_exit_code(id, exit.code).await,
             None => Ok(()),
         }
     }

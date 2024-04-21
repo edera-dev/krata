@@ -1,26 +1,66 @@
+use anyhow::Result;
+use prost::Message;
 use prost_types::{ListValue, Value};
 
-include!(concat!(env!("OUT_DIR"), "/krata.bus.idm.rs"));
+use super::serialize::{IdmRequest, IdmSerializable};
+
+include!(concat!(env!("OUT_DIR"), "/krata.idm.internal.rs"));
+
+pub const INTERNAL_IDM_CHANNEL: u64 = 0;
+
+impl IdmSerializable for Event {
+    fn encode(&self) -> Result<Vec<u8>> {
+        Ok(self.encode_to_vec())
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self> {
+        Ok(<Self as prost::Message>::decode(bytes)?)
+    }
+}
+
+impl IdmSerializable for Request {
+    fn encode(&self) -> Result<Vec<u8>> {
+        Ok(self.encode_to_vec())
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self> {
+        Ok(<Self as prost::Message>::decode(bytes)?)
+    }
+}
+
+impl IdmRequest for Request {
+    type Response = Response;
+}
+
+impl IdmSerializable for Response {
+    fn encode(&self) -> Result<Vec<u8>> {
+        Ok(self.encode_to_vec())
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self> {
+        Ok(<Self as prost::Message>::decode(bytes)?)
+    }
+}
 
 pub trait AsIdmMetricValue {
     fn as_metric_value(&self) -> Value;
 }
 
-impl IdmMetricNode {
-    pub fn structural<N: AsRef<str>>(name: N, children: Vec<IdmMetricNode>) -> IdmMetricNode {
-        IdmMetricNode {
+impl MetricNode {
+    pub fn structural<N: AsRef<str>>(name: N, children: Vec<MetricNode>) -> MetricNode {
+        MetricNode {
             name: name.as_ref().to_string(),
             value: None,
-            format: IdmMetricFormat::Unknown.into(),
+            format: MetricFormat::Unknown.into(),
             children,
         }
     }
 
-    pub fn raw_value<N: AsRef<str>, V: AsIdmMetricValue>(name: N, value: V) -> IdmMetricNode {
-        IdmMetricNode {
+    pub fn raw_value<N: AsRef<str>, V: AsIdmMetricValue>(name: N, value: V) -> MetricNode {
+        MetricNode {
             name: name.as_ref().to_string(),
             value: Some(value.as_metric_value()),
-            format: IdmMetricFormat::Unknown.into(),
+            format: MetricFormat::Unknown.into(),
             children: vec![],
         }
     }
@@ -28,9 +68,9 @@ impl IdmMetricNode {
     pub fn value<N: AsRef<str>, V: AsIdmMetricValue>(
         name: N,
         value: V,
-        format: IdmMetricFormat,
-    ) -> IdmMetricNode {
-        IdmMetricNode {
+        format: MetricFormat,
+    ) -> MetricNode {
+        MetricNode {
             name: name.as_ref().to_string(),
             value: Some(value.as_metric_value()),
             format: format.into(),

@@ -3,7 +3,8 @@ use cgroups_rs::{Cgroup, CgroupPid};
 use futures::stream::TryStreamExt;
 use ipnetwork::IpNetwork;
 use krata::ethtool::EthtoolHandle;
-use krata::idm::client::IdmClient;
+use krata::idm::client::IdmInternalClient;
+use krata::idm::internal::INTERNAL_IDM_CHANNEL;
 use krata::launchcfg::{LaunchInfo, LaunchNetwork, LaunchPackedFormat};
 use libc::{sethostname, setsid, TIOCSCTTY};
 use log::{trace, warn};
@@ -77,7 +78,7 @@ impl GuestInit {
             Err(error) => warn!("failed to open console: {}", error),
         };
 
-        let idm = IdmClient::open("/dev/hvc1")
+        let idm = IdmInternalClient::open(INTERNAL_IDM_CHANNEL, "/dev/hvc1")
             .await
             .map_err(|x| anyhow!("failed to open idm client: {}", x))?;
         self.mount_config_image().await?;
@@ -438,7 +439,12 @@ impl GuestInit {
         Ok(())
     }
 
-    async fn run(&mut self, config: &Config, launch: &LaunchInfo, idm: IdmClient) -> Result<()> {
+    async fn run(
+        &mut self,
+        config: &Config,
+        launch: &LaunchInfo,
+        idm: IdmInternalClient,
+    ) -> Result<()> {
         let mut cmd = match config.cmd() {
             None => vec![],
             Some(value) => value.clone(),
@@ -560,7 +566,7 @@ impl GuestInit {
 
     async fn fork_and_exec(
         &mut self,
-        idm: IdmClient,
+        idm: IdmInternalClient,
         cgroup: Cgroup,
         working_dir: String,
         path: CString,
@@ -596,7 +602,12 @@ impl GuestInit {
         Ok(())
     }
 
-    async fn background(&mut self, idm: IdmClient, cgroup: Cgroup, executed: Pid) -> Result<()> {
+    async fn background(
+        &mut self,
+        idm: IdmInternalClient,
+        cgroup: Cgroup,
+        executed: Pid,
+    ) -> Result<()> {
         let mut background = GuestBackground::new(idm, cgroup, executed).await?;
         background.run().await?;
         Ok(())

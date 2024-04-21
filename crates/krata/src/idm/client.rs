@@ -8,10 +8,6 @@ use std::{
     time::Duration,
 };
 
-use super::protocol::{
-    idm_packet::Content, idm_request::Request, idm_response::Response, IdmEvent, IdmPacket,
-    IdmRequest, IdmResponse,
-};
 use anyhow::{anyhow, Result};
 use log::{debug, error};
 use nix::sys::termios::{cfmakeraw, tcgetattr, tcsetattr, SetArg};
@@ -22,14 +18,21 @@ use tokio::{
     select,
     sync::{
         broadcast,
-        mpsc::{channel, Receiver, Sender},
+        mpsc::{self, Receiver, Sender},
         oneshot, Mutex,
     },
     task::JoinHandle,
     time::timeout,
 };
 
-type RequestMap = Arc<Mutex<HashMap<u64, oneshot::Sender<IdmResponse>>>>;
+use super::{
+    internal,
+    serialize::{IdmRequest, IdmSerializable},
+    transport::{IdmTransportPacket, IdmTransportPacketForm},
+};
+
+type RequestMap<R> = Arc<Mutex<HashMap<u64, oneshot::Sender<<R as IdmRequest>::Response>>>>;
+pub type IdmInternalClient = IdmClient<internal::Request, internal::Event>;
 
 const IDM_PACKET_QUEUE_LEN: usize = 100;
 const IDM_REQUEST_TIMEOUT_SECS: u64 = 10;
@@ -37,8 +40,8 @@ const IDM_PACKET_MAX_SIZE: usize = 20 * 1024 * 1024;
 
 #[async_trait::async_trait]
 pub trait IdmBackend: Send {
-    async fn recv(&mut self) -> Result<IdmPacket>;
-    async fn send(&mut self, packet: IdmPacket) -> Result<()>;
+    async fn recv(&mut self) -> Result<IdmTransportPacket>;
+    async fn send(&mut self, packet: IdmTransportPacket) -> Result<()>;
 }
 
 pub struct IdmFileBackend {
@@ -66,30 +69,30 @@ impl IdmFileBackend {
 
 #[async_trait::async_trait]
 impl IdmBackend for IdmFileBackend {
-    async fn recv(&mut self) -> Result<IdmPacket> {
+    async fn recv(&mut self) -> Result<IdmTransportPacket> {
         let mut fd = self.read_fd.lock().await;
         let mut guard = fd.readable_mut().await?;
         let b1 = guard.get_inner_mut().read_u8().await?;
         if b1 != 0xff {
-            return Ok(IdmPacket::default());
+            return Ok(IdmTransportPacket::default());
         }
         let b2 = guard.get_inner_mut().read_u8().await?;
         if b2 != 0xff {
-            return Ok(IdmPacket::default());
+            return Ok(IdmTransportPacket::default());
         }
         let size = guard.get_inner_mut().read_u32_le().await?;
         if size == 0 {
-            return Ok(IdmPacket::default());
+            return Ok(IdmTransportPacket::default());
         }
         let mut buffer = vec![0u8; size as usize];
         guard.get_inner_mut().read_exact(&mut buffer).await?;
-        match IdmPacket::decode(buffer.as_slice()) {
+        match IdmTransportPacket::decode(buffer.as_slice()) {
             Ok(packet) => Ok(packet),
             Err(error) => Err(anyhow!("received invalid idm packet: {}", error)),
         }
     }
 
-    async fn send(&mut self, packet: IdmPacket) -> Result<()> {
+    async fn send(&mut self, packet: IdmTransportPacket) -> Result<()> {
         let mut file = self.write.lock().await;
         let data = packet.encode_to_vec();
         file.write_all(&[0xff, 0xff]).await?;
@@ -100,16 +103,17 @@ impl IdmBackend for IdmFileBackend {
 }
 
 #[derive(Clone)]
-pub struct IdmClient {
-    request_backend_sender: broadcast::Sender<IdmRequest>,
+pub struct IdmClient<R: IdmRequest, E: IdmSerializable> {
+    channel: u64,
+    request_backend_sender: broadcast::Sender<(u64, R)>,
     next_request_id: Arc<Mutex<u64>>,
-    event_receiver_sender: broadcast::Sender<IdmEvent>,
-    tx_sender: Sender<IdmPacket>,
-    requests: RequestMap,
+    event_receiver_sender: broadcast::Sender<E>,
+    tx_sender: Sender<IdmTransportPacket>,
+    requests: RequestMap<R>,
     task: Arc<JoinHandle<()>>,
 }
 
-impl Drop for IdmClient {
+impl<R: IdmRequest, E: IdmSerializable> Drop for IdmClient<R, E> {
     fn drop(&mut self) {
         if Arc::strong_count(&self.task) <= 1 {
             self.task.abort();
@@ -117,12 +121,12 @@ impl Drop for IdmClient {
     }
 }
 
-impl IdmClient {
-    pub async fn new(backend: Box<dyn IdmBackend>) -> Result<IdmClient> {
+impl<R: IdmRequest, E: IdmSerializable> IdmClient<R, E> {
+    pub async fn new(channel: u64, backend: Box<dyn IdmBackend>) -> Result<Self> {
         let requests = Arc::new(Mutex::new(HashMap::new()));
         let (event_sender, event_receiver) = broadcast::channel(IDM_PACKET_QUEUE_LEN);
         let (internal_request_backend_sender, _) = broadcast::channel(IDM_PACKET_QUEUE_LEN);
-        let (tx_sender, tx_receiver) = channel(IDM_PACKET_QUEUE_LEN);
+        let (tx_sender, tx_receiver) = mpsc::channel(IDM_PACKET_QUEUE_LEN);
         let backend_event_sender = event_sender.clone();
         let request_backend_sender = internal_request_backend_sender.clone();
         let requests_for_client = requests.clone();
@@ -141,6 +145,7 @@ impl IdmClient {
             }
         });
         Ok(IdmClient {
+            channel,
             next_request_id: Arc::new(Mutex::new(0)),
             event_receiver_sender: event_sender.clone(),
             request_backend_sender,
@@ -150,7 +155,7 @@ impl IdmClient {
         })
     }
 
-    pub async fn open<P: AsRef<Path>>(path: P) -> Result<IdmClient> {
+    pub async fn open<P: AsRef<Path>>(channel: u64, path: P) -> Result<Self> {
         let read_file = File::options()
             .read(true)
             .write(false)
@@ -164,39 +169,48 @@ impl IdmClient {
             .open(path)
             .await?;
         let backend = IdmFileBackend::new(read_file, write_file).await?;
-        IdmClient::new(Box::new(backend) as Box<dyn IdmBackend>).await
+        IdmClient::new(channel, Box::new(backend) as Box<dyn IdmBackend>).await
     }
 
-    pub async fn emit(&self, event: IdmEvent) -> Result<()> {
+    pub async fn emit<T: IdmSerializable>(&self, event: T) -> Result<()> {
+        let id = {
+            let mut guard = self.next_request_id.lock().await;
+            let req = *guard;
+            *guard = req.wrapping_add(1);
+            req
+        };
         self.tx_sender
-            .send(IdmPacket {
-                content: Some(Content::Event(event)),
+            .send(IdmTransportPacket {
+                id,
+                form: IdmTransportPacketForm::Event.into(),
+                channel: self.channel,
+                data: event.encode()?,
             })
             .await?;
         Ok(())
     }
 
-    pub async fn requests(&self) -> Result<broadcast::Receiver<IdmRequest>> {
+    pub async fn requests(&self) -> Result<broadcast::Receiver<(u64, R)>> {
         Ok(self.request_backend_sender.subscribe())
     }
 
-    pub async fn respond(&self, id: u64, response: Response) -> Result<()> {
-        let packet = IdmPacket {
-            content: Some(Content::Response(IdmResponse {
-                id,
-                response: Some(response),
-            })),
+    pub async fn respond<T: IdmSerializable>(&self, id: u64, response: T) -> Result<()> {
+        let packet = IdmTransportPacket {
+            id,
+            form: IdmTransportPacketForm::Response.into(),
+            channel: self.channel,
+            data: response.encode()?,
         };
         self.tx_sender.send(packet).await?;
         Ok(())
     }
 
-    pub async fn subscribe(&self) -> Result<broadcast::Receiver<IdmEvent>> {
+    pub async fn subscribe(&self) -> Result<broadcast::Receiver<E>> {
         Ok(self.event_receiver_sender.subscribe())
     }
 
-    pub async fn send(&self, request: Request) -> Result<Response> {
-        let (sender, receiver) = oneshot::channel::<IdmResponse>();
+    pub async fn send(&self, request: R) -> Result<R::Response> {
+        let (sender, receiver) = oneshot::channel::<R::Response>();
         let req = {
             let mut guard = self.next_request_id.lock().await;
             let req = *guard;
@@ -217,49 +231,52 @@ impl IdmClient {
             });
         });
         self.tx_sender
-            .send(IdmPacket {
-                content: Some(Content::Request(IdmRequest {
-                    id: req,
-                    request: Some(request),
-                })),
+            .send(IdmTransportPacket {
+                id: req,
+                channel: self.channel,
+                form: IdmTransportPacketForm::Request.into(),
+                data: request.encode()?,
             })
             .await?;
 
         let response = timeout(Duration::from_secs(IDM_REQUEST_TIMEOUT_SECS), receiver).await??;
         success.store(true, Ordering::Release);
-        if let Some(response) = response.response {
-            Ok(response)
-        } else {
-            Err(anyhow!("response did not contain any content"))
-        }
+        Ok(response)
     }
 
     async fn process(
         mut backend: Box<dyn IdmBackend>,
-        event_sender: broadcast::Sender<IdmEvent>,
-        requests: RequestMap,
-        request_backend_sender: broadcast::Sender<IdmRequest>,
-        _event_receiver: broadcast::Receiver<IdmEvent>,
-        mut receiver: Receiver<IdmPacket>,
+        event_sender: broadcast::Sender<E>,
+        requests: RequestMap<R>,
+        request_backend_sender: broadcast::Sender<(u64, R)>,
+        _event_receiver: broadcast::Receiver<E>,
+        mut receiver: Receiver<IdmTransportPacket>,
     ) -> Result<()> {
         loop {
             select! {
                 x = backend.recv() => match x {
                     Ok(packet) => {
-                        match packet.content {
-                            Some(Content::Event(event)) => {
-                                let _ = event_sender.send(event);
+                        match packet.form() {
+                            IdmTransportPacketForm::Event => {
+                                if let Ok(event) = E::decode(&packet.data) {
+                                    let _ = event_sender.send(event);
+                                }
                             },
 
-                            Some(Content::Request(request)) => {
-                                let _ = request_backend_sender.send(request);
+                            IdmTransportPacketForm::Request => {
+                                if let Ok(request) = R::decode(&packet.data) {
+                                    let _ = request_backend_sender.send((packet.id, request));
+                                }
                             },
 
-                            Some(Content::Response(response)) => {
+                            IdmTransportPacketForm::Response => {
                                 let mut requests = requests.lock().await;
-                                if let Some(sender) = requests.remove(&response.id) {
+                                if let Some(sender) = requests.remove(&packet.id) {
                                     drop(requests);
-                                    let _ = sender.send(response);
+
+                                    if let Ok(response) = R::Response::decode(&packet.data) {
+                                        let _ = sender.send(response);
+                                    }
                                 }
                             },
 

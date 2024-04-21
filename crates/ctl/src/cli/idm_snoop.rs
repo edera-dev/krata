@@ -1,14 +1,18 @@
 use anyhow::Result;
+use base64::Engine;
 use clap::{Parser, ValueEnum};
 use krata::{
     events::EventStream,
+    idm::{internal, serialize::IdmSerializable, transport::IdmTransportPacketForm},
     v1::control::{control_service_client::ControlServiceClient, SnoopIdmReply, SnoopIdmRequest},
 };
 
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 
-use crate::format::{kv2line, proto2dynamic, proto2kv};
+use crate::format::{kv2line, proto2dynamic, value2kv};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum IdmSnoopFormat {
@@ -34,19 +38,22 @@ impl IdmSnoopCommand {
 
         while let Some(reply) = stream.next().await {
             let reply = reply?;
+            let Some(line) = convert_idm_snoop(reply) else {
+                continue;
+            };
+
             match self.format {
                 IdmSnoopFormat::Simple => {
-                    self.print_simple(reply)?;
+                    self.print_simple(line)?;
                 }
 
                 IdmSnoopFormat::Jsonl => {
-                    let value = serde_json::to_value(proto2dynamic(reply)?)?;
-                    let encoded = serde_json::to_string(&value)?;
+                    let encoded = serde_json::to_string(&line)?;
                     println!("{}", encoded.trim());
                 }
 
                 IdmSnoopFormat::KeyValue => {
-                    self.print_key_value(reply)?;
+                    self.print_key_value(line)?;
                 }
             }
         }
@@ -54,21 +61,86 @@ impl IdmSnoopCommand {
         Ok(())
     }
 
-    fn print_simple(&self, reply: SnoopIdmReply) -> Result<()> {
-        let from = reply.from;
-        let to = reply.to;
-        let Some(packet) = reply.packet else {
-            return Ok(());
+    fn print_simple(&self, line: IdmSnoopLine) -> Result<()> {
+        let encoded = if !line.packet.decoded.is_null() {
+            serde_json::to_string(&line.packet.decoded)?
+        } else {
+            base64::prelude::BASE64_STANDARD.encode(&line.packet.data)
         };
-        let value = serde_json::to_value(proto2dynamic(packet)?)?;
-        let encoded = serde_json::to_string(&value)?;
-        println!("({} -> {}) {}", from, to, encoded);
+        println!(
+            "({} -> {}) {} {} {}",
+            line.from, line.to, line.packet.id, line.packet.form, encoded
+        );
         Ok(())
     }
 
-    fn print_key_value(&self, reply: SnoopIdmReply) -> Result<()> {
-        let kvs = proto2kv(reply)?;
+    fn print_key_value(&self, line: IdmSnoopLine) -> Result<()> {
+        let kvs = value2kv(serde_json::to_value(line)?)?;
         println!("{}", kv2line(kvs));
         Ok(())
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct IdmSnoopLine {
+    pub from: u32,
+    pub to: u32,
+    pub packet: IdmSnoopData,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct IdmSnoopData {
+    pub id: u64,
+    pub channel: u64,
+    pub form: String,
+    pub data: String,
+    pub decoded: Value,
+}
+
+pub fn convert_idm_snoop(reply: SnoopIdmReply) -> Option<IdmSnoopLine> {
+    let packet = &(reply.packet?);
+
+    let decoded = if packet.channel == 0 {
+        match packet.form() {
+            IdmTransportPacketForm::Event => internal::Event::decode(&packet.data)
+                .ok()
+                .and_then(|event| proto2dynamic(event).ok()),
+
+            IdmTransportPacketForm::Request => internal::Request::decode(&packet.data)
+                .ok()
+                .and_then(|event| proto2dynamic(event).ok()),
+
+            IdmTransportPacketForm::Response => internal::Response::decode(&packet.data)
+                .ok()
+                .and_then(|event| proto2dynamic(event).ok()),
+
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    let decoded = decoded
+        .and_then(|message| serde_json::to_value(message).ok())
+        .unwrap_or(Value::Null);
+
+    let data = IdmSnoopData {
+        id: packet.id,
+        channel: packet.channel,
+        form: match packet.form() {
+            IdmTransportPacketForm::Raw => "raw".to_string(),
+            IdmTransportPacketForm::Event => "event".to_string(),
+            IdmTransportPacketForm::Request => "request".to_string(),
+            IdmTransportPacketForm::Response => "response".to_string(),
+            _ => format!("unknown-{}", packet.form),
+        },
+        data: base64::prelude::BASE64_STANDARD.encode(&packet.data),
+        decoded,
+    };
+
+    Some(IdmSnoopLine {
+        from: reply.from,
+        to: reply.to,
+        packet: data,
+    })
 }

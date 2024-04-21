@@ -1,18 +1,18 @@
 use krata::{
-    idm::protocol::{IdmMetricFormat, IdmMetricNode},
+    idm::internal::{MetricFormat, MetricNode},
     v1::common::{GuestMetricFormat, GuestMetricNode},
 };
 
-fn idm_metric_format_to_api(format: IdmMetricFormat) -> GuestMetricFormat {
+fn idm_metric_format_to_api(format: MetricFormat) -> GuestMetricFormat {
     match format {
-        IdmMetricFormat::Unknown => GuestMetricFormat::Unknown,
-        IdmMetricFormat::Bytes => GuestMetricFormat::Bytes,
-        IdmMetricFormat::Integer => GuestMetricFormat::Integer,
-        IdmMetricFormat::DurationSeconds => GuestMetricFormat::DurationSeconds,
+        MetricFormat::Unknown => GuestMetricFormat::Unknown,
+        MetricFormat::Bytes => GuestMetricFormat::Bytes,
+        MetricFormat::Integer => GuestMetricFormat::Integer,
+        MetricFormat::DurationSeconds => GuestMetricFormat::DurationSeconds,
     }
 }
 
-pub fn idm_metric_to_api(node: IdmMetricNode) -> GuestMetricNode {
+pub fn idm_metric_to_api(node: MetricNode) -> GuestMetricNode {
     let format = node.format();
     GuestMetricNode {
         name: node.name,

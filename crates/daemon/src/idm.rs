@@ -6,8 +6,9 @@ use std::{
 use anyhow::{anyhow, Result};
 use bytes::{Buf, BytesMut};
 use krata::idm::{
-    client::{IdmBackend, IdmClient},
-    protocol::IdmPacket,
+    client::{IdmBackend, IdmInternalClient},
+    internal::INTERNAL_IDM_CHANNEL,
+    transport::IdmTransportPacket,
 };
 use kratart::channel::ChannelService;
 use log::{error, warn};
@@ -22,14 +23,14 @@ use tokio::{
     task::JoinHandle,
 };
 
-type BackendFeedMap = Arc<Mutex<HashMap<u32, Sender<IdmPacket>>>>;
-type ClientMap = Arc<Mutex<HashMap<u32, IdmClient>>>;
+type BackendFeedMap = Arc<Mutex<HashMap<u32, Sender<IdmTransportPacket>>>>;
+type ClientMap = Arc<Mutex<HashMap<u32, IdmInternalClient>>>;
 
 #[derive(Clone)]
 pub struct DaemonIdmHandle {
     clients: ClientMap,
     feeds: BackendFeedMap,
-    tx_sender: Sender<(u32, IdmPacket)>,
+    tx_sender: Sender<(u32, IdmTransportPacket)>,
     task: Arc<JoinHandle<()>>,
     snoop_sender: broadcast::Sender<DaemonIdmSnoopPacket>,
 }
@@ -39,7 +40,7 @@ impl DaemonIdmHandle {
         self.snoop_sender.subscribe()
     }
 
-    pub async fn client(&self, domid: u32) -> Result<IdmClient> {
+    pub async fn client(&self, domid: u32) -> Result<IdmInternalClient> {
         client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await
     }
 }
@@ -56,15 +57,15 @@ impl Drop for DaemonIdmHandle {
 pub struct DaemonIdmSnoopPacket {
     pub from: u32,
     pub to: u32,
-    pub packet: IdmPacket,
+    pub packet: IdmTransportPacket,
 }
 
 pub struct DaemonIdm {
     clients: ClientMap,
     feeds: BackendFeedMap,
-    tx_sender: Sender<(u32, IdmPacket)>,
+    tx_sender: Sender<(u32, IdmTransportPacket)>,
     tx_raw_sender: Sender<(u32, Vec<u8>)>,
-    tx_receiver: Receiver<(u32, IdmPacket)>,
+    tx_receiver: Receiver<(u32, IdmTransportPacket)>,
     rx_receiver: Receiver<(u32, Option<Vec<u8>>)>,
     snoop_sender: broadcast::Sender<DaemonIdmSnoopPacket>,
     task: JoinHandle<()>,
@@ -136,7 +137,7 @@ impl DaemonIdm {
                             }
                             let mut packet = buffer.split_to(needed);
                             packet.advance(6);
-                            match IdmPacket::decode(packet) {
+                            match IdmTransportPacket::decode(packet) {
                                 Ok(packet) => {
                                     let _ = client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await?;
                                     let guard = self.feeds.lock().await;
@@ -196,10 +197,10 @@ impl Drop for DaemonIdm {
 
 async fn client_or_create(
     domid: u32,
-    tx_sender: &Sender<(u32, IdmPacket)>,
+    tx_sender: &Sender<(u32, IdmTransportPacket)>,
     clients: &ClientMap,
     feeds: &BackendFeedMap,
-) -> Result<IdmClient> {
+) -> Result<IdmInternalClient> {
     let mut clients = clients.lock().await;
     let mut feeds = feeds.lock().await;
     match clients.entry(domid) {
@@ -212,7 +213,11 @@ async fn client_or_create(
                 rx_receiver,
                 tx_sender: tx_sender.clone(),
             };
-            let client = IdmClient::new(Box::new(backend) as Box<dyn IdmBackend>).await?;
+            let client = IdmInternalClient::new(
+                INTERNAL_IDM_CHANNEL,
+                Box::new(backend) as Box<dyn IdmBackend>,
+            )
+            .await?;
             entry.insert(client.clone());
             Ok(client)
         }
@@ -221,13 +226,13 @@ async fn client_or_create(
 
 pub struct IdmDaemonBackend {
     domid: u32,
-    rx_receiver: Receiver<IdmPacket>,
-    tx_sender: Sender<(u32, IdmPacket)>,
+    rx_receiver: Receiver<IdmTransportPacket>,
+    tx_sender: Sender<(u32, IdmTransportPacket)>,
 }
 
 #[async_trait::async_trait]
 impl IdmBackend for IdmDaemonBackend {
-    async fn recv(&mut self) -> Result<IdmPacket> {
+    async fn recv(&mut self) -> Result<IdmTransportPacket> {
         if let Some(packet) = self.rx_receiver.recv().await {
             Ok(packet)
         } else {
@@ -235,7 +240,7 @@ impl IdmBackend for IdmDaemonBackend {
         }
     }
 
-    async fn send(&mut self, packet: IdmPacket) -> Result<()> {
+    async fn send(&mut self, packet: IdmTransportPacket) -> Result<()> {
         self.tx_sender.send((self.domid, packet)).await?;
         Ok(())
     }

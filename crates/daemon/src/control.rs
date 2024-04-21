@@ -1,9 +1,9 @@
 use async_stream::try_stream;
 use futures::Stream;
 use krata::{
-    idm::protocol::{
-        idm_request::Request as IdmRequestType, idm_response::Response as IdmResponseType,
-        IdmMetricsRequest,
+    idm::internal::{
+        request::Request as IdmRequestType, response::Response as IdmResponseType, MetricsRequest,
+        Request as IdmRequest,
     },
     v1::{
         common::{Guest, GuestState, GuestStatus, OciImageFormat},
@@ -340,14 +340,16 @@ impl ControlService for DaemonControlService {
         })?;
 
         let response = client
-            .send(IdmRequestType::Metrics(IdmMetricsRequest {}))
+            .send(IdmRequest {
+                request: Some(IdmRequestType::Metrics(MetricsRequest {})),
+            })
             .await
             .map_err(|error| ApiError {
                 message: error.to_string(),
             })?;
 
         let mut reply = ReadGuestMetricsReply::default();
-        if let IdmResponseType::Metrics(metrics) = response {
+        if let Some(IdmResponseType::Metrics(metrics)) = response.response {
             reply.root = metrics.root.map(idm_metric_to_api);
         }
         Ok(Response::new(reply))

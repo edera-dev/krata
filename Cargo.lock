@@ -1412,6 +1412,7 @@ version = "0.0.9"
 dependencies = [
  "anyhow",
  "async-stream",
+ "base64 0.22.0",
  "clap",
  "comfy-table",
  "crossterm",
@@ -1425,6 +1426,7 @@ dependencies = [
  "prost-reflect",
  "prost-types",
  "ratatui",
+ "serde",
  "serde_json",
  "serde_yaml",
  "termtree",

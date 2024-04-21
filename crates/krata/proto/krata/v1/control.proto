@@ -6,7 +6,7 @@ option java_multiple_files = true;
 option java_package = "dev.krata.proto.v1.control";
 option java_outer_classname = "ControlProto";
 
-import "krata/bus/idm.proto";
+import "krata/idm/transport.proto";
 import "krata/v1/common.proto";
 
 service ControlService {
@@ -86,7 +86,7 @@ message SnoopIdmRequest {}
 message SnoopIdmReply {
     uint32 from = 1;
     uint32 to = 2;
-    krata.bus.idm.IdmPacket packet = 3;
+    krata.idm.transport.IdmTransportPacket packet = 3;
 }
 
 message ImageProgress {

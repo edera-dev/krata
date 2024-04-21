@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package krata.idm.internal;
+
+option java_multiple_files = true;
+option java_package = "dev.krata.proto.idm.internal";
+option java_outer_classname = "IdmInternalProto";
+
+import "google/protobuf/struct.proto";
+
+message ExitEvent {
+    int32 code = 1;
+}
+
+message PingRequest {}
+
+message PingResponse {}
+
+message MetricsRequest {}
+
+message MetricsResponse {
+    MetricNode root = 1;
+}
+
+message MetricNode {
+    string name = 1;
+    google.protobuf.Value value = 2;
+    MetricFormat format = 3;
+    repeated MetricNode children = 4;
+}
+
+enum MetricFormat {
+    METRIC_FORMAT_UNKNOWN = 0;
+    METRIC_FORMAT_BYTES = 1;
+    METRIC_FORMAT_INTEGER = 2;
+    METRIC_FORMAT_DURATION_SECONDS = 3;
+}
+
+message Event {
+    oneof event {
+        ExitEvent exit = 1;
+    }
+}
+
+message Request {
+    oneof request {
+        PingRequest ping = 1;
+        MetricsRequest metrics = 2;
+    }
+}
+
+message Response {
+    oneof response {
+        PingResponse ping = 1;
+        MetricsResponse metrics = 2;
+    }
+}
