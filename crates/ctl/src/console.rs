@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_stream::stream;
 use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, is_raw_mode_enabled},
@@ -8,12 +8,15 @@ use krata::{
     events::EventStream,
     v1::{
         common::GuestStatus,
-        control::{watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest},
+        control::{
+            watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest, ExecGuestReply,
+            ExecGuestRequest,
+        },
     },
 };
 use log::debug;
 use tokio::{
-    io::{stdin, stdout, AsyncReadExt, AsyncWriteExt},
+    io::{stderr, stdin, stdout, AsyncReadExt, AsyncWriteExt},
     task::JoinHandle,
 };
 use tokio_stream::{Stream, StreamExt};
@@ -45,6 +48,31 @@ impl StdioConsoleStream {
         }
     }
 
+    pub async fn stdin_stream_exec(
+        initial: ExecGuestRequest,
+    ) -> impl Stream<Item = ExecGuestRequest> {
+        let mut stdin = stdin();
+        stream! {
+            yield initial;
+
+            let mut buffer = vec![0u8; 60];
+            loop {
+                let size = match stdin.read(&mut buffer).await {
+                    Ok(size) => size,
+                    Err(error) => {
+                        debug!("failed to read stdin: {}", error);
+                        break;
+                    }
+                };
+                let data = buffer[0..size].to_vec();
+                if size == 1 && buffer[0] == 0x1d {
+                    break;
+                }
+                yield ExecGuestRequest { guest_id: String::default(), task: None, data };
+            }
+        }
+    }
+
     pub async fn stdout(mut stream: Streaming<ConsoleDataReply>) -> Result<()> {
         if stdin().is_tty() {
             enable_raw_mode()?;
@@ -60,6 +88,32 @@ impl StdioConsoleStream {
             stdout.flush().await?;
         }
         Ok(())
+    }
+
+    pub async fn exec_output(mut stream: Streaming<ExecGuestReply>) -> Result<i32> {
+        let mut stdout = stdout();
+        let mut stderr = stderr();
+        while let Some(reply) = stream.next().await {
+            let reply = reply?;
+            if !reply.stdout.is_empty() {
+                stdout.write_all(&reply.stdout).await?;
+                stdout.flush().await?;
+            }
+
+            if !reply.stderr.is_empty() {
+                stderr.write_all(&reply.stderr).await?;
+                stderr.flush().await?;
+            }
+
+            if reply.exited {
+                if reply.error.is_empty() {
+                    return Ok(reply.exit_code);
+                } else {
+                    return Err(anyhow!("exec failed: {}", reply.error));
+                }
+            }
+        }
+        Ok(-1)
     }
 
     pub async fn guest_exit_hook(

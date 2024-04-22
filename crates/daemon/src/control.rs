@@ -2,18 +2,19 @@ use async_stream::try_stream;
 use futures::Stream;
 use krata::{
     idm::internal::{
-        request::Request as IdmRequestType, response::Response as IdmResponseType, MetricsRequest,
-        Request as IdmRequest,
+        exec_stream_request_update::Update, request::Request as IdmRequestType,
+        response::Response as IdmResponseType, ExecEnvVar, ExecStreamRequestStart,
+        ExecStreamRequestStdin, ExecStreamRequestUpdate, MetricsRequest, Request as IdmRequest,
     },
     v1::{
         common::{Guest, GuestState, GuestStatus, OciImageFormat},
         control::{
             control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
             CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-            IdentifyHostReply, IdentifyHostRequest, ListGuestsReply, ListGuestsRequest,
-            PullImageReply, PullImageRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
-            ResolveGuestReply, ResolveGuestRequest, SnoopIdmReply, SnoopIdmRequest,
-            WatchEventsReply, WatchEventsRequest,
+            ExecGuestReply, ExecGuestRequest, IdentifyHostReply, IdentifyHostRequest,
+            ListGuestsReply, ListGuestsRequest, PullImageReply, PullImageRequest,
+            ReadGuestMetricsReply, ReadGuestMetricsRequest, ResolveGuestReply, ResolveGuestRequest,
+            SnoopIdmReply, SnoopIdmRequest, WatchEventsReply, WatchEventsRequest,
         },
     },
 };
@@ -101,6 +102,9 @@ enum PullImageSelect {
 
 #[tonic::async_trait]
 impl ControlService for DaemonControlService {
+    type ExecGuestStream =
+        Pin<Box<dyn Stream<Item = Result<ExecGuestReply, Status>> + Send + 'static>>;
+
     type ConsoleDataStream =
         Pin<Box<dyn Stream<Item = Result<ConsoleDataReply, Status>> + Send + 'static>>;
 
@@ -164,6 +168,98 @@ impl ControlService for DaemonControlService {
         Ok(Response::new(CreateGuestReply {
             guest_id: uuid.to_string(),
         }))
+    }
+
+    async fn exec_guest(
+        &self,
+        request: Request<Streaming<ExecGuestRequest>>,
+    ) -> Result<Response<Self::ExecGuestStream>, Status> {
+        let mut input = request.into_inner();
+        let Some(request) = input.next().await else {
+            return Err(ApiError {
+                message: "expected to have at least one request".to_string(),
+            }
+            .into());
+        };
+        let request = request?;
+
+        let Some(task) = request.task else {
+            return Err(ApiError {
+                message: "task is missing".to_string(),
+            }
+            .into());
+        };
+
+        let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
+            message: error.to_string(),
+        })?;
+        let idm = self.idm.client(uuid).await.map_err(|error| ApiError {
+            message: error.to_string(),
+        })?;
+
+        let idm_request = IdmRequest {
+            request: Some(IdmRequestType::ExecStream(ExecStreamRequestUpdate {
+                update: Some(Update::Start(ExecStreamRequestStart {
+                    environment: task
+                        .environment
+                        .into_iter()
+                        .map(|x| ExecEnvVar {
+                            key: x.key,
+                            value: x.value,
+                        })
+                        .collect(),
+                    command: task.command,
+                    working_directory: task.working_directory,
+                })),
+            })),
+        };
+
+        let output = try_stream! {
+            let mut handle = idm.send_stream(idm_request).await.map_err(|x| ApiError {
+                message: x.to_string(),
+            })?;
+
+            loop {
+                select! {
+                    x = input.next() => if let Some(update) = x {
+                        let update: Result<ExecGuestRequest, Status> = update.map_err(|error| ApiError {
+                            message: error.to_string()
+                        }.into());
+
+                        if let Ok(update) = update {
+                            if !update.data.is_empty() {
+                                let _ = handle.update(IdmRequest {
+                                    request: Some(IdmRequestType::ExecStream(ExecStreamRequestUpdate {
+                                        update: Some(Update::Stdin(ExecStreamRequestStdin {
+                                            data: update.data,
+                                        })),
+                                    }))}).await;
+                            }
+                        }
+                    },
+                    x = handle.receiver.recv() => match x {
+                        Some(response) => {
+                            let Some(IdmResponseType::ExecStream(update)) = response.response else {
+                                break;
+                            };
+                            let reply = ExecGuestReply {
+                                exited: update.exited,
+                                error: update.error,
+                                exit_code: update.exit_code,
+                                stdout: update.stdout,
+                                stderr: update.stderr
+                            };
+                            yield reply;
+                        },
+                        None => {
+                            break;
+                        }
+                    }
+                };
+            }
+        };
+
+        Ok(Response::new(Box::pin(output) as Self::ExecGuestStream))
     }
 
     async fn destroy_guest(

@@ -1,16 +1,17 @@
 use crate::{
     childwait::{ChildEvent, ChildWait},
     death,
+    exec::GuestExecTask,
     metrics::MetricsCollector,
 };
 use anyhow::Result;
 use cgroups_rs::Cgroup;
 use krata::idm::{
-    client::IdmInternalClient,
+    client::{IdmClientStreamResponseHandle, IdmInternalClient},
     internal::{
         event::Event as EventType, request::Request as RequestType,
-        response::Response as ResponseType, Event, ExitEvent, MetricsResponse, PingResponse,
-        Request, Response,
+        response::Response as ResponseType, Event, ExecStreamResponseUpdate, ExitEvent,
+        MetricsResponse, PingResponse, Request, Response,
     },
 };
 use log::debug;
@@ -41,11 +42,11 @@ impl GuestBackground {
     pub async fn run(&mut self) -> Result<()> {
         let mut event_subscription = self.idm.subscribe().await?;
         let mut requests_subscription = self.idm.requests().await?;
+        let mut request_streams_subscription = self.idm.request_streams().await?;
         loop {
             select! {
                 x = event_subscription.recv() => match x {
                     Ok(_event) => {
-
                     },
 
                     Err(broadcast::error::RecvError::Closed) => {
@@ -61,6 +62,21 @@ impl GuestBackground {
                 x = requests_subscription.recv() => match x {
                     Ok((id, request)) => {
                         self.handle_idm_request(id, request).await?;
+                    },
+
+                    Err(broadcast::error::RecvError::Closed) => {
+                        debug!("idm packet channel closed");
+                        break;
+                    },
+
+                    _ => {
+                        continue;
+                    }
+                },
+
+                x = request_streams_subscription.recv() => match x {
+                    Ok(handle) => {
+                        self.handle_idm_stream_request(handle).await?;
                     },
 
                     Err(broadcast::error::RecvError::Closed) => {
@@ -107,7 +123,33 @@ impl GuestBackground {
                 self.idm.respond(id, response).await?;
             }
 
-            None => {}
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_idm_stream_request(
+        &mut self,
+        handle: IdmClientStreamResponseHandle<Request>,
+    ) -> Result<()> {
+        if let Some(RequestType::ExecStream(_)) = &handle.initial.request {
+            tokio::task::spawn(async move {
+                let exec = GuestExecTask { handle };
+                if let Err(error) = exec.run().await {
+                    let _ = exec
+                        .handle
+                        .respond(Response {
+                            response: Some(ResponseType::ExecStream(ExecStreamResponseUpdate {
+                                exited: true,
+                                error: error.to_string(),
+                                exit_code: -1,
+                                stdout: vec![],
+                                stderr: vec![],
+                            })),
+                        })
+                        .await;
+                }
+            });
         }
         Ok(())
     }

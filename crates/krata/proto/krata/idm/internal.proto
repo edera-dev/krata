@@ -36,6 +36,36 @@ enum MetricFormat {
     METRIC_FORMAT_DURATION_SECONDS = 3;
 }
 
+message ExecEnvVar {
+    string key = 1;
+    string value = 2;
+}
+
+message ExecStreamRequestStart {
+    repeated ExecEnvVar environment = 1;
+    repeated string command = 2;
+    string working_directory = 3;
+}
+
+message ExecStreamRequestStdin {
+    bytes data = 1;
+}
+
+message ExecStreamRequestUpdate {
+    oneof update {
+        ExecStreamRequestStart start = 1;
+        ExecStreamRequestStdin stdin = 2;
+    }
+}
+
+message ExecStreamResponseUpdate {
+    bool exited = 1;
+    string error = 2;
+    int32 exit_code = 3;
+    bytes stdout = 4;
+    bytes stderr = 5;
+}
+
 message Event {
     oneof event {
         ExitEvent exit = 1;
@@ -46,6 +76,7 @@ message Request {
     oneof request {
         PingRequest ping = 1;
         MetricsRequest metrics = 2;
+        ExecStreamRequestUpdate exec_stream = 3;
     }
 }
 
@@ -53,5 +84,6 @@ message Response {
     oneof response {
         PingResponse ping = 1;
         MetricsResponse metrics = 2;
+        ExecStreamResponseUpdate exec_stream = 3;
     }
 }

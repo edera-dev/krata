@@ -106,13 +106,19 @@ pub fn convert_idm_snoop(reply: SnoopIdmReply) -> Option<IdmSnoopLine> {
                 .ok()
                 .and_then(|event| proto2dynamic(event).ok()),
 
-            IdmTransportPacketForm::Request => internal::Request::decode(&packet.data)
-                .ok()
-                .and_then(|event| proto2dynamic(event).ok()),
+            IdmTransportPacketForm::Request
+            | IdmTransportPacketForm::StreamRequest
+            | IdmTransportPacketForm::StreamRequestUpdate => {
+                internal::Request::decode(&packet.data)
+                    .ok()
+                    .and_then(|event| proto2dynamic(event).ok())
+            }
 
-            IdmTransportPacketForm::Response => internal::Response::decode(&packet.data)
-                .ok()
-                .and_then(|event| proto2dynamic(event).ok()),
+            IdmTransportPacketForm::Response | IdmTransportPacketForm::StreamResponseUpdate => {
+                internal::Response::decode(&packet.data)
+                    .ok()
+                    .and_then(|event| proto2dynamic(event).ok())
+            }
 
             _ => None,
         }
@@ -132,6 +138,11 @@ pub fn convert_idm_snoop(reply: SnoopIdmReply) -> Option<IdmSnoopLine> {
             IdmTransportPacketForm::Event => "event".to_string(),
             IdmTransportPacketForm::Request => "request".to_string(),
             IdmTransportPacketForm::Response => "response".to_string(),
+            IdmTransportPacketForm::StreamRequest => "stream-request".to_string(),
+            IdmTransportPacketForm::StreamRequestUpdate => "stream-request-update".to_string(),
+            IdmTransportPacketForm::StreamRequestClosed => "stream-request-closed".to_string(),
+            IdmTransportPacketForm::StreamResponseUpdate => "stream-response-update".to_string(),
+            IdmTransportPacketForm::StreamResponseClosed => "stream-response-closed".to_string(),
             _ => format!("unknown-{}", packet.form),
         },
         data: base64::prelude::BASE64_STANDARD.encode(&packet.data),

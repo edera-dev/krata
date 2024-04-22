@@ -49,6 +49,7 @@ message GuestOciImageSpec {
 message GuestTaskSpec {
     repeated GuestTaskSpecEnvVar environment = 1;
     repeated string command = 2;
+    string working_directory = 3;
 }
 
 message GuestTaskSpecEnvVar {

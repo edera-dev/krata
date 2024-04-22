@@ -17,6 +17,8 @@ service ControlService {
     rpc ResolveGuest(ResolveGuestRequest) returns (ResolveGuestReply);
     rpc ListGuests(ListGuestsRequest) returns (ListGuestsReply);
 
+    rpc ExecGuest(stream ExecGuestRequest) returns (stream ExecGuestReply);
+
     rpc ConsoleData(stream ConsoleDataRequest) returns (stream ConsoleDataReply);
     rpc ReadGuestMetrics(ReadGuestMetricsRequest) returns (ReadGuestMetricsReply);
     
@@ -60,6 +62,20 @@ message ListGuestsRequest {}
 
 message ListGuestsReply {
     repeated krata.v1.common.Guest guests = 1;
+}
+
+message ExecGuestRequest {
+    string guest_id = 1;
+    krata.v1.common.GuestTaskSpec task = 2;
+    bytes data = 3;
+}
+
+message ExecGuestReply {
+    bool exited = 1;
+    string error = 2;
+    int32 exit_code = 3;
+    bytes stdout = 4;
+    bytes stderr = 5;
 }
 
 message ConsoleDataRequest {
