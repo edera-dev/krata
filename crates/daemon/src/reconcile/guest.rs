@@ -30,6 +30,7 @@ use uuid::Uuid;
 use crate::{
     db::GuestStore,
     event::{DaemonEvent, DaemonEventContext},
+    glt::GuestLookupTable,
 };
 
 const PARALLEL_LIMIT: u32 = 5;
@@ -53,6 +54,7 @@ impl Drop for GuestReconcilerEntry {
 
 #[derive(Clone)]
 pub struct GuestReconciler {
+    glt: GuestLookupTable,
     guests: GuestStore,
     events: DaemonEventContext,
     runtime: Runtime,
@@ -64,6 +66,7 @@ pub struct GuestReconciler {
 
 impl GuestReconciler {
     pub fn new(
+        glt: GuestLookupTable,
         guests: GuestStore,
         events: DaemonEventContext,
         runtime: Runtime,
@@ -71,6 +74,7 @@ impl GuestReconciler {
         guest_reconciler_notify: Sender<Uuid>,
     ) -> Result<Self> {
         Ok(Self {
+            glt,
             guests,
             events,
             runtime,
@@ -123,6 +127,23 @@ impl GuestReconciler {
         trace!("reconciling runtime");
         let runtime_guests = self.runtime.list().await?;
         let stored_guests = self.guests.list().await?;
+
+        let non_existent_guests = runtime_guests
+            .iter()
+            .filter(|x| !stored_guests.iter().any(|g| *g.0 == x.uuid))
+            .collect::<Vec<_>>();
+
+        for guest in non_existent_guests {
+            warn!("destroying unknown runtime guest {}", guest.uuid);
+            if let Err(error) = self.runtime.destroy(guest.uuid).await {
+                error!(
+                    "failed to destroy unknown runtime guest {}: {}",
+                    guest.uuid, error
+                );
+            }
+            self.guests.remove(guest.uuid).await?;
+        }
+
         for (uuid, mut stored_guest) in stored_guests {
             let previous_guest = stored_guest.clone();
             let runtime_guest = runtime_guests.iter().find(|x| x.uuid == uuid);
@@ -136,6 +157,7 @@ impl GuestReconciler {
                 }
 
                 Some(runtime) => {
+                    self.glt.associate(uuid, runtime.domid).await;
                     let mut state = stored_guest.state.as_mut().cloned().unwrap_or_default();
                     if let Some(code) = runtime.state.exit_code {
                         state.status = GuestStatus::Exited.into();
@@ -283,12 +305,14 @@ impl GuestReconciler {
                 debug: false,
             })
             .await?;
+        self.glt.associate(uuid, info.domid).await;
         info!("started guest {}", uuid);
         guest.state = Some(GuestState {
             status: GuestStatus::Started.into(),
             network: Some(guestinfo_to_networkstate(&info)),
             exit_info: None,
             error_info: None,
+            host: self.glt.host_uuid().to_string(),
             domid: info.domid,
         });
         Ok(GuestReconcilerResult::Changed { rerun: false })
@@ -308,13 +332,20 @@ impl GuestReconciler {
             trace!("failed to destroy runtime guest {}: {}", uuid, error);
         }
 
+        let domid = guest.state.as_ref().map(|x| x.domid);
+
+        if let Some(domid) = domid {
+            self.glt.remove(uuid, domid).await;
+        }
+
         info!("destroyed guest {}", uuid);
         guest.state = Some(GuestState {
             status: GuestStatus::Destroyed.into(),
             network: None,
             exit_info: None,
             error_info: None,
-            domid: guest.state.as_ref().map(|x| x.domid).unwrap_or(u32::MAX),
+            host: self.glt.host_uuid().to_string(),
+            domid: domid.unwrap_or(u32::MAX),
         });
         Ok(GuestReconcilerResult::Changed { rerun: false })
     }

@@ -1,7 +1,7 @@
 use std::{ops::Add, path::Path};
 
 use anyhow::Result;
-use krata::idm::protocol::{IdmMetricFormat, IdmMetricNode};
+use krata::idm::internal::{MetricFormat, MetricNode};
 use sysinfo::Process;
 
 pub struct MetricsCollector {}
@@ -11,9 +11,9 @@ impl MetricsCollector {
         Ok(MetricsCollector {})
     }
 
-    pub fn collect(&self) -> Result<IdmMetricNode> {
+    pub fn collect(&self) -> Result<MetricNode> {
         let mut sysinfo = sysinfo::System::new();
-        Ok(IdmMetricNode::structural(
+        Ok(MetricNode::structural(
             "guest",
             vec![
                 self.collect_system(&mut sysinfo)?,
@@ -22,22 +22,22 @@ impl MetricsCollector {
         ))
     }
 
-    fn collect_system(&self, sysinfo: &mut sysinfo::System) -> Result<IdmMetricNode> {
+    fn collect_system(&self, sysinfo: &mut sysinfo::System) -> Result<MetricNode> {
         sysinfo.refresh_memory();
-        Ok(IdmMetricNode::structural(
+        Ok(MetricNode::structural(
             "system",
-            vec![IdmMetricNode::structural(
+            vec![MetricNode::structural(
                 "memory",
                 vec![
-                    IdmMetricNode::value("total", sysinfo.total_memory(), IdmMetricFormat::Bytes),
-                    IdmMetricNode::value("used", sysinfo.used_memory(), IdmMetricFormat::Bytes),
-                    IdmMetricNode::value("free", sysinfo.free_memory(), IdmMetricFormat::Bytes),
+                    MetricNode::value("total", sysinfo.total_memory(), MetricFormat::Bytes),
+                    MetricNode::value("used", sysinfo.used_memory(), MetricFormat::Bytes),
+                    MetricNode::value("free", sysinfo.free_memory(), MetricFormat::Bytes),
                 ],
             )],
         ))
     }
 
-    fn collect_processes(&self, sysinfo: &mut sysinfo::System) -> Result<IdmMetricNode> {
+    fn collect_processes(&self, sysinfo: &mut sysinfo::System) -> Result<MetricNode> {
         sysinfo.refresh_processes();
         let mut processes = Vec::new();
         let mut sysinfo_processes = sysinfo.processes().values().collect::<Vec<_>>();
@@ -48,71 +48,68 @@ impl MetricsCollector {
             }
             processes.push(MetricsCollector::process_node(process)?);
         }
-        Ok(IdmMetricNode::structural("process", processes))
+        Ok(MetricNode::structural("process", processes))
     }
 
-    fn process_node(process: &Process) -> Result<IdmMetricNode> {
+    fn process_node(process: &Process) -> Result<MetricNode> {
         let mut metrics = vec![];
 
         if let Some(parent) = process.parent() {
-            metrics.push(IdmMetricNode::value(
+            metrics.push(MetricNode::value(
                 "parent",
                 parent.as_u32() as u64,
-                IdmMetricFormat::Integer,
+                MetricFormat::Integer,
             ));
         }
 
         if let Some(exe) = process.exe().and_then(path_as_str) {
-            metrics.push(IdmMetricNode::raw_value("executable", exe));
+            metrics.push(MetricNode::raw_value("executable", exe));
         }
 
         if let Some(working_directory) = process.cwd().and_then(path_as_str) {
-            metrics.push(IdmMetricNode::raw_value("cwd", working_directory));
+            metrics.push(MetricNode::raw_value("cwd", working_directory));
         }
 
         let cmdline = process.cmd().to_vec();
-        metrics.push(IdmMetricNode::raw_value("cmdline", cmdline));
-        metrics.push(IdmMetricNode::structural(
+        metrics.push(MetricNode::raw_value("cmdline", cmdline));
+        metrics.push(MetricNode::structural(
             "memory",
             vec![
-                IdmMetricNode::value("resident", process.memory(), IdmMetricFormat::Bytes),
-                IdmMetricNode::value("virtual", process.virtual_memory(), IdmMetricFormat::Bytes),
+                MetricNode::value("resident", process.memory(), MetricFormat::Bytes),
+                MetricNode::value("virtual", process.virtual_memory(), MetricFormat::Bytes),
             ],
         ));
 
-        metrics.push(IdmMetricNode::value(
+        metrics.push(MetricNode::value(
             "lifetime",
             process.run_time(),
-            IdmMetricFormat::DurationSeconds,
+            MetricFormat::DurationSeconds,
         ));
-        metrics.push(IdmMetricNode::value(
+        metrics.push(MetricNode::value(
             "uid",
             process.user_id().map(|x| (*x).add(0)).unwrap_or(0) as f64,
-            IdmMetricFormat::Integer,
+            MetricFormat::Integer,
         ));
-        metrics.push(IdmMetricNode::value(
+        metrics.push(MetricNode::value(
             "gid",
             process.group_id().map(|x| (*x).add(0)).unwrap_or(0) as f64,
-            IdmMetricFormat::Integer,
+            MetricFormat::Integer,
         ));
-        metrics.push(IdmMetricNode::value(
+        metrics.push(MetricNode::value(
             "euid",
             process
                 .effective_user_id()
                 .map(|x| (*x).add(0))
                 .unwrap_or(0) as f64,
-            IdmMetricFormat::Integer,
+            MetricFormat::Integer,
         ));
-        metrics.push(IdmMetricNode::value(
+        metrics.push(MetricNode::value(
             "egid",
             process.effective_group_id().map(|x| x.add(0)).unwrap_or(0) as f64,
-            IdmMetricFormat::Integer,
+            MetricFormat::Integer,
         ));
 
-        Ok(IdmMetricNode::structural(
-            process.pid().to_string(),
-            metrics,
-        ))
+        Ok(MetricNode::structural(process.pid().to_string(), metrics))
     }
 }
 

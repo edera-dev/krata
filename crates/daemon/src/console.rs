@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use circular_buffer::CircularBuffer;
 use kratart::channel::ChannelService;
 use log::error;
@@ -11,6 +11,9 @@ use tokio::{
     },
     task::JoinHandle,
 };
+use uuid::Uuid;
+
+use crate::glt::GuestLookupTable;
 
 const CONSOLE_BUFFER_SIZE: usize = 1024 * 1024;
 type RawConsoleBuffer = CircularBuffer<CONSOLE_BUFFER_SIZE, u8>;
@@ -21,6 +24,7 @@ type BufferMap = Arc<Mutex<HashMap<u32, ConsoleBuffer>>>;
 
 #[derive(Clone)]
 pub struct DaemonConsoleHandle {
+    glt: GuestLookupTable,
     listeners: ListenerMap,
     buffers: BufferMap,
     sender: Sender<(u32, Vec<u8>)>,
@@ -50,9 +54,12 @@ impl DaemonConsoleAttachHandle {
 impl DaemonConsoleHandle {
     pub async fn attach(
         &self,
-        domid: u32,
+        uuid: Uuid,
         sender: Sender<Vec<u8>>,
     ) -> Result<DaemonConsoleAttachHandle> {
+        let Some(domid) = self.glt.lookup_domid_by_uuid(&uuid).await else {
+            return Err(anyhow!("unable to find domain {}", uuid));
+        };
         let buffers = self.buffers.lock().await;
         let buffer = buffers.get(&domid).map(|x| x.to_vec()).unwrap_or_default();
         drop(buffers);
@@ -77,6 +84,7 @@ impl Drop for DaemonConsoleHandle {
 }
 
 pub struct DaemonConsole {
+    glt: GuestLookupTable,
     listeners: ListenerMap,
     buffers: BufferMap,
     receiver: Receiver<(u32, Option<Vec<u8>>)>,
@@ -85,13 +93,14 @@ pub struct DaemonConsole {
 }
 
 impl DaemonConsole {
-    pub async fn new() -> Result<DaemonConsole> {
+    pub async fn new(glt: GuestLookupTable) -> Result<DaemonConsole> {
         let (service, sender, receiver) =
             ChannelService::new("krata-console".to_string(), Some(0)).await?;
         let task = service.launch().await?;
         let listeners = Arc::new(Mutex::new(HashMap::new()));
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         Ok(DaemonConsole {
+            glt,
             listeners,
             buffers,
             receiver,
@@ -101,6 +110,7 @@ impl DaemonConsole {
     }
 
     pub async fn launch(mut self) -> Result<DaemonConsoleHandle> {
+        let glt = self.glt.clone();
         let listeners = self.listeners.clone();
         let buffers = self.buffers.clone();
         let sender = self.sender.clone();
@@ -110,6 +120,7 @@ impl DaemonConsole {
             }
         });
         Ok(DaemonConsoleHandle {
+            glt,
             listeners,
             buffers,
             sender,

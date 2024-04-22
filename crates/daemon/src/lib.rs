@@ -5,6 +5,7 @@ use console::{DaemonConsole, DaemonConsoleHandle};
 use control::DaemonControlService;
 use db::GuestStore;
 use event::{DaemonEventContext, DaemonEventGenerator};
+use glt::GuestLookupTable;
 use idm::{DaemonIdm, DaemonIdmHandle};
 use krata::{dial::ControlDialAddress, v1::control::control_service_server::ControlServiceServer};
 use krataoci::{packer::service::OciPackerService, registry::OciPlatform};
@@ -21,10 +22,12 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 use uuid::Uuid;
 
+pub mod command;
 pub mod console;
 pub mod control;
 pub mod db;
 pub mod event;
+pub mod glt;
 pub mod idm;
 pub mod metrics;
 pub mod oci;
@@ -32,6 +35,7 @@ pub mod reconcile;
 
 pub struct Daemon {
     store: String,
+    glt: GuestLookupTable,
     guests: GuestStore,
     events: DaemonEventContext,
     guest_reconciler_task: JoinHandle<()>,
@@ -51,22 +55,43 @@ impl Daemon {
         image_cache_dir.push("image");
         fs::create_dir_all(&image_cache_dir).await?;
 
+        let mut host_uuid_path = PathBuf::from(store.clone());
+        host_uuid_path.push("host.uuid");
+        let host_uuid = if host_uuid_path.is_file() {
+            let content = fs::read_to_string(&host_uuid_path).await?;
+            Uuid::from_str(content.trim()).ok()
+        } else {
+            None
+        };
+
+        let host_uuid = if let Some(host_uuid) = host_uuid {
+            host_uuid
+        } else {
+            let generated = Uuid::new_v4();
+            let mut string = generated.to_string();
+            string.push('\n');
+            fs::write(&host_uuid_path, string).await?;
+            generated
+        };
+
         let packer = OciPackerService::new(None, &image_cache_dir, OciPlatform::current()).await?;
 
         let runtime = Runtime::new(store.clone()).await?;
+        let glt = GuestLookupTable::new(0, host_uuid);
         let guests_db_path = format!("{}/guests.db", store);
         let guests = GuestStore::open(&PathBuf::from(guests_db_path))?;
         let (guest_reconciler_notify, guest_reconciler_receiver) =
             channel::<Uuid>(GUEST_RECONCILER_QUEUE_LEN);
-        let idm = DaemonIdm::new().await?;
+        let idm = DaemonIdm::new(glt.clone()).await?;
         let idm = idm.launch().await?;
-        let console = DaemonConsole::new().await?;
+        let console = DaemonConsole::new(glt.clone()).await?;
         let console = console.launch().await?;
         let (events, generator) =
             DaemonEventGenerator::new(guests.clone(), guest_reconciler_notify.clone(), idm.clone())
                 .await?;
         let runtime_for_reconciler = runtime.dupe().await?;
         let guest_reconciler = GuestReconciler::new(
+            glt.clone(),
             guests.clone(),
             events.clone(),
             runtime_for_reconciler,
@@ -79,6 +104,7 @@ impl Daemon {
 
         Ok(Self {
             store,
+            glt,
             guests,
             events,
             guest_reconciler_task,
@@ -92,6 +118,7 @@ impl Daemon {
 
     pub async fn listen(&mut self, addr: ControlDialAddress) -> Result<()> {
         let control_service = DaemonControlService::new(
+            self.glt.clone(),
             self.events.clone(),
             self.console.clone(),
             self.idm.clone(),

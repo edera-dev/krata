@@ -62,7 +62,8 @@ message GuestState {
     GuestNetworkState network = 2;
     GuestExitInfo exit_info = 3;
     GuestErrorInfo error_info = 4;
-    uint32 domid = 5;
+    string host = 5;
+    uint32 domid = 6;
 }
 
 enum GuestStatus {

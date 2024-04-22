@@ -1,18 +1,19 @@
 use async_stream::try_stream;
 use futures::Stream;
 use krata::{
-    idm::protocol::{
-        idm_request::Request as IdmRequestType, idm_response::Response as IdmResponseType,
-        IdmMetricsRequest,
+    idm::internal::{
+        request::Request as IdmRequestType, response::Response as IdmResponseType, MetricsRequest,
+        Request as IdmRequest,
     },
     v1::{
         common::{Guest, GuestState, GuestStatus, OciImageFormat},
         control::{
             control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
             CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-            ListGuestsReply, ListGuestsRequest, PullImageReply, PullImageRequest,
-            ReadGuestMetricsReply, ReadGuestMetricsRequest, ResolveGuestReply, ResolveGuestRequest,
-            SnoopIdmReply, SnoopIdmRequest, WatchEventsReply, WatchEventsRequest,
+            IdentifyHostReply, IdentifyHostRequest, ListGuestsReply, ListGuestsRequest,
+            PullImageReply, PullImageRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
+            ResolveGuestReply, ResolveGuestRequest, SnoopIdmReply, SnoopIdmRequest,
+            WatchEventsReply, WatchEventsRequest,
         },
     },
 };
@@ -32,7 +33,8 @@ use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
 use crate::{
-    console::DaemonConsoleHandle, db::GuestStore, event::DaemonEventContext, idm::DaemonIdmHandle,
+    command::DaemonCommand, console::DaemonConsoleHandle, db::GuestStore,
+    event::DaemonEventContext, glt::GuestLookupTable, idm::DaemonIdmHandle,
     metrics::idm_metric_to_api, oci::convert_oci_progress,
 };
 
@@ -56,6 +58,7 @@ impl From<ApiError> for Status {
 
 #[derive(Clone)]
 pub struct DaemonControlService {
+    glt: GuestLookupTable,
     events: DaemonEventContext,
     console: DaemonConsoleHandle,
     idm: DaemonIdmHandle,
@@ -66,6 +69,7 @@ pub struct DaemonControlService {
 
 impl DaemonControlService {
     pub fn new(
+        glt: GuestLookupTable,
         events: DaemonEventContext,
         console: DaemonConsoleHandle,
         idm: DaemonIdmHandle,
@@ -74,6 +78,7 @@ impl DaemonControlService {
         packer: OciPackerService,
     ) -> Self {
         Self {
+            glt,
             events,
             console,
             idm,
@@ -108,6 +113,18 @@ impl ControlService for DaemonControlService {
     type SnoopIdmStream =
         Pin<Box<dyn Stream<Item = Result<SnoopIdmReply, Status>> + Send + 'static>>;
 
+    async fn identify_host(
+        &self,
+        request: Request<IdentifyHostRequest>,
+    ) -> Result<Response<IdentifyHostReply>, Status> {
+        let _ = request.into_inner();
+        Ok(Response::new(IdentifyHostReply {
+            host_domid: self.glt.host_domid(),
+            host_uuid: self.glt.host_uuid().to_string(),
+            krata_version: DaemonCommand::version(),
+        }))
+    }
+
     async fn create_guest(
         &self,
         request: Request<CreateGuestRequest>,
@@ -130,6 +147,7 @@ impl ControlService for DaemonControlService {
                         network: None,
                         exit_info: None,
                         error_info: None,
+                        host: self.glt.host_uuid().to_string(),
                         domid: u32::MAX,
                     }),
                     spec: Some(spec),
@@ -230,36 +248,10 @@ impl ControlService for DaemonControlService {
         let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
             message: error.to_string(),
         })?;
-        let guest = self
-            .guests
-            .read(uuid)
-            .await
-            .map_err(|error| ApiError {
-                message: error.to_string(),
-            })?
-            .ok_or_else(|| ApiError {
-                message: "guest did not exist in the database".to_string(),
-            })?;
-
-        let Some(ref state) = guest.state else {
-            return Err(ApiError {
-                message: "guest did not have state".to_string(),
-            }
-            .into());
-        };
-
-        let domid = state.domid;
-        if domid == 0 {
-            return Err(ApiError {
-                message: "invalid domid on the guest".to_string(),
-            }
-            .into());
-        }
-
         let (sender, mut receiver) = channel(100);
         let console = self
             .console
-            .attach(domid, sender)
+            .attach(uuid, sender)
             .await
             .map_err(|error| ApiError {
                 message: format!("failed to attach to console: {}", error),
@@ -309,45 +301,21 @@ impl ControlService for DaemonControlService {
         let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
             message: error.to_string(),
         })?;
-        let guest = self
-            .guests
-            .read(uuid)
-            .await
-            .map_err(|error| ApiError {
-                message: error.to_string(),
-            })?
-            .ok_or_else(|| ApiError {
-                message: "guest did not exist in the database".to_string(),
-            })?;
-
-        let Some(ref state) = guest.state else {
-            return Err(ApiError {
-                message: "guest did not have state".to_string(),
-            }
-            .into());
-        };
-
-        let domid = state.domid;
-        if domid == 0 {
-            return Err(ApiError {
-                message: "invalid domid on the guest".to_string(),
-            }
-            .into());
-        }
-
-        let client = self.idm.client(domid).await.map_err(|error| ApiError {
+        let client = self.idm.client(uuid).await.map_err(|error| ApiError {
             message: error.to_string(),
         })?;
 
         let response = client
-            .send(IdmRequestType::Metrics(IdmMetricsRequest {}))
+            .send(IdmRequest {
+                request: Some(IdmRequestType::Metrics(MetricsRequest {})),
+            })
             .await
             .map_err(|error| ApiError {
                 message: error.to_string(),
             })?;
 
         let mut reply = ReadGuestMetricsReply::default();
-        if let IdmResponseType::Metrics(metrics) = response {
+        if let Some(IdmResponseType::Metrics(metrics)) = response.response {
             reply.root = metrics.root.map(idm_metric_to_api);
         }
         Ok(Response::new(reply))
@@ -446,9 +414,16 @@ impl ControlService for DaemonControlService {
     ) -> Result<Response<Self::SnoopIdmStream>, Status> {
         let _ = request.into_inner();
         let mut messages = self.idm.snoop();
+        let glt = self.glt.clone();
         let output = try_stream! {
             while let Ok(event) = messages.recv().await {
-                yield SnoopIdmReply { from: event.from, to: event.to, packet: Some(event.packet) };
+                let Some(from_uuid) = glt.lookup_uuid_by_domid(event.from).await else {
+                    continue;
+                };
+                let Some(to_uuid) = glt.lookup_uuid_by_domid(event.to).await else {
+                    continue;
+                };
+                yield SnoopIdmReply { from: from_uuid.to_string(), to: to_uuid.to_string(), packet: Some(event.packet) };
             }
         };
         Ok(Response::new(Box::pin(output) as Self::SnoopIdmStream))

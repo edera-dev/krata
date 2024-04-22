@@ -6,10 +6,12 @@ option java_multiple_files = true;
 option java_package = "dev.krata.proto.v1.control";
 option java_outer_classname = "ControlProto";
 
-import "krata/bus/idm.proto";
+import "krata/idm/transport.proto";
 import "krata/v1/common.proto";
 
 service ControlService {
+    rpc IdentifyHost(IdentifyHostRequest) returns (IdentifyHostReply);
+
     rpc CreateGuest(CreateGuestRequest) returns (CreateGuestReply);
     rpc DestroyGuest(DestroyGuestRequest) returns (DestroyGuestReply);
     rpc ResolveGuest(ResolveGuestRequest) returns (ResolveGuestReply);
@@ -22,6 +24,14 @@ service ControlService {
     rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
 
     rpc PullImage(PullImageRequest) returns (stream PullImageReply);
+}
+
+message IdentifyHostRequest {}
+
+message IdentifyHostReply {
+    string host_uuid = 1;
+    uint32 host_domid = 2;
+    string krata_version = 3;
 }
 
 message CreateGuestRequest {
@@ -84,9 +94,9 @@ message ReadGuestMetricsReply {
 message SnoopIdmRequest {}
 
 message SnoopIdmReply {
-    uint32 from = 1;
-    uint32 to = 2;
-    krata.bus.idm.IdmPacket packet = 3;
+    string from = 1;
+    string to = 2;
+    krata.idm.transport.IdmTransportPacket packet = 3;
 }
 
 message ImageProgress {

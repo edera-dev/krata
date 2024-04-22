@@ -4,7 +4,7 @@ use anyhow::Result;
 use fancy_duration::FancyDuration;
 use human_bytes::human_bytes;
 use krata::v1::common::{Guest, GuestMetricFormat, GuestMetricNode, GuestStatus};
-use prost_reflect::{DynamicMessage, FieldDescriptor, ReflectMessage, Value as ReflectValue};
+use prost_reflect::{DynamicMessage, ReflectMessage};
 use prost_types::Value;
 use termtree::Tree;
 
@@ -15,62 +15,57 @@ pub fn proto2dynamic(proto: impl ReflectMessage) -> Result<DynamicMessage> {
     )?)
 }
 
-pub fn proto2kv(proto: impl ReflectMessage) -> Result<HashMap<String, String>> {
-    let message = proto2dynamic(proto)?;
+pub fn value2kv(value: serde_json::Value) -> Result<HashMap<String, String>> {
     let mut map = HashMap::new();
+    fn crawl(prefix: String, map: &mut HashMap<String, String>, value: serde_json::Value) {
+        fn dot(prefix: &str, next: String) -> String {
+            if prefix.is_empty() {
+                next.to_string()
+            } else {
+                format!("{}.{}", prefix, next)
+            }
+        }
 
-    fn crawl(
-        prefix: String,
-        field: Option<&FieldDescriptor>,
-        map: &mut HashMap<String, String>,
-        value: &ReflectValue,
-    ) {
         match value {
-            ReflectValue::Message(child) => {
-                for (field, field_value) in child.fields() {
-                    let path = if prefix.is_empty() {
-                        field.json_name().to_string()
-                    } else {
-                        format!("{}.{}", prefix, field.json_name())
-                    };
-                    crawl(path, Some(&field), map, field_value);
+            serde_json::Value::Null => {
+                map.insert(prefix, "null".to_string());
+            }
+
+            serde_json::Value::String(value) => {
+                map.insert(prefix, value);
+            }
+
+            serde_json::Value::Bool(value) => {
+                map.insert(prefix, value.to_string());
+            }
+
+            serde_json::Value::Number(value) => {
+                map.insert(prefix, value.to_string());
+            }
+
+            serde_json::Value::Array(value) => {
+                for (i, item) in value.into_iter().enumerate() {
+                    let next = dot(&prefix, i.to_string());
+                    crawl(next, map, item);
                 }
             }
 
-            ReflectValue::EnumNumber(number) => {
-                if let Some(kind) = field.map(|x| x.kind()) {
-                    if let Some(e) = kind.as_enum() {
-                        if let Some(value) = e.get_value(*number) {
-                            map.insert(prefix, value.name().to_string());
-                        }
-                    }
+            serde_json::Value::Object(value) => {
+                for (key, item) in value {
+                    let next = dot(&prefix, key);
+                    crawl(next, map, item);
                 }
-            }
-
-            ReflectValue::String(value) => {
-                map.insert(prefix.to_string(), value.clone());
-            }
-
-            ReflectValue::List(value) => {
-                for (x, value) in value.iter().enumerate() {
-                    crawl(format!("{}.{}", prefix, x), field, map, value);
-                }
-            }
-
-            _ => {
-                map.insert(prefix.to_string(), value.to_string());
             }
         }
     }
-
-    crawl(
-        "".to_string(),
-        None,
-        &mut map,
-        &ReflectValue::Message(message),
-    );
-
+    crawl("".to_string(), &mut map, value);
     Ok(map)
+}
+
+pub fn proto2kv(proto: impl ReflectMessage) -> Result<HashMap<String, String>> {
+    let message = proto2dynamic(proto)?;
+    let value = serde_json::to_value(message)?;
+    value2kv(value)
 }
 
 pub fn kv2line(map: HashMap<String, String>) -> String {
