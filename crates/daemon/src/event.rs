@@ -93,7 +93,7 @@ impl DaemonEventGenerator {
         match status {
             GuestStatus::Started => {
                 if let Entry::Vacant(e) = self.idms.entry(domid) {
-                    let client = self.idm.client(domid).await?;
+                    let client = self.idm.client_by_domid(domid).await?;
                     let mut receiver = client.subscribe().await?;
                     let sender = self.idm_sender.clone();
                     let task = tokio::task::spawn(async move {
@@ -136,6 +136,7 @@ impl DaemonEventGenerator {
                 network: guest.state.clone().unwrap_or_default().network,
                 exit_info: Some(GuestExitInfo { code }),
                 error_info: None,
+                host: guest.state.clone().map(|x| x.host).unwrap_or_default(),
                 domid: guest.state.clone().map(|x| x.domid).unwrap_or(u32::MAX),
             });
 

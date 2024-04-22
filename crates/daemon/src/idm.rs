@@ -22,12 +22,16 @@ use tokio::{
     },
     task::JoinHandle,
 };
+use uuid::Uuid;
+
+use crate::glt::GuestLookupTable;
 
 type BackendFeedMap = Arc<Mutex<HashMap<u32, Sender<IdmTransportPacket>>>>;
 type ClientMap = Arc<Mutex<HashMap<u32, IdmInternalClient>>>;
 
 #[derive(Clone)]
 pub struct DaemonIdmHandle {
+    glt: GuestLookupTable,
     clients: ClientMap,
     feeds: BackendFeedMap,
     tx_sender: Sender<(u32, IdmTransportPacket)>,
@@ -40,7 +44,14 @@ impl DaemonIdmHandle {
         self.snoop_sender.subscribe()
     }
 
-    pub async fn client(&self, domid: u32) -> Result<IdmInternalClient> {
+    pub async fn client(&self, uuid: Uuid) -> Result<IdmInternalClient> {
+        let Some(domid) = self.glt.lookup_domid_by_uuid(&uuid).await else {
+            return Err(anyhow!("unable to find domain {}", uuid));
+        };
+        self.client_by_domid(domid).await
+    }
+
+    pub async fn client_by_domid(&self, domid: u32) -> Result<IdmInternalClient> {
         client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await
     }
 }
@@ -61,6 +72,7 @@ pub struct DaemonIdmSnoopPacket {
 }
 
 pub struct DaemonIdm {
+    glt: GuestLookupTable,
     clients: ClientMap,
     feeds: BackendFeedMap,
     tx_sender: Sender<(u32, IdmTransportPacket)>,
@@ -72,7 +84,7 @@ pub struct DaemonIdm {
 }
 
 impl DaemonIdm {
-    pub async fn new() -> Result<DaemonIdm> {
+    pub async fn new(glt: GuestLookupTable) -> Result<DaemonIdm> {
         let (service, tx_raw_sender, rx_receiver) =
             ChannelService::new("krata-channel".to_string(), None).await?;
         let (tx_sender, tx_receiver) = channel(100);
@@ -81,6 +93,7 @@ impl DaemonIdm {
         let clients = Arc::new(Mutex::new(HashMap::new()));
         let feeds = Arc::new(Mutex::new(HashMap::new()));
         Ok(DaemonIdm {
+            glt,
             rx_receiver,
             tx_receiver,
             tx_sender,
@@ -93,6 +106,7 @@ impl DaemonIdm {
     }
 
     pub async fn launch(mut self) -> Result<DaemonIdmHandle> {
+        let glt = self.glt.clone();
         let clients = self.clients.clone();
         let feeds = self.feeds.clone();
         let tx_sender = self.tx_sender.clone();
@@ -105,6 +119,7 @@ impl DaemonIdm {
             }
         });
         Ok(DaemonIdmHandle {
+            glt,
             clients,
             feeds,
             tx_sender,

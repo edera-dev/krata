@@ -83,8 +83,8 @@ impl IdmSnoopCommand {
 
 #[derive(Serialize, Deserialize)]
 pub struct IdmSnoopLine {
-    pub from: u32,
-    pub to: u32,
+    pub from: String,
+    pub to: String,
     pub packet: IdmSnoopData,
 }
 
