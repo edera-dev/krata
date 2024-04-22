@@ -29,7 +29,7 @@ pub enum LaunchImageFormat {
 
 #[derive(Parser)]
 #[command(about = "Launch a new guest")]
-pub struct LauchCommand {
+pub struct LaunchCommand {
     #[arg(long, default_value = "squashfs", help = "Image format")]
     image_format: LaunchImageFormat,
     #[arg(long, help = "Overwrite image cache on pull")]
@@ -68,6 +68,8 @@ pub struct LauchCommand {
     kernel: Option<String>,
     #[arg(short = 'I', long, help = "OCI initrd image for guest to use")]
     initrd: Option<String>,
+    #[arg(short = 'w', long, help = "Working directory")]
+    working_directory: Option<String>,
     #[arg(help = "Container image for guest to use")]
     oci: String,
     #[arg(
@@ -78,7 +80,7 @@ pub struct LauchCommand {
     command: Vec<String>,
 }
 
-impl LauchCommand {
+impl LaunchCommand {
     pub async fn run(
         self,
         mut client: ControlServiceClient<Channel>,
@@ -130,6 +132,7 @@ impl LauchCommand {
                         })
                         .collect(),
                     command: self.command,
+                    working_directory: self.working_directory.unwrap_or_default(),
                 }),
                 annotations: vec![],
             }),

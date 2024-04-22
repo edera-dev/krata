@@ -1,5 +1,6 @@
 pub mod attach;
 pub mod destroy;
+pub mod exec;
 pub mod identify_host;
 pub mod idm_snoop;
 pub mod launch;
@@ -21,10 +22,10 @@ use krata::{
 use tonic::{transport::Channel, Request};
 
 use self::{
-    attach::AttachCommand, destroy::DestroyCommand, identify_host::IdentifyHostCommand,
-    idm_snoop::IdmSnoopCommand, launch::LauchCommand, list::ListCommand, logs::LogsCommand,
-    metrics::MetricsCommand, pull::PullCommand, resolve::ResolveCommand, top::TopCommand,
-    watch::WatchCommand,
+    attach::AttachCommand, destroy::DestroyCommand, exec::ExecCommand,
+    identify_host::IdentifyHostCommand, idm_snoop::IdmSnoopCommand, launch::LaunchCommand,
+    list::ListCommand, logs::LogsCommand, metrics::MetricsCommand, pull::PullCommand,
+    resolve::ResolveCommand, top::TopCommand, watch::WatchCommand,
 };
 
 #[derive(Parser)]
@@ -47,7 +48,7 @@ pub struct ControlCommand {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    Launch(LauchCommand),
+    Launch(LaunchCommand),
     Destroy(DestroyCommand),
     List(ListCommand),
     Attach(AttachCommand),
@@ -59,6 +60,7 @@ pub enum Commands {
     IdmSnoop(IdmSnoopCommand),
     Top(TopCommand),
     IdentifyHost(IdentifyHostCommand),
+    Exec(ExecCommand),
 }
 
 impl ControlCommand {
@@ -113,6 +115,10 @@ impl ControlCommand {
 
             Commands::IdentifyHost(identify) => {
                 identify.run(client).await?;
+            }
+
+            Commands::Exec(exec) => {
+                exec.run(client).await?;
             }
         }
         Ok(())

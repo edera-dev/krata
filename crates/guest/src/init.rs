@@ -479,7 +479,7 @@ impl GuestInit {
             env.insert("TERM".to_string(), "xterm".to_string());
         }
 
-        let path = GuestInit::resolve_executable(&env, path.into())?;
+        let path = resolve_executable(&env, path.into())?;
         let Some(file_name) = path.file_name() else {
             return Err(anyhow!("cannot get file name of command path"));
         };
@@ -537,27 +537,6 @@ impl GuestInit {
         map
     }
 
-    fn resolve_executable(env: &HashMap<String, String>, path: PathBuf) -> Result<PathBuf> {
-        if path.is_absolute() {
-            return Ok(path);
-        }
-
-        if path.is_file() {
-            return Ok(path.absolutize()?.to_path_buf());
-        }
-
-        if let Some(path_var) = env.get("PATH") {
-            for item in path_var.split(':') {
-                let mut exe_path: PathBuf = item.into();
-                exe_path.push(&path);
-                if exe_path.is_file() {
-                    return Ok(exe_path);
-                }
-            }
-        }
-        Ok(path)
-    }
-
     fn env_list(env: HashMap<String, String>) -> Vec<String> {
         env.iter()
             .map(|(key, value)| format!("{}={}", key, value))
@@ -612,4 +591,25 @@ impl GuestInit {
         background.run().await?;
         Ok(())
     }
+}
+
+pub fn resolve_executable(env: &HashMap<String, String>, path: PathBuf) -> Result<PathBuf> {
+    if path.is_absolute() {
+        return Ok(path);
+    }
+
+    if path.is_file() {
+        return Ok(path.absolutize()?.to_path_buf());
+    }
+
+    if let Some(path_var) = env.get("PATH") {
+        for item in path_var.split(':') {
+            let mut exe_path: PathBuf = item.into();
+            exe_path.push(&path);
+            if exe_path.is_file() {
+                return Ok(exe_path);
+            }
+        }
+    }
+    Ok(path)
 }

@@ -6,6 +6,7 @@ use xenstore::{XsdClient, XsdInterface};
 
 pub mod background;
 pub mod childwait;
+pub mod exec;
 pub mod init;
 pub mod metrics;
 

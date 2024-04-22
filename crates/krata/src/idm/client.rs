@@ -31,7 +31,9 @@ use super::{
     transport::{IdmTransportPacket, IdmTransportPacketForm},
 };
 
-type RequestMap<R> = Arc<Mutex<HashMap<u64, oneshot::Sender<<R as IdmRequest>::Response>>>>;
+type OneshotRequestMap<R> = Arc<Mutex<HashMap<u64, oneshot::Sender<<R as IdmRequest>::Response>>>>;
+type StreamRequestMap<R> = Arc<Mutex<HashMap<u64, Sender<<R as IdmRequest>::Response>>>>;
+type StreamRequestUpdateMap<R> = Arc<Mutex<HashMap<u64, mpsc::Sender<R>>>>;
 pub type IdmInternalClient = IdmClient<internal::Request, internal::Event>;
 
 const IDM_PACKET_QUEUE_LEN: usize = 100;
@@ -106,10 +108,12 @@ impl IdmBackend for IdmFileBackend {
 pub struct IdmClient<R: IdmRequest, E: IdmSerializable> {
     channel: u64,
     request_backend_sender: broadcast::Sender<(u64, R)>,
+    request_stream_backend_sender: broadcast::Sender<IdmClientStreamResponseHandle<R>>,
     next_request_id: Arc<Mutex<u64>>,
     event_receiver_sender: broadcast::Sender<E>,
     tx_sender: Sender<IdmTransportPacket>,
-    requests: RequestMap<R>,
+    requests: OneshotRequestMap<R>,
+    request_streams: StreamRequestMap<R>,
     task: Arc<JoinHandle<()>>,
 }
 
@@ -121,21 +125,122 @@ impl<R: IdmRequest, E: IdmSerializable> Drop for IdmClient<R, E> {
     }
 }
 
+pub struct IdmClientStreamRequestHandle<R: IdmRequest, E: IdmSerializable> {
+    pub id: u64,
+    pub receiver: Receiver<R::Response>,
+    pub client: IdmClient<R, E>,
+}
+
+impl<R: IdmRequest, E: IdmSerializable> IdmClientStreamRequestHandle<R, E> {
+    pub async fn update(&self, request: R) -> Result<()> {
+        self.client
+            .tx_sender
+            .send(IdmTransportPacket {
+                id: self.id,
+                channel: self.client.channel,
+                form: IdmTransportPacketForm::StreamRequestUpdate.into(),
+                data: request.encode()?,
+            })
+            .await?;
+        Ok(())
+    }
+}
+
+impl<R: IdmRequest, E: IdmSerializable> Drop for IdmClientStreamRequestHandle<R, E> {
+    fn drop(&mut self) {
+        let id = self.id;
+        let client = self.client.clone();
+        tokio::task::spawn(async move {
+            let _ = client
+                .tx_sender
+                .send(IdmTransportPacket {
+                    id,
+                    channel: client.channel,
+                    form: IdmTransportPacketForm::StreamRequestClosed.into(),
+                    data: vec![],
+                })
+                .await;
+        });
+    }
+}
+
+#[derive(Clone)]
+pub struct IdmClientStreamResponseHandle<R: IdmRequest> {
+    pub initial: R,
+    pub id: u64,
+    channel: u64,
+    tx_sender: Sender<IdmTransportPacket>,
+    receiver: Arc<Mutex<Option<Receiver<R>>>>,
+}
+
+impl<R: IdmRequest> IdmClientStreamResponseHandle<R> {
+    pub async fn respond(&self, response: R::Response) -> Result<()> {
+        self.tx_sender
+            .send(IdmTransportPacket {
+                id: self.id,
+                channel: self.channel,
+                form: IdmTransportPacketForm::StreamResponseUpdate.into(),
+                data: response.encode()?,
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn take(&self) -> Result<Receiver<R>> {
+        let mut guard = self.receiver.lock().await;
+        let Some(receiver) = (*guard).take() else {
+            return Err(anyhow!("request has already been claimed!"));
+        };
+        Ok(receiver)
+    }
+}
+
+impl<R: IdmRequest> Drop for IdmClientStreamResponseHandle<R> {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.receiver) <= 1 {
+            let id = self.id;
+            let channel = self.channel;
+            let tx_sender = self.tx_sender.clone();
+            tokio::task::spawn(async move {
+                let _ = tx_sender
+                    .send(IdmTransportPacket {
+                        id,
+                        channel,
+                        form: IdmTransportPacketForm::StreamResponseClosed.into(),
+                        data: vec![],
+                    })
+                    .await;
+            });
+        }
+    }
+}
+
 impl<R: IdmRequest, E: IdmSerializable> IdmClient<R, E> {
     pub async fn new(channel: u64, backend: Box<dyn IdmBackend>) -> Result<Self> {
         let requests = Arc::new(Mutex::new(HashMap::new()));
+        let request_streams = Arc::new(Mutex::new(HashMap::new()));
+        let request_update_streams = Arc::new(Mutex::new(HashMap::new()));
         let (event_sender, event_receiver) = broadcast::channel(IDM_PACKET_QUEUE_LEN);
         let (internal_request_backend_sender, _) = broadcast::channel(IDM_PACKET_QUEUE_LEN);
+        let (internal_request_stream_backend_sender, _) = broadcast::channel(IDM_PACKET_QUEUE_LEN);
         let (tx_sender, tx_receiver) = mpsc::channel(IDM_PACKET_QUEUE_LEN);
         let backend_event_sender = event_sender.clone();
         let request_backend_sender = internal_request_backend_sender.clone();
+        let request_stream_backend_sender = internal_request_stream_backend_sender.clone();
         let requests_for_client = requests.clone();
+        let request_streams_for_client = request_streams.clone();
+        let tx_sender_for_client = tx_sender.clone();
         let task = tokio::task::spawn(async move {
             if let Err(error) = IdmClient::process(
                 backend,
+                channel,
+                tx_sender,
                 backend_event_sender,
                 requests,
+                request_streams,
+                request_update_streams,
                 internal_request_backend_sender,
+                internal_request_stream_backend_sender,
                 event_receiver,
                 tx_receiver,
             )
@@ -149,8 +254,10 @@ impl<R: IdmRequest, E: IdmSerializable> IdmClient<R, E> {
             next_request_id: Arc::new(Mutex::new(0)),
             event_receiver_sender: event_sender.clone(),
             request_backend_sender,
+            request_stream_backend_sender,
             requests: requests_for_client,
-            tx_sender,
+            request_streams: request_streams_for_client,
+            tx_sender: tx_sender_for_client,
             task: Arc::new(task),
         })
     }
@@ -192,6 +299,12 @@ impl<R: IdmRequest, E: IdmSerializable> IdmClient<R, E> {
 
     pub async fn requests(&self) -> Result<broadcast::Receiver<(u64, R)>> {
         Ok(self.request_backend_sender.subscribe())
+    }
+
+    pub async fn request_streams(
+        &self,
+    ) -> Result<broadcast::Receiver<IdmClientStreamResponseHandle<R>>> {
+        Ok(self.request_stream_backend_sender.subscribe())
     }
 
     pub async fn respond<T: IdmSerializable>(&self, id: u64, response: T) -> Result<()> {
@@ -244,11 +357,43 @@ impl<R: IdmRequest, E: IdmSerializable> IdmClient<R, E> {
         Ok(response)
     }
 
+    pub async fn send_stream(&self, request: R) -> Result<IdmClientStreamRequestHandle<R, E>> {
+        let (sender, receiver) = mpsc::channel::<R::Response>(100);
+        let req = {
+            let mut guard = self.next_request_id.lock().await;
+            let req = *guard;
+            *guard = req.wrapping_add(1);
+            req
+        };
+        let mut requests = self.request_streams.lock().await;
+        requests.insert(req, sender);
+        drop(requests);
+        self.tx_sender
+            .send(IdmTransportPacket {
+                id: req,
+                channel: self.channel,
+                form: IdmTransportPacketForm::StreamRequest.into(),
+                data: request.encode()?,
+            })
+            .await?;
+        Ok(IdmClientStreamRequestHandle {
+            id: req,
+            receiver,
+            client: self.clone(),
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn process(
         mut backend: Box<dyn IdmBackend>,
+        channel: u64,
+        tx_sender: Sender<IdmTransportPacket>,
         event_sender: broadcast::Sender<E>,
-        requests: RequestMap<R>,
+        requests: OneshotRequestMap<R>,
+        request_streams: StreamRequestMap<R>,
+        request_update_streams: StreamRequestUpdateMap<R>,
         request_backend_sender: broadcast::Sender<(u64, R)>,
+        request_stream_backend_sender: broadcast::Sender<IdmClientStreamResponseHandle<R>>,
         _event_receiver: broadcast::Receiver<E>,
         mut receiver: Receiver<IdmTransportPacket>,
     ) -> Result<()> {
@@ -256,6 +401,10 @@ impl<R: IdmRequest, E: IdmSerializable> IdmClient<R, E> {
             select! {
                 x = backend.recv() => match x {
                     Ok(packet) => {
+                        if packet.channel != channel {
+                            continue;
+                        }
+
                         match packet.form() {
                             IdmTransportPacketForm::Event => {
                                 if let Ok(event) = E::decode(&packet.data) {
@@ -279,6 +428,50 @@ impl<R: IdmRequest, E: IdmSerializable> IdmClient<R, E> {
                                     }
                                 }
                             },
+
+                            IdmTransportPacketForm::StreamRequest => {
+                                if let Ok(request) = R::decode(&packet.data) {
+                                    let mut update_streams = request_update_streams.lock().await;
+                                    let (sender, receiver) = mpsc::channel(100);
+                                    update_streams.insert(packet.id, sender.clone());
+                                    let handle = IdmClientStreamResponseHandle {
+                                        initial: request,
+                                        id: packet.id,
+                                        channel,
+                                        tx_sender: tx_sender.clone(),
+                                        receiver: Arc::new(Mutex::new(Some(receiver))),
+                                    };
+                                    let _ = request_stream_backend_sender.send(handle);
+                                }
+                            }
+
+                            IdmTransportPacketForm::StreamRequestUpdate => {
+                                if let Ok(request) = R::decode(&packet.data) {
+                                    let mut update_streams = request_update_streams.lock().await;
+                                    if let Some(stream) = update_streams.get_mut(&packet.id) {
+                                        let _ = stream.try_send(request);
+                                    }
+                                }
+                            }
+
+                            IdmTransportPacketForm::StreamRequestClosed => {
+                                let mut update_streams = request_update_streams.lock().await;
+                                update_streams.remove(&packet.id);
+                            }
+
+                            IdmTransportPacketForm::StreamResponseUpdate => {
+                                let requests = request_streams.lock().await;
+                                if let Some(sender) = requests.get(&packet.id) {
+                                    if let Ok(response) = R::Response::decode(&packet.data) {
+                                        let _ = sender.try_send(response);
+                                    }
+                                }
+                            }
+
+                            IdmTransportPacketForm::StreamResponseClosed => {
+                                let mut requests = request_streams.lock().await;
+                                requests.remove(&packet.id);
+                            }
 
                             _ => {},
                         }
