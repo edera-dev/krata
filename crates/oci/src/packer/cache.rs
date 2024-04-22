@@ -159,7 +159,9 @@ impl OciPackerCache {
         let image_name = packed.name.to_string();
         annotations.insert(ANNOTATION_IMAGE_NAME.to_string(), image_name);
         let image_ref = packed.name.reference.clone();
-        annotations.insert(ANNOTATION_REF_NAME.to_string(), image_ref);
+        if let Some(image_ref) = image_ref {
+            annotations.insert(ANNOTATION_REF_NAME.to_string(), image_ref);
+        }
         descriptor.set_annotations(Some(annotations));
         manifests.push(descriptor.clone());
         index.set_manifests(manifests);

@@ -1451,6 +1451,7 @@ dependencies = [
  "krata",
  "krata-oci",
  "krata-runtime",
+ "krata-tokio-tar",
  "log",
  "prost",
  "redb",

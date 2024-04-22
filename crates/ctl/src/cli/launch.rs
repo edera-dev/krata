@@ -64,6 +64,10 @@ pub struct LauchCommand {
         help = "Wait for the guest to start, implied by --attach"
     )]
     wait: bool,
+    #[arg(short = 'k', long, help = "OCI kernel image for guest to use")]
+    kernel: Option<String>,
+    #[arg(short = 'I', long, help = "OCI initrd image for guest to use")]
+    initrd: Option<String>,
     #[arg(help = "Container image for guest to use")]
     oci: String,
     #[arg(
@@ -80,27 +84,41 @@ impl LauchCommand {
         mut client: ControlServiceClient<Channel>,
         events: EventStream,
     ) -> Result<()> {
-        let response = client
-            .pull_image(PullImageRequest {
-                image: self.oci.clone(),
-                format: match self.image_format {
-                    LaunchImageFormat::Squashfs => OciImageFormat::Squashfs.into(),
-                    LaunchImageFormat::Erofs => OciImageFormat::Erofs.into(),
+        let image = self
+            .pull_image(
+                &mut client,
+                &self.oci,
+                match self.image_format {
+                    LaunchImageFormat::Squashfs => OciImageFormat::Squashfs,
+                    LaunchImageFormat::Erofs => OciImageFormat::Erofs,
                 },
-                overwrite_cache: self.pull_overwrite_cache,
-            })
+            )
             .await?;
-        let reply = pull_interactive_progress(response.into_inner()).await?;
+
+        let kernel = if let Some(ref kernel) = self.kernel {
+            let kernel_image = self
+                .pull_image(&mut client, kernel, OciImageFormat::Tar)
+                .await?;
+            Some(kernel_image)
+        } else {
+            None
+        };
+
+        let initrd = if let Some(ref initrd) = self.initrd {
+            let kernel_image = self
+                .pull_image(&mut client, initrd, OciImageFormat::Tar)
+                .await?;
+            Some(kernel_image)
+        } else {
+            None
+        };
 
         let request = CreateGuestRequest {
             spec: Some(GuestSpec {
                 name: self.name.unwrap_or_default(),
-                image: Some(GuestImageSpec {
-                    image: Some(Image::Oci(GuestOciImageSpec {
-                        digest: reply.digest,
-                        format: reply.format,
-                    })),
-                }),
+                image: Some(image),
+                kernel,
+                initrd,
                 vcpus: self.cpus,
                 mem: self.mem,
                 task: Some(GuestTaskSpec {
@@ -145,6 +163,28 @@ impl LauchCommand {
         };
         StdioConsoleStream::restore_terminal_mode();
         std::process::exit(code.unwrap_or(0));
+    }
+
+    async fn pull_image(
+        &self,
+        client: &mut ControlServiceClient<Channel>,
+        image: &str,
+        format: OciImageFormat,
+    ) -> Result<GuestImageSpec> {
+        let response = client
+            .pull_image(PullImageRequest {
+                image: image.to_string(),
+                format: format.into(),
+                overwrite_cache: self.pull_overwrite_cache,
+            })
+            .await?;
+        let reply = pull_interactive_progress(response.into_inner()).await?;
+        Ok(GuestImageSpec {
+            image: Some(Image::Oci(GuestOciImageSpec {
+                digest: reply.digest,
+                format: reply.format,
+            })),
+        })
     }
 }
 

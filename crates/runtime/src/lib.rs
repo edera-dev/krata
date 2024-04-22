@@ -1,9 +1,4 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    str::FromStr,
-    sync::Arc,
-};
+use std::{fs, path::PathBuf, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use ipnetwork::IpNetwork;
@@ -52,41 +47,15 @@ pub struct GuestInfo {
 pub struct RuntimeContext {
     pub autoloop: AutoLoop,
     pub xen: XenClient,
-    pub kernel: String,
-    pub initrd: String,
 }
 
 impl RuntimeContext {
-    pub async fn new(store: String) -> Result<Self> {
-        let mut image_cache_path = PathBuf::from(&store);
-        image_cache_path.push("cache");
-        fs::create_dir_all(&image_cache_path)?;
-
+    pub async fn new() -> Result<Self> {
         let xen = XenClient::open(0).await?;
-        image_cache_path.push("image");
-        fs::create_dir_all(&image_cache_path)?;
-        let kernel = RuntimeContext::detect_guest_file(&store, "kernel")?;
-        let initrd = RuntimeContext::detect_guest_file(&store, "initrd")?;
-
         Ok(RuntimeContext {
             autoloop: AutoLoop::new(LoopControl::open()?),
             xen,
-            kernel,
-            initrd,
         })
-    }
-
-    fn detect_guest_file(store: &str, name: &str) -> Result<String> {
-        let mut path = PathBuf::from(format!("{}/guest/{}", store, name));
-        if path.is_file() {
-            return path_as_string(&path);
-        }
-
-        path = PathBuf::from(format!("/usr/share/krata/guest/{}", name));
-        if path.is_file() {
-            return path_as_string(&path);
-        }
-        Err(anyhow!("unable to find required guest file: {}", name))
     }
 
     pub async fn list(&self) -> Result<Vec<GuestInfo>> {
@@ -248,16 +217,14 @@ impl RuntimeContext {
 
 #[derive(Clone)]
 pub struct Runtime {
-    store: Arc<String>,
     context: RuntimeContext,
     launch_semaphore: Arc<Semaphore>,
 }
 
 impl Runtime {
-    pub async fn new(store: String) -> Result<Self> {
-        let context = RuntimeContext::new(store.clone()).await?;
+    pub async fn new() -> Result<Self> {
+        let context = RuntimeContext::new().await?;
         Ok(Self {
-            store: Arc::new(store),
             context,
             launch_semaphore: Arc::new(Semaphore::new(1)),
         })
@@ -320,12 +287,6 @@ impl Runtime {
     }
 
     pub async fn dupe(&self) -> Result<Runtime> {
-        Runtime::new((*self.store).clone()).await
+        Runtime::new().await
     }
-}
-
-fn path_as_string(path: &Path) -> Result<String> {
-    path.to_str()
-        .ok_or_else(|| anyhow!("unable to convert path to string"))
-        .map(|x| x.to_string())
 }

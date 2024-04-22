@@ -7,7 +7,7 @@ use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use tokio::{fs::File, io::AsyncWriteExt};
 use url::Url;
 
-use crate::{progress::OciBoundProgress, schema::OciSchema};
+use crate::{name::ImageName, progress::OciBoundProgress, schema::OciSchema};
 
 #[derive(Clone, Debug)]
 pub struct OciPlatform {
@@ -176,7 +176,7 @@ impl OciRegistryClient {
         let url = self.url.join(&format!(
             "/v2/{}/manifests/{}",
             name.as_ref(),
-            reference.as_ref()
+            reference.as_ref(),
         ))?;
         let accept = format!(
             "{}, {}, {}, {}",
@@ -202,13 +202,20 @@ impl OciRegistryClient {
     pub async fn get_manifest_with_digest<N: AsRef<str>, R: AsRef<str>>(
         &mut self,
         name: N,
-        reference: R,
+        reference: Option<R>,
+        digest: Option<N>,
     ) -> Result<(OciSchema<ImageManifest>, Option<Descriptor>, String)> {
-        let url = self.url.join(&format!(
-            "/v2/{}/manifests/{}",
-            name.as_ref(),
-            reference.as_ref()
-        ))?;
+        let what = digest
+            .as_ref()
+            .map(|x| x.as_ref().to_string())
+            .unwrap_or_else(|| {
+                reference
+                    .map(|x| x.as_ref().to_string())
+                    .unwrap_or_else(|| ImageName::DEFAULT_IMAGE_TAG.to_string())
+            });
+        let url = self
+            .url
+            .join(&format!("/v2/{}/manifests/{}", name.as_ref(), what,))?;
         let accept = format!(
             "{}, {}, {}, {}",
             MediaType::ImageManifest.to_docker_v2s2()?,
@@ -239,9 +246,10 @@ impl OciRegistryClient {
         let digest = response
             .headers()
             .get("Docker-Content-Digest")
-            .ok_or_else(|| anyhow!("fetching manifest did not yield a content digest"))?
-            .to_str()?
-            .to_string();
+            .and_then(|x| x.to_str().ok())
+            .map(|x| x.to_string())
+            .or_else(|| digest.map(|x: N| x.as_ref().to_string()))
+            .ok_or_else(|| anyhow!("fetching manifest did not yield a content digest"))?;
         let bytes = response.bytes().await?;
         let manifest = serde_json::from_slice(&bytes)?;
         Ok((OciSchema::new(bytes.to_vec(), manifest), None, digest))

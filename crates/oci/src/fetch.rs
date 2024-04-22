@@ -217,6 +217,13 @@ impl OciImageFetcher {
                         continue;
                     }
                 }
+
+                if let Some(ref digest) = image.digest {
+                    if digest != manifest.digest() {
+                        continue;
+                    }
+                }
+
                 found = Some(manifest);
                 break;
             }
@@ -240,7 +247,7 @@ impl OciImageFetcher {
 
         let mut client = OciRegistryClient::new(image.registry_url()?, self.platform.clone())?;
         let (manifest, descriptor, digest) = client
-            .get_manifest_with_digest(&image.name, &image.reference)
+            .get_manifest_with_digest(&image.name, image.reference.as_ref(), image.digest.as_ref())
             .await?;
         let descriptor = descriptor.unwrap_or_else(|| {
             DescriptorBuilder::default()

@@ -27,6 +27,7 @@ scopeguard = { workspace = true }
 signal-hook = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
+krata-tokio-tar = { workspace = true }
 tonic = { workspace = true, features = ["tls"] }
 uuid = { workspace = true }
 

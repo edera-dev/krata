@@ -17,10 +17,14 @@ message Guest {
 message GuestSpec {
     string name = 1;
     GuestImageSpec image = 2;
-    uint32 vcpus = 3;
-    uint64 mem = 4;
-    GuestTaskSpec task = 5;
-    repeated GuestSpecAnnotation annotations = 6;
+    // If not specified, defaults to the daemon default kernel.
+    GuestImageSpec kernel = 3;
+    // If not specified, defaults to the daemon default initrd.
+    GuestImageSpec initrd = 4;
+    uint32 vcpus = 5;
+    uint64 mem = 6;
+    GuestTaskSpec task = 7;
+    repeated GuestSpecAnnotation annotations = 8;
 }
 
 message GuestImageSpec {

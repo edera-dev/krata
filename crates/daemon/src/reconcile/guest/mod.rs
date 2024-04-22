@@ -1,20 +1,17 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
+    path::PathBuf,
     sync::Arc,
     time::Duration,
 };
 
-use anyhow::{anyhow, Result};
-use krata::launchcfg::LaunchPackedFormat;
+use anyhow::Result;
 use krata::v1::{
-    common::{
-        guest_image_spec::Image, Guest, GuestErrorInfo, GuestExitInfo, GuestNetworkState,
-        GuestState, GuestStatus, OciImageFormat,
-    },
+    common::{Guest, GuestErrorInfo, GuestExitInfo, GuestNetworkState, GuestState, GuestStatus},
     control::GuestChangedEvent,
 };
-use krataoci::packer::{service::OciPackerService, OciPackedFormat};
-use kratart::{launch::GuestLaunchRequest, GuestInfo, Runtime};
+use krataoci::packer::service::OciPackerService;
+use kratart::{GuestInfo, Runtime};
 use log::{error, info, trace, warn};
 use tokio::{
     select,
@@ -32,6 +29,10 @@ use crate::{
     event::{DaemonEvent, DaemonEventContext},
     glt::GuestLookupTable,
 };
+
+use self::start::GuestStarter;
+
+mod start;
 
 const PARALLEL_LIMIT: u32 = 5;
 
@@ -59,12 +60,15 @@ pub struct GuestReconciler {
     events: DaemonEventContext,
     runtime: Runtime,
     packer: OciPackerService,
+    kernel_path: PathBuf,
+    initrd_path: PathBuf,
     tasks: Arc<Mutex<HashMap<Uuid, GuestReconcilerEntry>>>,
     guest_reconciler_notify: Sender<Uuid>,
     reconcile_lock: Arc<RwLock<()>>,
 }
 
 impl GuestReconciler {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         glt: GuestLookupTable,
         guests: GuestStore,
@@ -72,6 +76,8 @@ impl GuestReconciler {
         runtime: Runtime,
         packer: OciPackerService,
         guest_reconciler_notify: Sender<Uuid>,
+        kernel_path: PathBuf,
+        initrd_path: PathBuf,
     ) -> Result<Self> {
         Ok(Self {
             glt,
@@ -79,6 +85,8 @@ impl GuestReconciler {
             events,
             runtime,
             packer,
+            kernel_path,
+            initrd_path,
             tasks: Arc::new(Mutex::new(HashMap::new())),
             guest_reconciler_notify,
             reconcile_lock: Arc::new(RwLock::with_max_readers((), PARALLEL_LIMIT)),
@@ -246,76 +254,14 @@ impl GuestReconciler {
     }
 
     async fn start(&self, uuid: Uuid, guest: &mut Guest) -> Result<GuestReconcilerResult> {
-        let Some(ref spec) = guest.spec else {
-            return Err(anyhow!("guest spec not specified"));
+        let starter = GuestStarter {
+            kernel_path: &self.kernel_path,
+            initrd_path: &self.initrd_path,
+            packer: &self.packer,
+            glt: &self.glt,
+            runtime: &self.runtime,
         };
-
-        let Some(ref image) = spec.image else {
-            return Err(anyhow!("image spec not provided"));
-        };
-        let oci = match image.image {
-            Some(Image::Oci(ref oci)) => oci,
-            None => {
-                return Err(anyhow!("oci spec not specified"));
-            }
-        };
-        let task = spec.task.as_ref().cloned().unwrap_or_default();
-
-        let image = self
-            .packer
-            .recall(
-                &oci.digest,
-                match oci.format() {
-                    OciImageFormat::Unknown => OciPackedFormat::Squashfs,
-                    OciImageFormat::Squashfs => OciPackedFormat::Squashfs,
-                    OciImageFormat::Erofs => OciPackedFormat::Erofs,
-                    OciImageFormat::Tar => {
-                        return Err(anyhow!("tar image format is not supported for guests"));
-                    }
-                },
-            )
-            .await?;
-
-        let Some(image) = image else {
-            return Err(anyhow!(
-                "image {} in the requested format did not exist",
-                oci.digest
-            ));
-        };
-
-        let info = self
-            .runtime
-            .launch(GuestLaunchRequest {
-                format: LaunchPackedFormat::Squashfs,
-                uuid: Some(uuid),
-                name: if spec.name.is_empty() {
-                    None
-                } else {
-                    Some(spec.name.clone())
-                },
-                image,
-                vcpus: spec.vcpus,
-                mem: spec.mem,
-                env: task
-                    .environment
-                    .iter()
-                    .map(|x| (x.key.clone(), x.value.clone()))
-                    .collect::<HashMap<_, _>>(),
-                run: empty_vec_optional(task.command.clone()),
-                debug: false,
-            })
-            .await?;
-        self.glt.associate(uuid, info.domid).await;
-        info!("started guest {}", uuid);
-        guest.state = Some(GuestState {
-            status: GuestStatus::Started.into(),
-            network: Some(guestinfo_to_networkstate(&info)),
-            exit_info: None,
-            error_info: None,
-            host: self.glt.host_uuid().to_string(),
-            domid: info.domid,
-        });
-        Ok(GuestReconcilerResult::Changed { rerun: false })
+        starter.start(uuid, guest).await
     }
 
     async fn exited(&self, guest: &mut Guest) -> Result<GuestReconcilerResult> {
@@ -390,15 +336,7 @@ impl GuestReconciler {
     }
 }
 
-fn empty_vec_optional<T>(value: Vec<T>) -> Option<Vec<T>> {
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
-    }
-}
-
-fn guestinfo_to_networkstate(info: &GuestInfo) -> GuestNetworkState {
+pub fn guestinfo_to_networkstate(info: &GuestInfo) -> GuestNetworkState {
     GuestNetworkState {
         guest_ipv4: info.guest_ipv4.map(|x| x.to_string()).unwrap_or_default(),
         guest_ipv6: info.guest_ipv6.map(|x| x.to_string()).unwrap_or_default(),

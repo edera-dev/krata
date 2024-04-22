@@ -61,6 +61,10 @@ impl OciPackerService {
         digest: &str,
         format: OciPackedFormat,
     ) -> Result<Option<OciPackedImage>> {
+        if digest.contains('/') || digest.contains('\\') || digest.contains("..") {
+            return Ok(None);
+        }
+
         self.cache
             .recall(ImageName::parse("cached:latest")?, digest, format)
             .await

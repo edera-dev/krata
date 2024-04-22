@@ -107,17 +107,15 @@ impl ElfImageLoader {
         ElfImageLoader::load_xz(file.as_slice())
     }
 
-    pub fn load_file_kernel(path: &str) -> Result<ElfImageLoader> {
-        let file = std::fs::read(path)?;
-
-        for start in find_iter(file.as_slice(), &[0x1f, 0x8b]) {
-            if let Ok(elf) = ElfImageLoader::load_gz(&file[start..]) {
+    pub fn load_file_kernel(data: &[u8]) -> Result<ElfImageLoader> {
+        for start in find_iter(data, &[0x1f, 0x8b]) {
+            if let Ok(elf) = ElfImageLoader::load_gz(&data[start..]) {
                 return Ok(elf);
             }
         }
 
-        for start in find_iter(file.as_slice(), &[0xfd, 0x37, 0x7a, 0x58]) {
-            if let Ok(elf) = ElfImageLoader::load_xz(&file[start..]) {
+        for start in find_iter(data, &[0xfd, 0x37, 0x7a, 0x58]) {
+            if let Ok(elf) = ElfImageLoader::load_xz(&data[start..]) {
                 return Ok(elf);
             }
         }

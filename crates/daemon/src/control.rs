@@ -378,7 +378,7 @@ impl ControlService for DaemonControlService {
                             format: match packed.format {
                                 OciPackedFormat::Squashfs => OciImageFormat::Squashfs.into(),
                                 OciPackedFormat::Erofs => OciImageFormat::Erofs.into(),
-                                _ => OciImageFormat::Unknown.into(),
+                                OciPackedFormat::Tar => OciImageFormat::Tar.into(),
                             },
                         };
                         yield reply;
