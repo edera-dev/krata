@@ -21,6 +21,7 @@ log = { workspace = true }
 nix = { workspace = true, features = ["ioctl", "process", "fs"] }
 oci-spec = { workspace = true }
 path-absolutize = { workspace = true }
+pty-process = { workspace = true }
 rtnetlink = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

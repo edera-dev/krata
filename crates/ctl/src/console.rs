@@ -68,7 +68,13 @@ impl StdioConsoleStream {
                 if size == 1 && buffer[0] == 0x1d {
                     break;
                 }
-                yield ExecGuestRequest { guest_id: String::default(), task: None, data };
+
+                let closed = size == 0;
+
+                yield ExecGuestRequest { guest_id: String::default(), task: None, tty: false, stdin: data, stdin_closed: closed };
+                if closed {
+                    break;
+                }
             }
         }
     }
@@ -90,7 +96,11 @@ impl StdioConsoleStream {
         Ok(())
     }
 
-    pub async fn exec_output(mut stream: Streaming<ExecGuestReply>) -> Result<i32> {
+    pub async fn exec_output(tty: bool, mut stream: Streaming<ExecGuestReply>) -> Result<i32> {
+        if tty && stdin().is_tty() {
+            enable_raw_mode()?;
+            StdioConsoleStream::register_terminal_restore_hook()?;
+        }
         let mut stdout = stdout();
         let mut stderr = stderr();
         while let Some(reply) = stream.next().await {

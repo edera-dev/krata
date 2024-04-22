@@ -210,14 +210,27 @@ impl ControlService for DaemonControlService {
                         .collect(),
                     command: task.command,
                     working_directory: task.working_directory,
+                    tty: request.tty,
                 })),
             })),
         };
+
+        let (request_stdin, request_stdin_closed) = (request.stdin.clone(), request.stdin_closed);
 
         let output = try_stream! {
             let mut handle = idm.send_stream(idm_request).await.map_err(|x| ApiError {
                 message: x.to_string(),
             })?;
+
+            if !request_stdin.is_empty() {
+                let _ = handle.update(IdmRequest {
+                    request: Some(IdmRequestType::ExecStream(ExecStreamRequestUpdate {
+                        update: Some(Update::Stdin(ExecStreamRequestStdin {
+                            data: request_stdin,
+                            closed: request_stdin_closed,
+                        })),
+                    }))}).await;
+            }
 
             loop {
                 select! {
@@ -227,11 +240,12 @@ impl ControlService for DaemonControlService {
                         }.into());
 
                         if let Ok(update) = update {
-                            if !update.data.is_empty() {
+                            if !update.stdin.is_empty() {
                                 let _ = handle.update(IdmRequest {
                                     request: Some(IdmRequestType::ExecStream(ExecStreamRequestUpdate {
                                         update: Some(Update::Stdin(ExecStreamRequestStdin {
-                                            data: update.data,
+                                            data: update.stdin,
+                                            closed: update.stdin_closed,
                                         })),
                                     }))}).await;
                             }

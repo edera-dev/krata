@@ -21,6 +21,8 @@ pub struct ExecCommand {
     env: Option<Vec<String>>,
     #[arg(short = 'w', long, help = "Working directory")]
     working_directory: Option<String>,
+    #[arg(short = 't', long, help = "Allocate tty")]
+    tty: bool,
     #[arg(help = "Guest to exec inside, either the name or the uuid")]
     guest: String,
     #[arg(
@@ -47,14 +49,16 @@ impl ExecCommand {
                 command: self.command,
                 working_directory: self.working_directory.unwrap_or_default(),
             }),
-            data: vec![],
+            tty: self.tty,
+            stdin: vec![],
+            stdin_closed: false,
         };
 
         let stream = StdioConsoleStream::stdin_stream_exec(initial).await;
-
         let response = client.exec_guest(Request::new(stream)).await?.into_inner();
-
-        let code = StdioConsoleStream::exec_output(response).await?;
+        let result = StdioConsoleStream::exec_output(self.tty, response).await;
+        StdioConsoleStream::restore_terminal_mode();
+        let code = result?;
         std::process::exit(code);
     }
 }
