@@ -23,7 +23,6 @@ use boot::BootState;
 use log::{debug, trace, warn};
 use tokio::time::timeout;
 
-use std::fs::read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -40,60 +39,60 @@ pub struct XenClient {
     call: XenCall,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BlockDeviceRef {
     pub path: String,
     pub major: u32,
     pub minor: u32,
 }
 
-#[derive(Debug)]
-pub struct DomainDisk<'a> {
-    pub vdev: &'a str,
-    pub block: &'a BlockDeviceRef,
+#[derive(Clone, Debug)]
+pub struct DomainDisk {
+    pub vdev: String,
+    pub block: BlockDeviceRef,
     pub writable: bool,
 }
 
-#[derive(Debug)]
-pub struct DomainFilesystem<'a> {
-    pub path: &'a str,
-    pub tag: &'a str,
+#[derive(Clone, Debug)]
+pub struct DomainFilesystem {
+    pub path: String,
+    pub tag: String,
 }
 
-#[derive(Debug)]
-pub struct DomainNetworkInterface<'a> {
-    pub mac: &'a str,
+#[derive(Clone, Debug)]
+pub struct DomainNetworkInterface {
+    pub mac: String,
     pub mtu: u32,
-    pub bridge: Option<&'a str>,
-    pub script: Option<&'a str>,
+    pub bridge: Option<String>,
+    pub script: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DomainChannel {
     pub typ: String,
     pub initialized: bool,
 }
 
-#[derive(Debug)]
-pub struct DomainEventChannel<'a> {
-    pub name: &'a str,
+#[derive(Clone, Debug)]
+pub struct DomainEventChannel {
+    pub name: String,
 }
 
-#[derive(Debug)]
-pub struct DomainConfig<'a> {
+#[derive(Clone, Debug)]
+pub struct DomainConfig {
     pub backend_domid: u32,
-    pub name: &'a str,
+    pub name: String,
     pub max_vcpus: u32,
     pub mem_mb: u64,
-    pub kernel_path: &'a str,
-    pub initrd_path: &'a str,
-    pub cmdline: &'a str,
-    pub disks: Vec<DomainDisk<'a>>,
-    pub use_console_backend: Option<&'a str>,
+    pub kernel: Vec<u8>,
+    pub initrd: Vec<u8>,
+    pub cmdline: String,
+    pub disks: Vec<DomainDisk>,
+    pub use_console_backend: Option<String>,
     pub channels: Vec<DomainChannel>,
-    pub vifs: Vec<DomainNetworkInterface<'a>>,
-    pub filesystems: Vec<DomainFilesystem<'a>>,
-    pub event_channels: Vec<DomainEventChannel<'a>>,
+    pub vifs: Vec<DomainNetworkInterface>,
+    pub filesystems: Vec<DomainFilesystem>,
+    pub event_channels: Vec<DomainEventChannel>,
     pub extra_keys: Vec<(String, String)>,
     pub extra_rw_paths: Vec<String>,
 }
@@ -117,7 +116,7 @@ impl XenClient {
         Ok(XenClient { store, call })
     }
 
-    pub async fn create(&self, config: &DomainConfig<'_>) -> Result<CreatedDomain> {
+    pub async fn create(&self, config: &DomainConfig) -> Result<CreatedDomain> {
         let mut domain = CreateDomain {
             max_vcpus: config.max_vcpus,
             ..Default::default()
@@ -143,7 +142,7 @@ impl XenClient {
         &self,
         domid: u32,
         domain: &CreateDomain,
-        config: &DomainConfig<'_>,
+        config: &DomainConfig,
     ) -> Result<CreatedDomain> {
         trace!(
             "XenClient init domid={} domain={:?} config={:?}",
@@ -237,9 +236,9 @@ impl XenClient {
                 &Uuid::from_bytes(domain.handle).to_string(),
             )
             .await?;
-            tx.write_string(format!("{}/name", dom_path).as_str(), config.name)
+            tx.write_string(format!("{}/name", dom_path).as_str(), &config.name)
                 .await?;
-            tx.write_string(format!("{}/name", vm_path).as_str(), config.name)
+            tx.write_string(format!("{}/name", vm_path).as_str(), &config.name)
                 .await?;
 
             for (key, value) in &config.extra_keys {
@@ -257,7 +256,7 @@ impl XenClient {
 
         self.call.set_max_vcpus(domid, config.max_vcpus).await?;
         self.call.set_max_mem(domid, config.mem_mb * 1024).await?;
-        let image_loader = ElfImageLoader::load_file_kernel(config.kernel_path)?;
+        let image_loader = ElfImageLoader::load_file_kernel(&config.kernel)?;
 
         let xenstore_evtchn: u32;
         let xenstore_mfn: u64;
@@ -270,18 +269,17 @@ impl XenClient {
             let mut arch = Box::new(X86BootSetup::new()) as Box<dyn ArchBootSetup + Send + Sync>;
             #[cfg(target_arch = "aarch64")]
             let mut arch = Box::new(Arm64BootSetup::new()) as Box<dyn ArchBootSetup + Send + Sync>;
-            let initrd = read(config.initrd_path)?;
             state = boot
                 .initialize(
                     &mut arch,
                     &image_loader,
-                    initrd.as_slice(),
+                    &config.initrd,
                     config.max_vcpus,
                     config.mem_mb,
                     1,
                 )
                 .await?;
-            boot.boot(&mut arch, &mut state, config.cmdline).await?;
+            boot.boot(&mut arch, &mut state, &config.cmdline).await?;
             xenstore_evtchn = state.store_evtchn;
             xenstore_mfn = boot.phys.p2m[state.xenstore_segment.pfn as usize];
             p2m = boot.phys.p2m;
@@ -292,18 +290,8 @@ impl XenClient {
             tx.write_string(format!("{}/image/os_type", vm_path).as_str(), "linux")
                 .await?;
             tx.write_string(
-                format!("{}/image/kernel", vm_path).as_str(),
-                config.kernel_path,
-            )
-            .await?;
-            tx.write_string(
-                format!("{}/image/ramdisk", vm_path).as_str(),
-                config.initrd_path,
-            )
-            .await?;
-            tx.write_string(
                 format!("{}/image/cmdline", vm_path).as_str(),
-                config.cmdline,
+                &config.cmdline,
             )
             .await?;
 
@@ -352,7 +340,8 @@ impl XenClient {
             &DomainChannel {
                 typ: config
                     .use_console_backend
-                    .unwrap_or("xenconsoled")
+                    .clone()
+                    .unwrap_or("xenconsoled".to_string())
                     .to_string(),
                 initialized: true,
             },
@@ -429,7 +418,7 @@ impl XenClient {
                 .await?;
             let channel_path = format!("{}/evtchn/{}", dom_path, channel.name);
             self.store
-                .write_string(&format!("{}/name", channel_path), channel.name)
+                .write_string(&format!("{}/name", channel_path), &channel.name)
                 .await?;
             self.store
                 .write_string(&format!("{}/channel", channel_path), &id.to_string())
@@ -447,7 +436,7 @@ impl XenClient {
         backend_domid: u32,
         domid: u32,
         index: usize,
-        disk: &DomainDisk<'_>,
+        disk: &DomainDisk,
     ) -> Result<()> {
         let id = (202 << 8) | (index << 4) as u64;
         let backend_items: Vec<(&str, String)> = vec![
@@ -567,7 +556,7 @@ impl XenClient {
         backend_domid: u32,
         domid: u32,
         index: usize,
-        filesystem: &DomainFilesystem<'_>,
+        filesystem: &DomainFilesystem,
     ) -> Result<()> {
         let id = 90 + index as u64;
         let backend_items: Vec<(&str, String)> = vec![
@@ -605,7 +594,7 @@ impl XenClient {
         backend_domid: u32,
         domid: u32,
         index: usize,
-        vif: &DomainNetworkInterface<'_>,
+        vif: &DomainNetworkInterface,
     ) -> Result<()> {
         let id = 20 + index as u64;
         let mut backend_items: Vec<(&str, String)> = vec![
@@ -619,12 +608,12 @@ impl XenClient {
         ];
 
         if vif.bridge.is_some() {
-            backend_items.extend_from_slice(&[("bridge", vif.bridge.unwrap().to_string())]);
+            backend_items.extend_from_slice(&[("bridge", vif.bridge.clone().unwrap())]);
         }
 
         if vif.script.is_some() {
             backend_items.extend_from_slice(&[
-                ("script", vif.script.unwrap().to_string()),
+                ("script", vif.script.clone().unwrap()),
                 ("hotplug-status", "".to_string()),
             ]);
         } else {

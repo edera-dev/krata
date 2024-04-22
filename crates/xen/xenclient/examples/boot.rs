@@ -1,4 +1,5 @@
 use std::{env, process};
+use tokio::fs;
 use xenclient::error::Result;
 use xenclient::{DomainConfig, XenClient};
 
@@ -16,12 +17,12 @@ async fn main() -> Result<()> {
     let client = XenClient::open(0).await?;
     let config = DomainConfig {
         backend_domid: 0,
-        name: "xenclient-test",
+        name: "xenclient-test".to_string(),
         max_vcpus: 1,
         mem_mb: 512,
-        kernel_path: kernel_image_path.as_str(),
-        initrd_path: initrd_path.as_str(),
-        cmdline: "debug elevator=noop",
+        kernel: fs::read(&kernel_image_path).await?,
+        initrd: fs::read(&initrd_path).await?,
+        cmdline: "debug elevator=noop".to_string(),
         use_console_backend: None,
         disks: vec![],
         channels: vec![],

@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, path::PathBuf, str::FromStr};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use console::{DaemonConsole, DaemonConsoleHandle};
 use control::DaemonControlService;
 use db::GuestStore;
@@ -74,9 +74,11 @@ impl Daemon {
             generated
         };
 
-        let packer = OciPackerService::new(None, &image_cache_dir, OciPlatform::current()).await?;
+        let initrd_path = detect_guest_file(&store, "initrd")?;
+        let kernel_path = detect_guest_file(&store, "kernel")?;
 
-        let runtime = Runtime::new(store.clone()).await?;
+        let packer = OciPackerService::new(None, &image_cache_dir, OciPlatform::current()).await?;
+        let runtime = Runtime::new().await?;
         let glt = GuestLookupTable::new(0, host_uuid);
         let guests_db_path = format!("{}/guests.db", store);
         let guests = GuestStore::open(&PathBuf::from(guests_db_path))?;
@@ -97,6 +99,8 @@ impl Daemon {
             runtime_for_reconciler,
             packer.clone(),
             guest_reconciler_notify.clone(),
+            kernel_path,
+            initrd_path,
         )?;
 
         let guest_reconciler_task = guest_reconciler.launch(guest_reconciler_receiver).await?;
@@ -180,4 +184,17 @@ impl Drop for Daemon {
         self.guest_reconciler_task.abort();
         self.generator_task.abort();
     }
+}
+
+fn detect_guest_file(store: &str, name: &str) -> Result<PathBuf> {
+    let mut path = PathBuf::from(format!("{}/guest/{}", store, name));
+    if path.is_file() {
+        return Ok(path);
+    }
+
+    path = PathBuf::from(format!("/usr/share/krata/guest/{}", name));
+    if path.is_file() {
+        return Ok(path);
+    }
+    Err(anyhow!("unable to find required guest file: {}", name))
 }

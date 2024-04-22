@@ -23,6 +23,8 @@ use super::{GuestInfo, GuestState};
 
 pub struct GuestLaunchRequest {
     pub format: LaunchPackedFormat,
+    pub kernel: Vec<u8>,
+    pub initrd: Vec<u8>,
     pub uuid: Option<Uuid>,
     pub name: Option<String>,
     pub vcpus: u32,
@@ -173,22 +175,22 @@ impl GuestLauncher {
 
         let config = DomainConfig {
             backend_domid: 0,
-            name: &xen_name,
+            name: xen_name,
             max_vcpus: request.vcpus,
             mem_mb: request.mem,
-            kernel_path: &context.kernel,
-            initrd_path: &context.initrd,
-            cmdline: &cmdline,
-            use_console_backend: Some("krata-console"),
+            kernel: request.kernel,
+            initrd: request.initrd,
+            cmdline,
+            use_console_backend: Some("krata-console".to_string()),
             disks: vec![
                 DomainDisk {
-                    vdev: "xvda",
-                    block: &image_squashfs_loop,
+                    vdev: "xvda".to_string(),
+                    block: image_squashfs_loop.clone(),
                     writable: false,
                 },
                 DomainDisk {
-                    vdev: "xvdb",
-                    block: &cfgblk_squashfs_loop,
+                    vdev: "xvdb".to_string(),
+                    block: cfgblk_squashfs_loop.clone(),
                     writable: false,
                 },
             ],
@@ -197,7 +199,7 @@ impl GuestLauncher {
                 initialized: false,
             }],
             vifs: vec![DomainNetworkInterface {
-                mac: &guest_mac_string,
+                mac: guest_mac_string.clone(),
                 mtu: 1500,
                 bridge: None,
                 script: None,
