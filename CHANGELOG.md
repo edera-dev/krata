@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.10](https://github.com/edera-dev/krata/compare/v0.0.9...v0.0.10) - 2024-04-22
+
+### Added
+- implement guest exec ([#107](https://github.com/edera-dev/krata/pull/107))
+- implement kernel / initrd oci image support ([#103](https://github.com/edera-dev/krata/pull/103))
+- idm v2 ([#102](https://github.com/edera-dev/krata/pull/102))
+- oci concurrency improvements ([#95](https://github.com/edera-dev/krata/pull/95))
+- oci tar format, bit-perfect disk storage for config and manifest, concurrent image pulls ([#88](https://github.com/edera-dev/krata/pull/88))
+
+### Fixed
+- oci cache store should fallback to copy when rename won't work ([#96](https://github.com/edera-dev/krata/pull/96))
+
+### Other
+- update Cargo.lock dependencies
+
 ## [0.0.9](https://github.com/edera-dev/krata/compare/v0.0.8...v0.0.9) - 2024-04-15
 
 ### Added
