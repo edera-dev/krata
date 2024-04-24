@@ -34,6 +34,14 @@ pub enum Error {
     ElfInvalidImage,
     #[error("provided elf image does not contain xen support")]
     ElfXenSupportMissing,
+    #[error("regex error: {0}")]
+    RegexError(#[from] regex::Error),
+    #[error("error: {0}")]
+    GenericError(String),
+    #[error("failed to parse int: {0}")]
+    ParseIntError(#[from] std::num::ParseIntError),
+    #[error("invalid pci bdf string")]
+    InvalidPciBdfString,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

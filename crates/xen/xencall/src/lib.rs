@@ -4,15 +4,16 @@ pub mod sys;
 use crate::error::{Error, Result};
 use crate::sys::{
     AddressSize, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext, EvtChnAllocUnbound,
-    GetDomainInfo, GetPageFrameInfo3, Hypercall, HypercallInit, MaxMem, MaxVcpus, MemoryMap,
-    MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, VcpuGuestContext,
-    VcpuGuestContextAny, XenCapabilitiesInfo, HYPERVISOR_DOMCTL, HYPERVISOR_EVENT_CHANNEL_OP,
-    HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL, HYPERVISOR_XEN_VERSION,
-    XENVER_CAPABILITIES, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN,
+    GetDomainInfo, GetPageFrameInfo3, Hypercall, HypercallInit, IoMemPermission, IoPortPermission,
+    MaxMem, MaxVcpus, MemoryMap, MemoryReservation, MmapBatch, MmapResource, MmuExtOp,
+    MultiCallEntry, VcpuGuestContext, VcpuGuestContextAny, XenCapabilitiesInfo, HYPERVISOR_DOMCTL,
+    HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL,
+    HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN,
     XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_GETVCPUCONTEXT,
-    XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN,
-    XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN,
-    XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP, XEN_MEM_POPULATE_PHYSMAP,
+    XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_IOMEM_PERMISSION, XEN_DOMCTL_IOPORT_PERMISSION,
+    XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
+    XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP,
+    XEN_MEM_POPULATE_PHYSMAP,
 };
 use libc::{c_int, mmap, usleep, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use log::trace;
@@ -670,5 +671,69 @@ impl XenCall {
         )
         .await
         .map(|_| ())
+    }
+
+    pub async fn iomem_permission(
+        &self,
+        domid: u32,
+        first_mfn: u64,
+        nr_mfns: u64,
+        allow: bool,
+    ) -> Result<()> {
+        trace!(
+            "domctl fd={} iomem_permission domid={} first_mfn={:#x}, nr_mfns={:#x} allow={}",
+            self.handle.as_raw_fd(),
+            domid,
+            first_mfn,
+            nr_mfns,
+            allow,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_IOMEM_PERMISSION,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                iomem_permission: IoMemPermission {
+                    first_mfn,
+                    nr_mfns,
+                    allow: if allow { 1 } else { 0 },
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn ioport_permission(
+        &self,
+        domid: u32,
+        first_port: u32,
+        nr_ports: u32,
+        allow: bool,
+    ) -> Result<()> {
+        trace!(
+            "domctl fd={} ioport_permission domid={} first_port={:#x}, nr_ports={:#x} allow={}",
+            self.handle.as_raw_fd(),
+            domid,
+            first_port,
+            nr_ports,
+            allow,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_IOPORT_PERMISSION,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                ioport_permission: IoPortPermission {
+                    first_port,
+                    nr_ports,
+                    allow: if allow { 1 } else { 0 },
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(())
     }
 }

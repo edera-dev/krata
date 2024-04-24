@@ -150,6 +150,7 @@ impl GuestStarter<'_> {
                 initrd,
                 vcpus: spec.vcpus,
                 mem: spec.mem,
+                pcis: vec![],
                 env: task
                     .environment
                     .iter()

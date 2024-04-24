@@ -237,6 +237,8 @@ pub union DomCtlValue {
     pub vcpu_context: DomCtlVcpuContext,
     pub address_size: AddressSize,
     pub get_page_frame_info: GetPageFrameInfo3,
+    pub ioport_permission: IoPortPermission,
+    pub iomem_permission: IoMemPermission,
     pub pad: [u8; 128],
 }
 
@@ -307,6 +309,22 @@ pub struct GetDomainInfo {
 pub struct GetPageFrameInfo3 {
     pub num: u64,
     pub array: c_ulong,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct IoPortPermission {
+    pub first_port: u32,
+    pub nr_ports: u32,
+    pub allow: u8,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct IoMemPermission {
+    pub first_mfn: u64,
+    pub nr_mfns: u64,
+    pub allow: u8,
 }
 
 #[repr(C)]

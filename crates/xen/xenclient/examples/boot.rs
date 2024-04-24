@@ -27,6 +27,7 @@ async fn main() -> Result<()> {
         disks: vec![],
         channels: vec![],
         vifs: vec![],
+        pcis: vec![],
         filesystems: vec![],
         extra_keys: vec![],
         extra_rw_paths: vec![],

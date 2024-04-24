@@ -18,6 +18,7 @@ krata-xencall = { path = "../xencall", version = "^0.0.10" }
 krata-xenstore = { path = "../xenstore", version = "^0.0.10" }
 memchr = { workspace = true }
 nix = { workspace = true }
+regex = { workspace = true }
 slice-copy = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -34,3 +35,7 @@ name = "xenclient"
 [[example]]
 name = "xenclient-boot"
 path = "examples/boot.rs"
+
+[[example]]
+name = "xenclient-pci"
+path = "examples/pci.rs"

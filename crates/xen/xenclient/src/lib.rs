@@ -21,6 +21,8 @@ use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
 use boot::BootState;
 use log::{debug, trace, warn};
+use pci::{PciBdf, XenPciBackend};
+use sys::XEN_PAGE_SHIFT;
 use tokio::time::timeout;
 
 use std::path::PathBuf;
@@ -32,6 +34,8 @@ use xencall::XenCall;
 use xenstore::{
     XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
 };
+
+pub mod pci;
 
 #[derive(Clone)]
 pub struct XenClient {
@@ -79,6 +83,11 @@ pub struct DomainEventChannel {
 }
 
 #[derive(Clone, Debug)]
+pub struct DomainPciDevice {
+    pub bdf: PciBdf,
+}
+
+#[derive(Clone, Debug)]
 pub struct DomainConfig {
     pub backend_domid: u32,
     pub name: String,
@@ -93,6 +102,7 @@ pub struct DomainConfig {
     pub vifs: Vec<DomainNetworkInterface>,
     pub filesystems: Vec<DomainFilesystem>,
     pub event_channels: Vec<DomainEventChannel>,
+    pub pcis: Vec<DomainPciDevice>,
     pub extra_keys: Vec<(String, String)>,
     pub extra_rw_paths: Vec<String>,
 }
@@ -411,6 +421,19 @@ impl XenClient {
             .await?;
         }
 
+        for (index, pci) in config.pcis.iter().enumerate() {
+            self.pci_device_add(
+                &dom_path,
+                &backend_dom_path,
+                config.backend_domid,
+                domid,
+                index,
+                config.pcis.len(),
+                pci,
+            )
+            .await?;
+        }
+
         for channel in &config.event_channels {
             let id = self
                 .call
@@ -642,6 +665,96 @@ impl XenClient {
             backend_items,
         )
         .await?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn pci_device_add(
+        &self,
+        dom_path: &str,
+        backend_dom_path: &str,
+        backend_domid: u32,
+        domid: u32,
+        index: usize,
+        device_count: usize,
+        device: &DomainPciDevice,
+    ) -> Result<()> {
+        let backend = XenPciBackend::new();
+        let resources = backend.read_resources(&device.bdf).await?;
+        for resource in resources {
+            if resource.is_bar_io() {
+                self.call
+                    .ioport_permission(domid, resource.start as u32, resource.size() as u32, true)
+                    .await?;
+            } else {
+                self.call
+                    .iomem_permission(
+                        domid,
+                        resource.start >> XEN_PAGE_SHIFT,
+                        (resource.size() + (XEN_PAGE_SHIFT - 1)) >> XEN_PAGE_SHIFT,
+                        true,
+                    )
+                    .await?;
+            }
+        }
+
+        let id = 60;
+
+        if index == 0 {
+            let backend_items: Vec<(&str, String)> = vec![
+                ("frontend-id", domid.to_string()),
+                ("online", "1".to_string()),
+                ("state", "1".to_string()),
+                ("num_devs", device_count.to_string()),
+            ];
+
+            let frontend_items: Vec<(&str, String)> = vec![
+                ("backend-id", backend_domid.to_string()),
+                ("state", "1".to_string()),
+            ];
+
+            self.device_add(
+                "pci",
+                id,
+                dom_path,
+                backend_dom_path,
+                backend_domid,
+                domid,
+                frontend_items,
+                backend_items,
+            )
+            .await?;
+        }
+
+        let backend_path = format!("{}/backend/{}/{}/{}", backend_dom_path, "pci", domid, id);
+        self.store
+            .write_string(
+                format!("{}/key-{}", backend_path, index),
+                &device.bdf.to_string(),
+            )
+            .await?;
+        self.store
+            .write_string(
+                format!("{}/dev-{}", backend_path, index),
+                &device.bdf.to_string(),
+            )
+            .await?;
+
+        if let Some(vdefn) = device.bdf.vdefn {
+            self.store
+                .write_string(
+                    format!("{}/vdefn-{}", backend_path, index),
+                    &format!("{:#x}", vdefn),
+                )
+                .await?;
+        }
+        self.store
+            .write_string(
+                format!("{}/opts-{}", backend_path, index),
+                "msitranslate=0,power_mgmt=0,permissive=0,rdm_policy=0",
+            )
+            .await?;
+
         Ok(())
     }
 

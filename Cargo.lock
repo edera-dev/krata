@@ -1602,6 +1602,7 @@ dependencies = [
  "log",
  "memchr",
  "nix 0.28.0",
+ "regex",
  "slice-copy",
  "thiserror",
  "tokio",
