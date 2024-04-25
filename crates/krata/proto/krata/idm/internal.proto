@@ -45,10 +45,12 @@ message ExecStreamRequestStart {
     repeated ExecEnvVar environment = 1;
     repeated string command = 2;
     string working_directory = 3;
+    bool tty = 4;
 }
 
 message ExecStreamRequestStdin {
     bytes data = 1;
+    bool closed = 2;
 }
 
 message ExecStreamRequestUpdate {

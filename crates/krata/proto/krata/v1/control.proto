@@ -67,7 +67,9 @@ message ListGuestsReply {
 message ExecGuestRequest {
     string guest_id = 1;
     krata.v1.common.GuestTaskSpec task = 2;
-    bytes data = 3;
+    bytes stdin = 3;
+    bool stdin_closed = 4;
+    bool tty = 5;
 }
 
 message ExecGuestReply {
