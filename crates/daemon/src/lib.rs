@@ -88,8 +88,9 @@ impl Daemon {
             generated
         };
 
-        let initrd_path = detect_guest_file(&store, "initrd")?;
-        let kernel_path = detect_guest_file(&store, "kernel")?;
+        let initrd_path = detect_guest_path(&store, "initrd")?;
+        let kernel_path = detect_guest_path(&store, "kernel")?;
+        let addons_path = detect_guest_path(&store, "addons.squashfs")?;
 
         let packer = OciPackerService::new(None, &image_cache_dir, OciPlatform::current()).await?;
         let runtime = Runtime::new().await?;
@@ -116,6 +117,7 @@ impl Daemon {
             guest_reconciler_notify.clone(),
             kernel_path,
             initrd_path,
+            addons_path,
         )?;
 
         let guest_reconciler_task = guest_reconciler.launch(guest_reconciler_receiver).await?;
@@ -204,7 +206,7 @@ impl Drop for Daemon {
     }
 }
 
-fn detect_guest_file(store: &str, name: &str) -> Result<PathBuf> {
+fn detect_guest_path(store: &str, name: &str) -> Result<PathBuf> {
     let mut path = PathBuf::from(format!("{}/guest/{}", store, name));
     if path.is_file() {
         return Ok(path);

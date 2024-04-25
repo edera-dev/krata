@@ -40,6 +40,7 @@ fi
 
 mkdir -p usr/share/krata/guest
 mv ../krata/kernel ../krata/initrd usr/share/krata/guest
+mv ../krata/addons.squashfs usr/share/krata/guest/addons.squashfs
 
 tar czf "${SYSTAR}" --owner 0 --group 0 .
 

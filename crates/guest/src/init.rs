@@ -12,6 +12,7 @@ use nix::ioctl_write_int_bad;
 use nix::unistd::{dup2, execve, fork, ForkResult, Pid};
 use oci_spec::image::{Config, ImageConfiguration};
 use path_absolutize::Absolutize;
+use platform_info::{PlatformInfo, PlatformInfoAPI, UNameAPI};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::{File, OpenOptions, Permissions};
@@ -49,6 +50,10 @@ const NEW_ROOT_DEV_PATH: &str = "/newroot/dev";
 
 const IMAGE_CONFIG_JSON_PATH: &str = "/config/image/config.json";
 const LAUNCH_CONFIG_JSON_PATH: &str = "/config/launch.json";
+
+const ADDONS_DEVICE_PATH: &str = "/dev/xvdc";
+const ADDONS_MOUNT_PATH: &str = "/addons";
+const ADDONS_MODULES_PATH: &str = "/addons/modules";
 
 ioctl_write_int_bad!(set_controlling_terminal, TIOCSCTTY);
 
@@ -88,7 +93,10 @@ impl GuestInit {
 
         self.mount_root_image(launch.root.format.clone()).await?;
 
+        self.mount_addons().await?;
+
         self.mount_new_root().await?;
+        self.mount_kernel_modules().await?;
         self.bind_new_root().await?;
 
         if let Some(hostname) = launch.hostname.clone() {
@@ -137,16 +145,60 @@ impl GuestInit {
         self.create_dir("/root", Some(0o0700)).await?;
         self.create_dir("/tmp", None).await?;
         self.create_dir("/run", Some(0o0755)).await?;
-        self.mount_kernel_fs("devtmpfs", "/dev", "mode=0755", None)
+        self.mount_kernel_fs("devtmpfs", "/dev", "mode=0755", None, None)
             .await?;
-        self.mount_kernel_fs("proc", "/proc", "", None).await?;
-        self.mount_kernel_fs("sysfs", "/sys", "", None).await?;
+        self.mount_kernel_fs("proc", "/proc", "", None, None)
+            .await?;
+        self.mount_kernel_fs("sysfs", "/sys", "", None, None)
+            .await?;
+        self.create_dir("/dev/pts", Some(0o0755)).await?;
+        self.mount_kernel_fs("devpts", "/dev/pts", "", None, Some("/dev/ptmx"))
+            .await?;
         fs::symlink("/proc/self/fd", "/dev/fd").await?;
         fs::symlink("/proc/self/fd/0", "/dev/stdin").await?;
         fs::symlink("/proc/self/fd/1", "/dev/stdout").await?;
         fs::symlink("/proc/self/fd/2", "/dev/stderr").await?;
-        self.mount_kernel_fs("cgroup2", "/sys/fs/cgroup", "", Some(MountFlags::RELATIME))
-            .await?;
+        self.mount_kernel_fs(
+            "cgroup2",
+            "/sys/fs/cgroup",
+            "",
+            Some(MountFlags::RELATIME),
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn mount_addons(&mut self) -> Result<()> {
+        if !fs::try_exists(ADDONS_DEVICE_PATH).await? {
+            return Ok(());
+        }
+
+        self.mount_image(
+            &PathBuf::from(ADDONS_DEVICE_PATH),
+            &PathBuf::from(ADDONS_MOUNT_PATH),
+            LaunchPackedFormat::Squashfs,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn mount_kernel_modules(&mut self) -> Result<()> {
+        if !fs::try_exists(ADDONS_MODULES_PATH).await? {
+            return Ok(());
+        }
+
+        let Some(platform_info) = PlatformInfo::new().ok() else {
+            return Ok(());
+        };
+
+        let kernel_release = platform_info.release().to_string_lossy().to_string();
+        let modules_path = format!("/newroot/lib/modules/{}", kernel_release);
+        fs::create_dir_all(&modules_path).await?;
+        Mount::builder()
+            .fstype(FilesystemType::Manual("none"))
+            .flags(MountFlags::BIND | MountFlags::RDONLY)
+            .mount(ADDONS_MODULES_PATH, modules_path)?;
         Ok(())
     }
 
@@ -170,13 +222,14 @@ impl GuestInit {
         path: &str,
         data: &str,
         flags: Option<MountFlags>,
+        source: Option<&str>,
     ) -> Result<()> {
         trace!("mounting kernel fs {} to {}", fstype, path);
         Mount::builder()
             .fstype(FilesystemType::Manual(fstype))
             .flags(MountFlags::NOEXEC | MountFlags::NOSUID | flags.unwrap_or(MountFlags::empty()))
             .data(data)
-            .mount(fstype, path)?;
+            .mount(source.unwrap_or(fstype), path)?;
         Ok(())
     }
 

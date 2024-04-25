@@ -1,5 +1,6 @@
 use anyhow::Result;
-use backhand::{FilesystemWriter, NodeHeader};
+use backhand::compression::Compressor;
+use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader};
 use krata::launchcfg::LaunchInfo;
 use krataoci::packer::OciPackedImage;
 use log::trace;
@@ -8,14 +9,14 @@ use std::fs::File;
 use std::path::PathBuf;
 use uuid::Uuid;
 
-pub struct ConfigBlock<'a> {
-    pub image: &'a OciPackedImage,
+pub struct ConfigBlock {
+    pub image: OciPackedImage,
     pub file: PathBuf,
     pub dir: PathBuf,
 }
 
-impl ConfigBlock<'_> {
-    pub fn new<'a>(uuid: &Uuid, image: &'a OciPackedImage) -> Result<ConfigBlock<'a>> {
+impl ConfigBlock {
+    pub fn new(uuid: &Uuid, image: OciPackedImage) -> Result<ConfigBlock> {
         let mut dir = std::env::temp_dir().clone();
         dir.push(format!("krata-cfg-{}", uuid));
         fs::create_dir_all(&dir)?;
@@ -29,6 +30,7 @@ impl ConfigBlock<'_> {
         let config = self.image.config.raw();
         let launch = serde_json::to_string(launch_config)?;
         let mut writer = FilesystemWriter::default();
+        writer.set_compressor(FilesystemCompressor::new(Compressor::Gzip, None)?);
         writer.push_dir(
             "/image",
             NodeHeader {

@@ -32,6 +32,7 @@ pub struct GuestStarter<'a> {
     pub devices: &'a DaemonDeviceManager,
     pub kernel_path: &'a Path,
     pub initrd_path: &'a Path,
+    pub addons_path: &'a Path,
     pub packer: &'a OciPackerService,
     pub glt: &'a GuestLookupTable,
     pub runtime: &'a Runtime,
@@ -206,6 +207,7 @@ impl GuestStarter<'_> {
                     .collect::<HashMap<_, _>>(),
                 run: empty_vec_optional(task.command.clone()),
                 debug: false,
+                addons_image: Some(self.addons_path.to_path_buf()),
             })
             .await?;
         self.glt.associate(uuid, info.domid).await;

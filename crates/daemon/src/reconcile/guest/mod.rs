@@ -64,6 +64,7 @@ pub struct GuestReconciler {
     packer: OciPackerService,
     kernel_path: PathBuf,
     initrd_path: PathBuf,
+    addons_path: PathBuf,
     tasks: Arc<Mutex<HashMap<Uuid, GuestReconcilerEntry>>>,
     guest_reconciler_notify: Sender<Uuid>,
     reconcile_lock: Arc<RwLock<()>>,
@@ -81,6 +82,7 @@ impl GuestReconciler {
         guest_reconciler_notify: Sender<Uuid>,
         kernel_path: PathBuf,
         initrd_path: PathBuf,
+        modules_path: PathBuf,
     ) -> Result<Self> {
         Ok(Self {
             devices,
@@ -91,6 +93,7 @@ impl GuestReconciler {
             packer,
             kernel_path,
             initrd_path,
+            addons_path: modules_path,
             tasks: Arc::new(Mutex::new(HashMap::new())),
             guest_reconciler_notify,
             reconcile_lock: Arc::new(RwLock::with_max_readers((), PARALLEL_LIMIT)),
@@ -278,6 +281,7 @@ impl GuestReconciler {
             devices: &self.devices,
             kernel_path: &self.kernel_path,
             initrd_path: &self.initrd_path,
+            addons_path: &self.addons_path,
             packer: &self.packer,
             glt: &self.glt,
             runtime: &self.runtime,

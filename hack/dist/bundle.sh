@@ -33,6 +33,7 @@ cd "${BUNDLE_DIR}"
 
 cp "${KRATA_DIR}/target/initrd/initrd-${TARGET_ARCH}" initrd
 cp "${KRATA_DIR}/target/kernel/kernel-${TARGET_ARCH}" kernel
+cp "${KRATA_DIR}/target/kernel/addons-${TARGET_ARCH}.squashfs" addons.squashfs
 cp "${KRATA_DIR}/resources/systemd/kratad.service" kratad.service
 cp "${KRATA_DIR}/resources/systemd/kratanet.service" kratanet.service
 cp "${KRATA_DIR}/resources/bundle/install.sh" install.sh
