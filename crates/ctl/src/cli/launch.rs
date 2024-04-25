@@ -6,8 +6,8 @@ use krata::{
     events::EventStream,
     v1::{
         common::{
-            guest_image_spec::Image, GuestImageSpec, GuestOciImageSpec, GuestSpec, GuestStatus,
-            GuestTaskSpec, GuestTaskSpecEnvVar, OciImageFormat,
+            guest_image_spec::Image, GuestImageSpec, GuestOciImageSpec, GuestSpec, GuestSpecDevice,
+            GuestStatus, GuestTaskSpec, GuestTaskSpecEnvVar, OciImageFormat,
         },
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
@@ -50,6 +50,8 @@ pub struct LaunchCommand {
         help = "Memory available to the guest, in megabytes"
     )]
     mem: u64,
+    #[arg[short = 'D', long = "device", help = "Devices to request for the guest"]]
+    device: Vec<String>,
     #[arg[short, long, help = "Environment variables set in the guest"]]
     env: Option<Vec<String>>,
     #[arg(
@@ -135,6 +137,11 @@ impl LaunchCommand {
                     working_directory: self.working_directory.unwrap_or_default(),
                 }),
                 annotations: vec![],
+                devices: self
+                    .device
+                    .iter()
+                    .map(|name| GuestSpecDevice { name: name.clone() })
+                    .collect(),
             }),
         };
         let response = client

@@ -1,9 +1,11 @@
-use std::{net::SocketAddr, path::PathBuf, str::FromStr};
+use std::{net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use config::DaemonConfig;
 use console::{DaemonConsole, DaemonConsoleHandle};
 use control::DaemonControlService;
 use db::GuestStore;
+use devices::DaemonDeviceManager;
 use event::{DaemonEventContext, DaemonEventGenerator};
 use glt::GuestLookupTable;
 use idm::{DaemonIdm, DaemonIdmHandle};
@@ -23,9 +25,11 @@ use tonic::transport::{Identity, Server, ServerTlsConfig};
 use uuid::Uuid;
 
 pub mod command;
+pub mod config;
 pub mod console;
 pub mod control;
 pub mod db;
+pub mod devices;
 pub mod event;
 pub mod glt;
 pub mod idm;
@@ -35,7 +39,9 @@ pub mod reconcile;
 
 pub struct Daemon {
     store: String,
+    _config: Arc<DaemonConfig>,
     glt: GuestLookupTable,
+    devices: DaemonDeviceManager,
     guests: GuestStore,
     events: DaemonEventContext,
     guest_reconciler_task: JoinHandle<()>,
@@ -50,12 +56,20 @@ const GUEST_RECONCILER_QUEUE_LEN: usize = 1000;
 
 impl Daemon {
     pub async fn new(store: String) -> Result<Self> {
-        let mut image_cache_dir = PathBuf::from(store.clone());
+        let store_dir = PathBuf::from(store.clone());
+        let mut config_path = store_dir.clone();
+        config_path.push("config.toml");
+
+        let config = DaemonConfig::load(&config_path).await?;
+        let config = Arc::new(config);
+        let devices = DaemonDeviceManager::new(config.clone());
+
+        let mut image_cache_dir = store_dir.clone();
         image_cache_dir.push("cache");
         image_cache_dir.push("image");
         fs::create_dir_all(&image_cache_dir).await?;
 
-        let mut host_uuid_path = PathBuf::from(store.clone());
+        let mut host_uuid_path = store_dir.clone();
         host_uuid_path.push("host.uuid");
         let host_uuid = if host_uuid_path.is_file() {
             let content = fs::read_to_string(&host_uuid_path).await?;
@@ -93,6 +107,7 @@ impl Daemon {
                 .await?;
         let runtime_for_reconciler = runtime.dupe().await?;
         let guest_reconciler = GuestReconciler::new(
+            devices.clone(),
             glt.clone(),
             guests.clone(),
             events.clone(),
@@ -108,7 +123,9 @@ impl Daemon {
 
         Ok(Self {
             store,
+            _config: config,
             glt,
+            devices,
             guests,
             events,
             guest_reconciler_task,
@@ -123,6 +140,7 @@ impl Daemon {
     pub async fn listen(&mut self, addr: ControlDialAddress) -> Result<()> {
         let control_service = DaemonControlService::new(
             self.glt.clone(),
+            self.devices.clone(),
             self.events.clone(),
             self.console.clone(),
             self.idm.clone(),

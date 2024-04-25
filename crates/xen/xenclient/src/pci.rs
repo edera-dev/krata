@@ -139,6 +139,16 @@ impl PciBdf {
             vdefn,
         }
     }
+
+    pub fn with_domain(&self, domain: u32) -> PciBdf {
+        PciBdf {
+            domain: Some(domain),
+            bus: self.bus,
+            device: self.device,
+            function: self.function,
+            vdefn: self.vdefn,
+        }
+    }
 }
 
 impl FromStr for PciBdf {

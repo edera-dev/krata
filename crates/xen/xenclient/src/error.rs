@@ -1,5 +1,7 @@
 use std::io;
 
+use crate::pci::PciBdf;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("io issue encountered: {0}")]
@@ -42,6 +44,8 @@ pub enum Error {
     ParseIntError(#[from] std::num::ParseIntError),
     #[error("invalid pci bdf string")]
     InvalidPciBdfString,
+    #[error("pci device {0} is not assignable")]
+    PciDeviceNotAssignable(PciBdf),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

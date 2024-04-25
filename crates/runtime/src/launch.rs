@@ -13,14 +13,17 @@ use krata::launchcfg::{
 use krataoci::packer::OciPackedImage;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
-pub use xenclient::pci::PciBdf;
-use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface, DomainPciDevice};
+use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
 use xenstore::XsdInterface;
 
 use crate::cfgblk::ConfigBlock;
 use crate::RuntimeContext;
 
 use super::{GuestInfo, GuestState};
+
+pub use xenclient::{
+    pci::PciBdf, DomainPciDevice as PciDevice, DomainPciRdmReservePolicy as PciRdmReservePolicy,
+};
 
 pub struct GuestLaunchRequest {
     pub format: LaunchPackedFormat,
@@ -32,7 +35,7 @@ pub struct GuestLaunchRequest {
     pub mem: u64,
     pub env: HashMap<String, String>,
     pub run: Option<Vec<String>>,
-    pub pcis: Vec<PciBdf>,
+    pub pcis: Vec<PciDevice>,
     pub debug: bool,
     pub image: OciPackedImage,
 }
@@ -206,12 +209,7 @@ impl GuestLauncher {
                 bridge: None,
                 script: None,
             }],
-            pcis: request
-                .pcis
-                .clone()
-                .into_iter()
-                .map(|bdf| DomainPciDevice { bdf })
-                .collect::<Vec<_>>(),
+            pcis: request.pcis.clone(),
             filesystems: vec![],
             event_channels: vec![],
             extra_keys,

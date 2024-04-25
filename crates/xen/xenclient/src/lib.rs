@@ -25,6 +25,7 @@ use pci::{PciBdf, XenPciBackend};
 use sys::XEN_PAGE_SHIFT;
 use tokio::time::timeout;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -82,9 +83,31 @@ pub struct DomainEventChannel {
     pub name: String,
 }
 
+#[derive(Clone, Debug, Default)]
+pub enum DomainPciRdmReservePolicy {
+    Invalid,
+    #[default]
+    Strict,
+    Relaxed,
+}
+
+impl DomainPciRdmReservePolicy {
+    pub fn to_option_str(&self) -> &str {
+        match self {
+            DomainPciRdmReservePolicy::Invalid => "-1",
+            DomainPciRdmReservePolicy::Strict => "0",
+            DomainPciRdmReservePolicy::Relaxed => "1",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DomainPciDevice {
     pub bdf: PciBdf,
+    pub permissive: bool,
+    pub msi_translate: bool,
+    pub power_management: bool,
+    pub rdm_reserve_policy: DomainPciRdmReservePolicy,
 }
 
 #[derive(Clone, Debug)]
@@ -680,6 +703,9 @@ impl XenClient {
         device: &DomainPciDevice,
     ) -> Result<()> {
         let backend = XenPciBackend::new();
+        if !backend.is_assigned(&device.bdf).await? {
+            return Err(Error::PciDeviceNotAssignable(device.bdf));
+        }
         let resources = backend.read_resources(&device.bdf).await?;
         for resource in resources {
             if resource.is_bar_io() {
@@ -748,11 +774,23 @@ impl XenClient {
                 )
                 .await?;
         }
+
+        let mut options = HashMap::new();
+        options.insert("permissive", if device.permissive { "1" } else { "0" });
+        options.insert("rdm_policy", device.rdm_reserve_policy.to_option_str());
+        options.insert("msitranslate", if device.msi_translate { "1" } else { "0" });
+        options.insert(
+            "power_mgmt",
+            if device.power_management { "1" } else { "0" },
+        );
+        let options = options
+            .into_iter()
+            .map(|(key, value)| format!("{}={}", key, value))
+            .collect::<Vec<_>>()
+            .join(",");
+
         self.store
-            .write_string(
-                format!("{}/opts-{}", backend_path, index),
-                "msitranslate=0,power_mgmt=0,permissive=0,rdm_policy=0",
-            )
+            .write_string(format!("{}/opts-{}", backend_path, index), &options)
             .await?;
 
         Ok(())
@@ -921,22 +959,5 @@ impl XenClient {
         tx.rm(&dom_path).await?;
         tx.commit().await?;
         Ok(())
-    }
-
-    pub async fn get_console_path(&self, domid: u32) -> Result<String> {
-        let dom_path = self.store.get_domain_path(domid).await?;
-        let console_tty_path = format!("{}/console/tty", dom_path);
-        let mut tty: Option<String> = None;
-        for _ in 0..5 {
-            tty = self.store.read_string(&console_tty_path).await?;
-            if tty.is_some() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-        let Some(tty) = tty else {
-            return Err(Error::TtyNotFound);
-        };
-        Ok(tty)
     }
 }

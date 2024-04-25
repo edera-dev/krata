@@ -11,10 +11,11 @@ use krata::{
         control::{
             control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
             CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-            ExecGuestReply, ExecGuestRequest, IdentifyHostReply, IdentifyHostRequest,
-            ListGuestsReply, ListGuestsRequest, PullImageReply, PullImageRequest,
-            ReadGuestMetricsReply, ReadGuestMetricsRequest, ResolveGuestReply, ResolveGuestRequest,
-            SnoopIdmReply, SnoopIdmRequest, WatchEventsReply, WatchEventsRequest,
+            DeviceInfo, ExecGuestReply, ExecGuestRequest, IdentifyHostReply, IdentifyHostRequest,
+            ListDevicesReply, ListDevicesRequest, ListGuestsReply, ListGuestsRequest,
+            PullImageReply, PullImageRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
+            ResolveGuestReply, ResolveGuestRequest, SnoopIdmReply, SnoopIdmRequest,
+            WatchEventsReply, WatchEventsRequest,
         },
     },
 };
@@ -35,8 +36,8 @@ use uuid::Uuid;
 
 use crate::{
     command::DaemonCommand, console::DaemonConsoleHandle, db::GuestStore,
-    event::DaemonEventContext, glt::GuestLookupTable, idm::DaemonIdmHandle,
-    metrics::idm_metric_to_api, oci::convert_oci_progress,
+    devices::DaemonDeviceManager, event::DaemonEventContext, glt::GuestLookupTable,
+    idm::DaemonIdmHandle, metrics::idm_metric_to_api, oci::convert_oci_progress,
 };
 
 pub struct ApiError {
@@ -60,6 +61,7 @@ impl From<ApiError> for Status {
 #[derive(Clone)]
 pub struct DaemonControlService {
     glt: GuestLookupTable,
+    devices: DaemonDeviceManager,
     events: DaemonEventContext,
     console: DaemonConsoleHandle,
     idm: DaemonIdmHandle,
@@ -69,8 +71,10 @@ pub struct DaemonControlService {
 }
 
 impl DaemonControlService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         glt: GuestLookupTable,
+        devices: DaemonDeviceManager,
         events: DaemonEventContext,
         console: DaemonConsoleHandle,
         idm: DaemonIdmHandle,
@@ -80,6 +84,7 @@ impl DaemonControlService {
     ) -> Self {
         Self {
             glt,
+            devices,
             events,
             console,
             idm,
@@ -523,5 +528,24 @@ impl ControlService for DaemonControlService {
             }
         };
         Ok(Response::new(Box::pin(output) as Self::SnoopIdmStream))
+    }
+
+    async fn list_devices(
+        &self,
+        request: Request<ListDevicesRequest>,
+    ) -> Result<Response<ListDevicesReply>, Status> {
+        let _ = request.into_inner();
+        let mut devices = Vec::new();
+        let state = self.devices.copy().await.map_err(|error| ApiError {
+            message: error.to_string(),
+        })?;
+        for (name, state) in state {
+            devices.push(DeviceInfo {
+                name,
+                claimed: state.owner.is_some(),
+                owner: state.owner.map(|x| x.to_string()).unwrap_or_default(),
+            });
+        }
+        Ok(Response::new(ListDevicesReply { devices }))
     }
 }

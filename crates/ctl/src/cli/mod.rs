@@ -5,6 +5,7 @@ pub mod identify_host;
 pub mod idm_snoop;
 pub mod launch;
 pub mod list;
+pub mod list_devices;
 pub mod logs;
 pub mod metrics;
 pub mod pull;
@@ -24,8 +25,9 @@ use tonic::{transport::Channel, Request};
 use self::{
     attach::AttachCommand, destroy::DestroyCommand, exec::ExecCommand,
     identify_host::IdentifyHostCommand, idm_snoop::IdmSnoopCommand, launch::LaunchCommand,
-    list::ListCommand, logs::LogsCommand, metrics::MetricsCommand, pull::PullCommand,
-    resolve::ResolveCommand, top::TopCommand, watch::WatchCommand,
+    list::ListCommand, list_devices::ListDevicesCommand, logs::LogsCommand,
+    metrics::MetricsCommand, pull::PullCommand, resolve::ResolveCommand, top::TopCommand,
+    watch::WatchCommand,
 };
 
 #[derive(Parser)]
@@ -51,6 +53,7 @@ pub enum Commands {
     Launch(LaunchCommand),
     Destroy(DestroyCommand),
     List(ListCommand),
+    ListDevices(ListDevicesCommand),
     Attach(AttachCommand),
     Pull(PullCommand),
     Logs(LogsCommand),
@@ -119,6 +122,10 @@ impl ControlCommand {
 
             Commands::Exec(exec) => {
                 exec.run(client).await?;
+            }
+
+            Commands::ListDevices(list) => {
+                list.run(client, events).await?;
             }
         }
         Ok(())

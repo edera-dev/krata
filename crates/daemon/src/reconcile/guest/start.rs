@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
@@ -7,6 +9,7 @@ use krata::launchcfg::LaunchPackedFormat;
 use krata::v1::common::GuestOciImageSpec;
 use krata::v1::common::{guest_image_spec::Image, Guest, GuestState, GuestStatus, OciImageFormat};
 use krataoci::packer::{service::OciPackerService, OciPackedFormat};
+use kratart::launch::{PciBdf, PciDevice, PciRdmReservePolicy};
 use kratart::{launch::GuestLaunchRequest, Runtime};
 use log::info;
 
@@ -15,6 +18,8 @@ use tokio::io::AsyncReadExt;
 use tokio_tar::Archive;
 use uuid::Uuid;
 
+use crate::config::DaemonPciDeviceRdmReservePolicy;
+use crate::devices::DaemonDeviceManager;
 use crate::{
     glt::GuestLookupTable,
     reconcile::guest::{guestinfo_to_networkstate, GuestReconcilerResult},
@@ -24,6 +29,7 @@ use crate::{
 const OCI_SPEC_TAR_FILE_MAX_SIZE: usize = 100 * 1024 * 1024;
 
 pub struct GuestStarter<'a> {
+    pub devices: &'a DaemonDeviceManager,
     pub kernel_path: &'a Path,
     pub initrd_path: &'a Path,
     pub packer: &'a OciPackerService,
@@ -135,6 +141,48 @@ impl GuestStarter<'_> {
             fs::read(&self.initrd_path).await?
         };
 
+        let success = AtomicBool::new(false);
+
+        let _device_release_guard = scopeguard::guard(
+            (spec.devices.clone(), self.devices.clone()),
+            |(devices, manager)| {
+                if !success.load(Ordering::Acquire) {
+                    tokio::task::spawn(async move {
+                        for device in devices {
+                            let _ = manager.release(&device.name, uuid).await;
+                        }
+                    });
+                }
+            },
+        );
+
+        let mut pcis = Vec::new();
+        for device in &spec.devices {
+            let state = self.devices.claim(&device.name, uuid).await?;
+            if let Some(cfg) = state.pci {
+                for location in cfg.locations {
+                    let pci = PciDevice {
+                        bdf: PciBdf::from_str(&location)?.with_domain(0),
+                        permissive: cfg.permissive,
+                        msi_translate: cfg.msi_translate,
+                        power_management: cfg.power_management,
+                        rdm_reserve_policy: match cfg.rdm_reserve_policy {
+                            DaemonPciDeviceRdmReservePolicy::Strict => PciRdmReservePolicy::Strict,
+                            DaemonPciDeviceRdmReservePolicy::Relaxed => {
+                                PciRdmReservePolicy::Relaxed
+                            }
+                        },
+                    };
+                    pcis.push(pci);
+                }
+            } else {
+                return Err(anyhow!(
+                    "device '{}' isn't a known device type",
+                    device.name
+                ));
+            }
+        }
+
         let info = self
             .runtime
             .launch(GuestLaunchRequest {
@@ -150,7 +198,7 @@ impl GuestStarter<'_> {
                 initrd,
                 vcpus: spec.vcpus,
                 mem: spec.mem,
-                pcis: vec![],
+                pcis,
                 env: task
                     .environment
                     .iter()
@@ -170,6 +218,7 @@ impl GuestStarter<'_> {
             host: self.glt.host_uuid().to_string(),
             domid: info.domid,
         });
+        success.store(true, Ordering::Release);
         Ok(GuestReconcilerResult::Changed { rerun: false })
     }
 }

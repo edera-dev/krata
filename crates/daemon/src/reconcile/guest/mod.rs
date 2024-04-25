@@ -26,6 +26,7 @@ use uuid::Uuid;
 
 use crate::{
     db::GuestStore,
+    devices::DaemonDeviceManager,
     event::{DaemonEvent, DaemonEventContext},
     glt::GuestLookupTable,
 };
@@ -55,6 +56,7 @@ impl Drop for GuestReconcilerEntry {
 
 #[derive(Clone)]
 pub struct GuestReconciler {
+    devices: DaemonDeviceManager,
     glt: GuestLookupTable,
     guests: GuestStore,
     events: DaemonEventContext,
@@ -70,6 +72,7 @@ pub struct GuestReconciler {
 impl GuestReconciler {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        devices: DaemonDeviceManager,
         glt: GuestLookupTable,
         guests: GuestStore,
         events: DaemonEventContext,
@@ -80,6 +83,7 @@ impl GuestReconciler {
         initrd_path: PathBuf,
     ) -> Result<Self> {
         Ok(Self {
+            devices,
             glt,
             guests,
             events,
@@ -152,6 +156,8 @@ impl GuestReconciler {
             self.guests.remove(guest.uuid).await?;
         }
 
+        let mut device_claims = HashMap::new();
+
         for (uuid, mut stored_guest) in stored_guests {
             let previous_guest = stored_guest.clone();
             let runtime_guest = runtime_guests.iter().find(|x| x.uuid == uuid);
@@ -173,6 +179,17 @@ impl GuestReconciler {
                     } else {
                         state.status = GuestStatus::Started.into();
                     }
+
+                    for device in &stored_guest
+                        .spec
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or_default()
+                        .devices
+                    {
+                        device_claims.insert(device.name.clone(), uuid);
+                    }
+
                     state.network = Some(guestinfo_to_networkstate(runtime));
                     stored_guest.state = Some(state);
                 }
@@ -185,6 +202,9 @@ impl GuestReconciler {
                 let _ = self.guest_reconciler_notify.try_send(uuid);
             }
         }
+
+        self.devices.update_claims(device_claims).await?;
+
         Ok(())
     }
 
@@ -255,6 +275,7 @@ impl GuestReconciler {
 
     async fn start(&self, uuid: Uuid, guest: &mut Guest) -> Result<GuestReconcilerResult> {
         let starter = GuestStarter {
+            devices: &self.devices,
             kernel_path: &self.kernel_path,
             initrd_path: &self.initrd_path,
             packer: &self.packer,
@@ -293,6 +314,7 @@ impl GuestReconciler {
             host: self.glt.host_uuid().to_string(),
             domid: domid.unwrap_or(u32::MAX),
         });
+        self.devices.release_all(uuid).await?;
         Ok(GuestReconcilerResult::Changed { rerun: false })
     }
 
