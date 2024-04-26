@@ -346,6 +346,8 @@ pub struct ArchDomainConfig {
     pub misc_flags: u32,
 }
 
+pub const X86_EMU_LAPIC: u32 = 1 << 0;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
 #[cfg(target_arch = "aarch64")]

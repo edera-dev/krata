@@ -762,7 +762,6 @@ impl ArchBootSetup for X86BootSetup {
             .as_ref()
             .ok_or(Error::MemorySetupFailed("page_table_segment missing"))?;
         let pg_pfn = page_table_segment.pfn;
-        let pg_mfn = setup.phys.p2m[pg_pfn as usize];
         setup.phys.unmap(pg_pfn)?;
         setup.phys.unmap(p2m_segment.pfn)?;
 
@@ -772,10 +771,10 @@ impl ArchBootSetup for X86BootSetup {
         let e820 = self.e820_sanitize(map, mem_kb, 0)?;
         setup.call.set_memory_map(setup.domid, e820).await?;
 
-        setup
-            .call
-            .mmuext(setup.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)
-            .await?;
+        // setup
+        //     .call
+        //     .mmuext(setup.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)
+        //     .await?;
         Ok(())
     }
 
