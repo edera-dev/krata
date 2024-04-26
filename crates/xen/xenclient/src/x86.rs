@@ -11,7 +11,9 @@ use slice_copy::copy;
 use std::cmp::{max, min};
 use std::mem::size_of;
 use std::slice;
-use xencall::sys::{VcpuGuestContext, MMUEXT_PIN_L4_TABLE};
+use xencall::sys::{
+    E820Entry, VcpuGuestContext, E820_MAX, E820_RAM, E820_UNUSABLE, MMUEXT_PIN_L4_TABLE,
+};
 
 pub const X86_PAGE_SHIFT: u64 = 12;
 pub const X86_PAGE_SIZE: u64 = 1 << X86_PAGE_SHIFT;
@@ -272,6 +274,154 @@ impl X86BootSetup {
         }
         self.table.mappings[m] = map;
         Ok(m)
+    }
+
+    fn e820_sanitize(
+        &self,
+        mut source: Vec<E820Entry>,
+        map_limit_kb: u64,
+        balloon_kb: u64,
+    ) -> Result<Vec<E820Entry>> {
+        let mut e820 = vec![E820Entry::default(); E820_MAX as usize];
+
+        for entry in &mut source {
+            if entry.addr > 0x100000 {
+                continue;
+            }
+
+            // entries under 1MB should be removed.
+            entry.typ = 0;
+            entry.size = 0;
+            entry.addr = u64::MAX;
+        }
+
+        let mut lowest = u64::MAX;
+        let mut highest = 0;
+
+        for entry in &source {
+            if entry.typ == E820_RAM || entry.typ == E820_UNUSABLE || entry.typ == 0 {
+                continue;
+            }
+
+            lowest = if entry.addr < lowest {
+                entry.addr
+            } else {
+                lowest
+            };
+
+            highest = if entry.addr + entry.size > highest {
+                entry.addr + entry.size
+            } else {
+                highest
+            }
+        }
+
+        let start_kb = if lowest > 1024 { lowest >> 10 } else { 0 };
+
+        let mut idx: usize = 0;
+
+        e820[idx].addr = 0;
+        e820[idx].size = map_limit_kb << 10;
+        e820[idx].typ = E820_RAM;
+
+        let mut delta_kb = 0u64;
+
+        if start_kb > 0 && map_limit_kb > start_kb {
+            delta_kb = map_limit_kb - start_kb;
+            if delta_kb > 0 {
+                e820[idx].size -= delta_kb << 10;
+            }
+        }
+
+        let ram_end = source[0].addr + source[0].size;
+        idx += 1;
+
+        for src in &mut source {
+            let end = src.addr + src.size;
+            if src.typ == E820_UNUSABLE || end < ram_end {
+                src.typ = 0;
+                continue;
+            }
+
+            if src.typ != E820_RAM {
+                continue;
+            }
+
+            if src.addr >= (1 << 32) {
+                continue;
+            }
+
+            if src.addr < ram_end {
+                let delta = ram_end - src.addr;
+                src.typ = E820_UNUSABLE;
+
+                if src.size < delta {
+                    src.typ = 0;
+                } else {
+                    src.size -= delta;
+                    src.addr = ram_end;
+                }
+
+                if src.addr + src.size != end {
+                    src.typ = 0;
+                }
+            }
+
+            if end > ram_end {
+                src.typ = E820_UNUSABLE;
+            }
+        }
+
+        if lowest > ram_end {
+            let mut add_unusable = true;
+
+            for src in &mut source {
+                if !add_unusable {
+                    break;
+                }
+
+                if src.typ != E820_UNUSABLE {
+                    continue;
+                }
+
+                if ram_end != src.addr {
+                    continue;
+                }
+
+                if lowest != src.addr + src.size {
+                    src.size = lowest - src.addr;
+                }
+                add_unusable = false;
+            }
+
+            if add_unusable {
+                e820[1].typ = E820_UNUSABLE;
+                e820[1].addr = ram_end;
+                e820[1].size = lowest - ram_end;
+            }
+        }
+
+        for src in &source {
+            if src.typ == E820_RAM || src.typ == 0 {
+                continue;
+            }
+
+            e820[idx].typ = src.typ;
+            e820[idx].addr = src.addr;
+            e820[idx].size = src.size;
+            idx += 1;
+        }
+
+        if balloon_kb > 0 || delta_kb > 0 {
+            e820[idx].typ = E820_RAM;
+            e820[idx].addr = if (1u64 << 32u64) > highest {
+                1u64 << 32u64
+            } else {
+                highest
+            };
+            e820[idx].size = (delta_kb << 10) + (balloon_kb << 10);
+        }
+        Ok(e820)
     }
 }
 
@@ -615,6 +765,13 @@ impl ArchBootSetup for X86BootSetup {
         let pg_mfn = setup.phys.p2m[pg_pfn as usize];
         setup.phys.unmap(pg_pfn)?;
         setup.phys.unmap(p2m_segment.pfn)?;
+
+        let map = setup.call.get_memory_map(E820_MAX).await?;
+        let mem_mb = setup.total_pages >> (20 - self.page_shift());
+        let mem_kb = mem_mb * 1024;
+        let e820 = self.e820_sanitize(map, mem_kb, 0)?;
+        setup.call.set_memory_map(setup.domid, e820).await?;
+
         setup
             .call
             .mmuext(setup.domid, MMUEXT_PIN_L4_TABLE, pg_mfn, 0)

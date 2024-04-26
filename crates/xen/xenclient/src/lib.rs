@@ -30,7 +30,10 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 use uuid::Uuid;
-use xencall::sys::{CreateDomain, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST};
+use xencall::sys::{
+    CreateDomain, DOMCTL_DEV_RDM_RELAXED, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST,
+    XEN_DOMCTL_CDF_IOMMU,
+};
 use xencall::XenCall;
 use xenstore::{
     XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
@@ -83,7 +86,7 @@ pub struct DomainEventChannel {
     pub name: String,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum DomainPciRdmReservePolicy {
     Invalid,
     #[default]
@@ -151,12 +154,14 @@ impl XenClient {
 
     pub async fn create(&self, config: &DomainConfig) -> Result<CreatedDomain> {
         let mut domain = CreateDomain {
-            max_vcpus: config.max_vcpus,
             ..Default::default()
         };
+        domain.max_vcpus = config.max_vcpus;
 
         if cfg!(target_arch = "aarch64") {
             domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP;
+        } else {
+            domain.flags = XEN_DOMCTL_CDF_IOMMU;
         }
 
         let domid = self.call.create_domain(domain).await?;
@@ -724,6 +729,20 @@ impl XenClient {
             }
         }
 
+        // backend.reset(&device.bdf).await?;
+
+        self.call
+            .assign_device(
+                domid,
+                device.bdf.encode(),
+                if device.rdm_reserve_policy == DomainPciRdmReservePolicy::Relaxed {
+                    DOMCTL_DEV_RDM_RELAXED
+                } else {
+                    0
+                },
+            )
+            .await?;
+
         let id = 60;
 
         if index == 0 {
@@ -753,13 +772,16 @@ impl XenClient {
         }
 
         let backend_path = format!("{}/backend/{}/{}/{}", backend_dom_path, "pci", domid, id);
-        self.store
+
+        let transaction = self.store.transaction().await?;
+
+        transaction
             .write_string(
                 format!("{}/key-{}", backend_path, index),
                 &device.bdf.to_string(),
             )
             .await?;
-        self.store
+        transaction
             .write_string(
                 format!("{}/dev-{}", backend_path, index),
                 &device.bdf.to_string(),
@@ -767,7 +789,7 @@ impl XenClient {
             .await?;
 
         if let Some(vdefn) = device.bdf.vdefn {
-            self.store
+            transaction
                 .write_string(
                     format!("{}/vdefn-{}", backend_path, index),
                     &format!("{:#x}", vdefn),
@@ -789,10 +811,11 @@ impl XenClient {
             .collect::<Vec<_>>()
             .join(",");
 
-        self.store
+        transaction
             .write_string(format!("{}/opts-{}", backend_path, index), &options)
             .await?;
 
+        transaction.commit().await?;
         Ok(())
     }
 

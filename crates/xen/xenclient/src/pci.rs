@@ -52,9 +52,22 @@ impl XenPciBackend {
         Ok(fs::try_exists(path).await?)
     }
 
+    pub async fn read_irq(&self, bdf: &PciBdf) -> Result<Option<u32>> {
+        let mut path: PathBuf = self.path.clone();
+        path.push(bdf.to_string());
+        path.push("irq");
+
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let content = fs::read_to_string(&path).await?;
+        Ok(u32::from_str(content.trim()).ok())
+    }
+
     pub async fn read_resources(&self, bdf: &PciBdf) -> Result<Vec<PciMemoryResource>> {
         let mut resources = Vec::new();
-        let mut path = self.path.clone();
+        let mut path: PathBuf = self.path.clone();
         path.push(bdf.to_string());
         path.push("resource");
         let content = fs::read_to_string(&path).await?;
@@ -112,6 +125,13 @@ impl XenPciBackend {
         }
         Ok(false)
     }
+
+    pub async fn reset(&self, bdf: &PciBdf) -> Result<()> {
+        let mut path: PathBuf = self.path.clone();
+        path.push("do_flr");
+        fs::write(&path, bdf.to_string()).await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -148,6 +168,14 @@ impl PciBdf {
             function: self.function,
             vdefn: self.vdefn,
         }
+    }
+
+    pub fn encode(&self) -> u32 {
+        let mut value = self.domain.unwrap_or(0) << 16u32;
+        value |= ((self.bus & 0xff) << 8u32) as u32;
+        value |= ((self.device & 0x1f) << 3u32) as u32;
+        value |= (self.function & 0x7) as u32;
+        value
     }
 }
 
