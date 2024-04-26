@@ -31,8 +31,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use uuid::Uuid;
 use xencall::sys::{
-    CreateDomain, DOMCTL_DEV_RDM_RELAXED, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST,
-    XEN_DOMCTL_CDF_IOMMU,
+    CreateDomain, DOMCTL_DEV_RDM_RELAXED, X86_EMU_LAPIC, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST, XEN_DOMCTL_CDF_IOMMU
 };
 use xencall::XenCall;
 use xenstore::{
@@ -155,15 +154,14 @@ impl XenClient {
     }
 
     pub async fn create(&self, config: &DomainConfig) -> Result<CreatedDomain> {
-        let mut domain = CreateDomain {
-            ..Default::default()
-        };
+        let mut domain = CreateDomain::default();
         domain.max_vcpus = config.max_vcpus;
 
         if cfg!(target_arch = "aarch64") {
             domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP;
         } else {
-            domain.flags = XEN_DOMCTL_CDF_IOMMU;
+            domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP | XEN_DOMCTL_CDF_IOMMU;
+            domain.arch_domain_config.emulation_flags = X86_EMU_LAPIC;
         }
 
         let domid = self.call.create_domain(domain).await?;

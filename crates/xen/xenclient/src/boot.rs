@@ -91,7 +91,6 @@ impl BootSetup<'_> {
         kernel_segment: &Option<DomainSegment>,
         initrd_segment: &Option<DomainSegment>,
     ) -> Result<()> {
-        self.call.set_address_size(self.domid, 64).await?;
         arch.meminit(self, total_pages, kernel_segment, initrd_segment)
             .await?;
         Ok(())
