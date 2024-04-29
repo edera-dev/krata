@@ -16,6 +16,7 @@ service ControlService {
     rpc DestroyGuest(DestroyGuestRequest) returns (DestroyGuestReply);
     rpc ResolveGuest(ResolveGuestRequest) returns (ResolveGuestReply);
     rpc ListGuests(ListGuestsRequest) returns (ListGuestsReply);
+    rpc ListDevices(ListDevicesRequest) returns (ListDevicesReply);
 
     rpc ExecGuest(stream ExecGuestRequest) returns (stream ExecGuestReply);
 
@@ -186,4 +187,16 @@ message PullImageReply {
     ImageProgress progress = 1;
     string digest = 2;
     krata.v1.common.OciImageFormat format = 3;
+}
+
+message DeviceInfo {
+    string name = 1;
+    bool claimed = 2;
+    string owner = 3;
+}
+
+message ListDevicesRequest {}
+
+message ListDevicesReply {
+    repeated DeviceInfo devices = 1;
 }

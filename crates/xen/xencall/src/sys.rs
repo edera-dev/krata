@@ -104,6 +104,7 @@ pub const XEN_DOMCTL_CDF_HAP: u32 = 1u32 << 1;
 pub const XEN_DOMCTL_CDF_S3_INTEGRITY: u32 = 1u32 << 2;
 pub const XEN_DOMCTL_CDF_OOS_OFF: u32 = 1u32 << 3;
 pub const XEN_DOMCTL_CDF_XS_DOMAIN: u32 = 1u32 << 4;
+pub const XEN_DOMCTL_CDF_IOMMU: u32 = 1u32 << 5;
 
 pub const XEN_X86_EMU_LAPIC: u32 = 1 << 0;
 pub const XEN_X86_EMU_HPET: u32 = 1 << 1;
@@ -237,6 +238,10 @@ pub union DomCtlValue {
     pub vcpu_context: DomCtlVcpuContext,
     pub address_size: AddressSize,
     pub get_page_frame_info: GetPageFrameInfo3,
+    pub ioport_permission: IoPortPermission,
+    pub iomem_permission: IoMemPermission,
+    pub irq_permission: IrqPermission,
+    pub assign_device: AssignDevice,
     pub pad: [u8; 128],
 }
 
@@ -310,6 +315,30 @@ pub struct GetPageFrameInfo3 {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct IoPortPermission {
+    pub first_port: u32,
+    pub nr_ports: u32,
+    pub allow: u8,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct IoMemPermission {
+    pub first_mfn: u64,
+    pub nr_mfns: u64,
+    pub allow: u8,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct IrqPermission {
+    pub pirq: u32,
+    pub allow: u8,
+    pub pad: [u8; 3],
+}
+
+#[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
 #[cfg(target_arch = "x86_64")]
 pub struct ArchDomainConfig {
@@ -378,7 +407,8 @@ pub struct MultiCallEntry {
 }
 
 pub const XEN_MEM_POPULATE_PHYSMAP: u32 = 6;
-pub const XEN_MEM_MEMORY_MAP: u32 = 9;
+pub const XEN_MEM_MEMORY_MAP: u32 = 10;
+pub const XEN_MEM_SET_MEMORY_MAP: u32 = 13;
 pub const XEN_MEM_CLAIM_PAGES: u32 = 24;
 
 #[repr(C)]
@@ -386,6 +416,13 @@ pub const XEN_MEM_CLAIM_PAGES: u32 = 24;
 pub struct MemoryMap {
     pub count: c_uint,
     pub buffer: c_ulong,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct ForeignMemoryMap {
+    pub domid: u16,
+    pub map: MemoryMap,
 }
 
 #[repr(C)]
@@ -582,3 +619,60 @@ pub struct EvtChnAllocUnbound {
     pub remote_dom: u16,
     pub port: u32,
 }
+
+#[repr(C, packed)]
+#[derive(Debug, Copy, Clone, Default)]
+pub struct E820Entry {
+    pub addr: u64,
+    pub size: u64,
+    pub typ: u32,
+}
+
+#[cfg(target_arch = "x86_64")]
+pub const E820_MAX: u32 = 1024;
+#[cfg(target_arch = "x86_64")]
+pub const E820_RAM: u32 = 1;
+#[cfg(target_arch = "x86_64")]
+pub const E820_RESERVED: u32 = 2;
+#[cfg(target_arch = "x86_64")]
+pub const E820_ACPI: u32 = 3;
+#[cfg(target_arch = "x86_64")]
+pub const E820_NVS: u32 = 4;
+#[cfg(target_arch = "x86_64")]
+pub const E820_UNUSABLE: u32 = 5;
+
+pub const PHYSDEVOP_MAP_PIRQ: u64 = 13;
+
+#[repr(C)]
+#[derive(Default, Clone, Copy, Debug)]
+pub struct PhysdevMapPirq {
+    pub domid: u16,
+    pub typ: c_int,
+    pub index: c_int,
+    pub pirq: c_int,
+    pub bus: c_int,
+    pub devfn: c_int,
+    pub entry_nr: u16,
+    pub table_base: u64,
+}
+
+pub const DOMCTL_DEV_RDM_RELAXED: u32 = 1;
+pub const DOMCTL_DEV_PCI: u32 = 0;
+pub const DOMCTL_DEV_DT: u32 = 1;
+
+#[repr(C)]
+#[derive(Default, Clone, Copy, Debug)]
+pub struct PciAssignDevice {
+    pub sbdf: u32,
+    pub padding: u64,
+}
+
+#[repr(C)]
+#[derive(Default, Clone, Copy, Debug)]
+pub struct AssignDevice {
+    pub device: u32,
+    pub flags: u32,
+    pub pci_assign_device: PciAssignDevice,
+}
+
+pub const DOMID_IO: u32 = 0x7FF1;

@@ -25,6 +25,7 @@ message GuestSpec {
     uint64 mem = 6;
     GuestTaskSpec task = 7;
     repeated GuestSpecAnnotation annotations = 8;
+    repeated GuestSpecDevice devices = 9;
 }
 
 message GuestImageSpec {
@@ -60,6 +61,10 @@ message GuestTaskSpecEnvVar {
 message GuestSpecAnnotation {
     string key = 1;
     string value = 2;
+}
+
+message GuestSpecDevice {
+    string name = 1;
 }
 
 message GuestState {

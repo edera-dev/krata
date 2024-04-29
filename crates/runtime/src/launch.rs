@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::{fs, net::Ipv4Addr, str::FromStr};
 
@@ -21,6 +22,10 @@ use crate::RuntimeContext;
 
 use super::{GuestInfo, GuestState};
 
+pub use xenclient::{
+    pci::PciBdf, DomainPciDevice as PciDevice, DomainPciRdmReservePolicy as PciRdmReservePolicy,
+};
+
 pub struct GuestLaunchRequest {
     pub format: LaunchPackedFormat,
     pub kernel: Vec<u8>,
@@ -31,8 +36,10 @@ pub struct GuestLaunchRequest {
     pub mem: u64,
     pub env: HashMap<String, String>,
     pub run: Option<Vec<String>>,
+    pub pcis: Vec<PciDevice>,
     pub debug: bool,
     pub image: OciPackedImage,
+    pub addons_image: Option<PathBuf>,
 }
 
 pub struct GuestLauncher {
@@ -100,8 +107,10 @@ impl GuestLauncher {
             run: request.run,
         };
 
-        let cfgblk = ConfigBlock::new(&uuid, &request.image)?;
-        cfgblk.build(&launch_config)?;
+        let cfgblk = ConfigBlock::new(&uuid, request.image.clone())?;
+        let cfgblk_file = cfgblk.file.clone();
+        let cfgblk_dir = cfgblk.dir.clone();
+        tokio::task::spawn_blocking(move || cfgblk.build(&launch_config)).await??;
 
         let image_squashfs_path = request
             .image
@@ -109,18 +118,33 @@ impl GuestLauncher {
             .to_str()
             .ok_or_else(|| anyhow!("failed to convert image path to string"))?;
 
-        let cfgblk_dir_path = cfgblk
-            .dir
+        let cfgblk_dir_path = cfgblk_dir
             .to_str()
             .ok_or_else(|| anyhow!("failed to convert cfgblk directory path to string"))?;
-        let cfgblk_squashfs_path = cfgblk
-            .file
+        let cfgblk_squashfs_path = cfgblk_file
             .to_str()
             .ok_or_else(|| anyhow!("failed to convert cfgblk squashfs path to string"))?;
+        let addons_squashfs_path = request
+            .addons_image
+            .map(|x| x.to_str().map(|x| x.to_string()))
+            .map(|x| {
+                Some(x.ok_or_else(|| anyhow!("failed to convert addons squashfs path to string")))
+            })
+            .unwrap_or(None);
+
+        let addons_squashfs_path = if let Some(path) = addons_squashfs_path {
+            Some(path?)
+        } else {
+            None
+        };
 
         let image_squashfs_loop = context.autoloop.loopify(image_squashfs_path)?;
         let cfgblk_squashfs_loop = context.autoloop.loopify(cfgblk_squashfs_path)?;
-
+        let addons_squashfs_loop = if let Some(ref addons_squashfs_path) = addons_squashfs_path {
+            Some(context.autoloop.loopify(addons_squashfs_path)?)
+        } else {
+            None
+        };
         let cmdline_options = [
             if request.debug { "debug" } else { "quiet" },
             "elevator=noop",
@@ -130,19 +154,48 @@ impl GuestLauncher {
         let guest_mac_string = container_mac.to_string().replace('-', ":");
         let gateway_mac_string = gateway_mac.to_string().replace('-', ":");
 
+        let mut disks = vec![
+            DomainDisk {
+                vdev: "xvda".to_string(),
+                block: image_squashfs_loop.clone(),
+                writable: false,
+            },
+            DomainDisk {
+                vdev: "xvdb".to_string(),
+                block: cfgblk_squashfs_loop.clone(),
+                writable: false,
+            },
+        ];
+
+        if let Some(ref addons) = addons_squashfs_loop {
+            disks.push(DomainDisk {
+                vdev: "xvdc".to_string(),
+                block: addons.clone(),
+                writable: false,
+            });
+        }
+
+        let mut loops = vec![
+            format!("{}:{}:none", image_squashfs_loop.path, image_squashfs_path),
+            format!(
+                "{}:{}:{}",
+                cfgblk_squashfs_loop.path, cfgblk_squashfs_path, cfgblk_dir_path
+            ),
+        ];
+
+        if let Some(ref addons) = addons_squashfs_loop {
+            loops.push(format!(
+                "{}:{}:none",
+                addons.path,
+                addons_squashfs_path
+                    .clone()
+                    .ok_or_else(|| anyhow!("addons squashfs path missing"))?
+            ));
+        }
+
         let mut extra_keys = vec![
             ("krata/uuid".to_string(), uuid.to_string()),
-            (
-                "krata/loops".to_string(),
-                format!(
-                    "{}:{}:none,{}:{}:{}",
-                    &image_squashfs_loop.path,
-                    image_squashfs_path,
-                    &cfgblk_squashfs_loop.path,
-                    cfgblk_squashfs_path,
-                    cfgblk_dir_path,
-                ),
-            ),
+            ("krata/loops".to_string(), loops.join(",")),
             (
                 "krata/network/guest/ipv4".to_string(),
                 format!("{}/{}", guest_ipv4, ipv4_network_mask),
@@ -182,18 +235,7 @@ impl GuestLauncher {
             initrd: request.initrd,
             cmdline,
             use_console_backend: Some("krata-console".to_string()),
-            disks: vec![
-                DomainDisk {
-                    vdev: "xvda".to_string(),
-                    block: image_squashfs_loop.clone(),
-                    writable: false,
-                },
-                DomainDisk {
-                    vdev: "xvdb".to_string(),
-                    block: cfgblk_squashfs_loop.clone(),
-                    writable: false,
-                },
-            ],
+            disks,
             channels: vec![DomainChannel {
                 typ: "krata-channel".to_string(),
                 initialized: false,
@@ -204,6 +246,7 @@ impl GuestLauncher {
                 bridge: None,
                 script: None,
             }],
+            pcis: request.pcis.clone(),
             filesystems: vec![],
             event_channels: vec![],
             extra_keys,
@@ -239,7 +282,7 @@ impl GuestLauncher {
             Err(error) => {
                 let _ = context.autoloop.unloop(&image_squashfs_loop.path).await;
                 let _ = context.autoloop.unloop(&cfgblk_squashfs_loop.path).await;
-                let _ = fs::remove_dir(&cfgblk.dir);
+                let _ = fs::remove_dir(&cfgblk_dir);
                 Err(error.into())
             }
         }

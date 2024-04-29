@@ -21,17 +21,25 @@ use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
 use boot::BootState;
 use log::{debug, trace, warn};
+use pci::{PciBdf, XenPciBackend};
+use sys::XEN_PAGE_SHIFT;
 use tokio::time::timeout;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 use uuid::Uuid;
-use xencall::sys::{CreateDomain, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST};
+use xencall::sys::{
+    CreateDomain, DOMCTL_DEV_RDM_RELAXED, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST,
+    XEN_DOMCTL_CDF_IOMMU,
+};
 use xencall::XenCall;
 use xenstore::{
     XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
 };
+
+pub mod pci;
 
 #[derive(Clone)]
 pub struct XenClient {
@@ -78,6 +86,33 @@ pub struct DomainEventChannel {
     pub name: String,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum DomainPciRdmReservePolicy {
+    Invalid,
+    #[default]
+    Strict,
+    Relaxed,
+}
+
+impl DomainPciRdmReservePolicy {
+    pub fn to_option_str(&self) -> &str {
+        match self {
+            DomainPciRdmReservePolicy::Invalid => "-1",
+            DomainPciRdmReservePolicy::Strict => "0",
+            DomainPciRdmReservePolicy::Relaxed => "1",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DomainPciDevice {
+    pub bdf: PciBdf,
+    pub permissive: bool,
+    pub msi_translate: bool,
+    pub power_management: bool,
+    pub rdm_reserve_policy: DomainPciRdmReservePolicy,
+}
+
 #[derive(Clone, Debug)]
 pub struct DomainConfig {
     pub backend_domid: u32,
@@ -93,6 +128,7 @@ pub struct DomainConfig {
     pub vifs: Vec<DomainNetworkInterface>,
     pub filesystems: Vec<DomainFilesystem>,
     pub event_channels: Vec<DomainEventChannel>,
+    pub pcis: Vec<DomainPciDevice>,
     pub extra_keys: Vec<(String, String)>,
     pub extra_rw_paths: Vec<String>,
 }
@@ -118,12 +154,14 @@ impl XenClient {
 
     pub async fn create(&self, config: &DomainConfig) -> Result<CreatedDomain> {
         let mut domain = CreateDomain {
-            max_vcpus: config.max_vcpus,
             ..Default::default()
         };
+        domain.max_vcpus = config.max_vcpus;
 
         if cfg!(target_arch = "aarch64") {
             domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP;
+        } else {
+            domain.flags = XEN_DOMCTL_CDF_IOMMU;
         }
 
         let domid = self.call.create_domain(domain).await?;
@@ -411,6 +449,19 @@ impl XenClient {
             .await?;
         }
 
+        for (index, pci) in config.pcis.iter().enumerate() {
+            self.pci_device_add(
+                &dom_path,
+                &backend_dom_path,
+                config.backend_domid,
+                domid,
+                index,
+                config.pcis.len(),
+                pci,
+            )
+            .await?;
+        }
+
         for channel in &config.event_channels {
             let id = self
                 .call
@@ -646,6 +697,129 @@ impl XenClient {
     }
 
     #[allow(clippy::too_many_arguments)]
+    async fn pci_device_add(
+        &self,
+        dom_path: &str,
+        backend_dom_path: &str,
+        backend_domid: u32,
+        domid: u32,
+        index: usize,
+        device_count: usize,
+        device: &DomainPciDevice,
+    ) -> Result<()> {
+        let backend = XenPciBackend::new();
+        if !backend.is_assigned(&device.bdf).await? {
+            return Err(Error::PciDeviceNotAssignable(device.bdf));
+        }
+        let resources = backend.read_resources(&device.bdf).await?;
+        for resource in resources {
+            if resource.is_bar_io() {
+                self.call
+                    .ioport_permission(domid, resource.start as u32, resource.size() as u32, true)
+                    .await?;
+            } else {
+                self.call
+                    .iomem_permission(
+                        domid,
+                        resource.start >> XEN_PAGE_SHIFT,
+                        (resource.size() + (XEN_PAGE_SHIFT - 1)) >> XEN_PAGE_SHIFT,
+                        true,
+                    )
+                    .await?;
+            }
+        }
+
+        // backend.reset(&device.bdf).await?;
+
+        self.call
+            .assign_device(
+                domid,
+                device.bdf.encode(),
+                if device.rdm_reserve_policy == DomainPciRdmReservePolicy::Relaxed {
+                    DOMCTL_DEV_RDM_RELAXED
+                } else {
+                    0
+                },
+            )
+            .await?;
+
+        let id = 60;
+
+        if index == 0 {
+            let backend_items: Vec<(&str, String)> = vec![
+                ("frontend-id", domid.to_string()),
+                ("online", "1".to_string()),
+                ("state", "1".to_string()),
+                ("num_devs", device_count.to_string()),
+            ];
+
+            let frontend_items: Vec<(&str, String)> = vec![
+                ("backend-id", backend_domid.to_string()),
+                ("state", "1".to_string()),
+            ];
+
+            self.device_add(
+                "pci",
+                id,
+                dom_path,
+                backend_dom_path,
+                backend_domid,
+                domid,
+                frontend_items,
+                backend_items,
+            )
+            .await?;
+        }
+
+        let backend_path = format!("{}/backend/{}/{}/{}", backend_dom_path, "pci", domid, id);
+
+        let transaction = self.store.transaction().await?;
+
+        transaction
+            .write_string(
+                format!("{}/key-{}", backend_path, index),
+                &device.bdf.to_string(),
+            )
+            .await?;
+        transaction
+            .write_string(
+                format!("{}/dev-{}", backend_path, index),
+                &device.bdf.to_string(),
+            )
+            .await?;
+
+        if let Some(vdefn) = device.bdf.vdefn {
+            transaction
+                .write_string(
+                    format!("{}/vdefn-{}", backend_path, index),
+                    &format!("{:#x}", vdefn),
+                )
+                .await?;
+        }
+
+        let mut options = HashMap::new();
+        options.insert("permissive", if device.permissive { "1" } else { "0" });
+        options.insert("rdm_policy", device.rdm_reserve_policy.to_option_str());
+        options.insert("msitranslate", if device.msi_translate { "1" } else { "0" });
+        options.insert(
+            "power_mgmt",
+            if device.power_management { "1" } else { "0" },
+        );
+        let options = options
+            .into_iter()
+            .map(|(key, value)| format!("{}={}", key, value))
+            .collect::<Vec<_>>()
+            .join(",");
+
+        transaction
+            .write_string(format!("{}/opts-{}", backend_path, index), &options)
+            .await?;
+
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn device_add(
         &self,
         typ: &str,
@@ -808,22 +982,5 @@ impl XenClient {
         tx.rm(&dom_path).await?;
         tx.commit().await?;
         Ok(())
-    }
-
-    pub async fn get_console_path(&self, domid: u32) -> Result<String> {
-        let dom_path = self.store.get_domain_path(domid).await?;
-        let console_tty_path = format!("{}/console/tty", dom_path);
-        let mut tty: Option<String> = None;
-        for _ in 0..5 {
-            tty = self.store.read_string(&console_tty_path).await?;
-            if tty.is_some() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-        let Some(tty) = tty else {
-            return Err(Error::TtyNotFound);
-        };
-        Ok(tty)
     }
 }

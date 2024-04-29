@@ -3,23 +3,29 @@ pub mod sys;
 
 use crate::error::{Error, Result};
 use crate::sys::{
-    AddressSize, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext, EvtChnAllocUnbound,
-    GetDomainInfo, GetPageFrameInfo3, Hypercall, HypercallInit, MaxMem, MaxVcpus, MemoryMap,
-    MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, VcpuGuestContext,
-    VcpuGuestContextAny, XenCapabilitiesInfo, HYPERVISOR_DOMCTL, HYPERVISOR_EVENT_CHANNEL_OP,
-    HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL, HYPERVISOR_XEN_VERSION,
-    XENVER_CAPABILITIES, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN,
-    XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_GETVCPUCONTEXT,
-    XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN,
-    XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN,
-    XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP, XEN_MEM_POPULATE_PHYSMAP,
+    AddressSize, AssignDevice, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
+    EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, Hypercall, HypercallInit,
+    IoMemPermission, IoPortPermission, IrqPermission, MaxMem, MaxVcpus, MemoryMap,
+    MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, PciAssignDevice,
+    VcpuGuestContext, VcpuGuestContextAny, XenCapabilitiesInfo, DOMCTL_DEV_PCI, HYPERVISOR_DOMCTL,
+    HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL,
+    HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_ASSIGN_DEVICE, XEN_DOMCTL_CREATEDOMAIN,
+    XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3,
+    XEN_DOMCTL_GETVCPUCONTEXT, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_IOMEM_PERMISSION,
+    XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION, XEN_DOMCTL_MAX_MEM,
+    XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
+    XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP,
+    XEN_MEM_POPULATE_PHYSMAP,
 };
 use libc::{c_int, mmap, usleep, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use log::trace;
 use nix::errno::Errno;
 use std::ffi::{c_long, c_uint, c_ulong, c_void};
 use std::sync::Arc;
-use sys::{XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION};
+use sys::{
+    E820Entry, ForeignMemoryMap, PhysdevMapPirq, HYPERVISOR_PHYSDEV_OP, PHYSDEVOP_MAP_PIRQ,
+    XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION, XEN_MEM_SET_MEMORY_MAP,
+};
 use tokio::sync::Semaphore;
 
 use std::fs::{File, OpenOptions};
@@ -569,26 +575,42 @@ impl XenCall {
         Ok(())
     }
 
-    pub async fn get_memory_map(&self, size_of_entry: usize) -> Result<Vec<u8>> {
+    pub async fn get_memory_map(&self, max_entries: u32) -> Result<Vec<E820Entry>> {
         let mut memory_map = MemoryMap {
-            count: 0,
+            count: max_entries,
             buffer: 0,
+        };
+        let mut entries = vec![E820Entry::default(); max_entries as usize];
+        memory_map.buffer = entries.as_mut_ptr() as c_ulong;
+        self.hypercall2(
+            HYPERVISOR_MEMORY_OP,
+            XEN_MEM_MEMORY_MAP as c_ulong,
+            addr_of_mut!(memory_map) as c_ulong,
+        )
+        .await?;
+        entries.truncate(memory_map.count as usize);
+        Ok(entries)
+    }
+
+    pub async fn set_memory_map(
+        &self,
+        domid: u32,
+        entries: Vec<E820Entry>,
+    ) -> Result<Vec<E820Entry>> {
+        let mut memory_map = ForeignMemoryMap {
+            domid: domid as u16,
+            map: MemoryMap {
+                count: entries.len() as u32,
+                buffer: entries.as_ptr() as u64,
+            },
         };
         self.hypercall2(
             HYPERVISOR_MEMORY_OP,
-            XEN_MEM_MEMORY_MAP as c_ulong,
+            XEN_MEM_SET_MEMORY_MAP as c_ulong,
             addr_of_mut!(memory_map) as c_ulong,
         )
         .await?;
-        let mut buffer = vec![0u8; memory_map.count as usize * size_of_entry];
-        memory_map.buffer = buffer.as_mut_ptr() as c_ulong;
-        self.hypercall2(
-            HYPERVISOR_MEMORY_OP,
-            XEN_MEM_MEMORY_MAP as c_ulong,
-            addr_of_mut!(memory_map) as c_ulong,
-        )
-        .await?;
-        Ok(buffer)
+        Ok(entries)
     }
 
     pub async fn populate_physmap(
@@ -670,5 +692,141 @@ impl XenCall {
         )
         .await
         .map(|_| ())
+    }
+
+    pub async fn iomem_permission(
+        &self,
+        domid: u32,
+        first_mfn: u64,
+        nr_mfns: u64,
+        allow: bool,
+    ) -> Result<()> {
+        trace!(
+            "domctl fd={} iomem_permission domid={} first_mfn={:#x}, nr_mfns={:#x} allow={}",
+            self.handle.as_raw_fd(),
+            domid,
+            first_mfn,
+            nr_mfns,
+            allow,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_IOMEM_PERMISSION,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                iomem_permission: IoMemPermission {
+                    first_mfn,
+                    nr_mfns,
+                    allow: if allow { 1 } else { 0 },
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn ioport_permission(
+        &self,
+        domid: u32,
+        first_port: u32,
+        nr_ports: u32,
+        allow: bool,
+    ) -> Result<()> {
+        trace!(
+            "domctl fd={} ioport_permission domid={} first_port={:#x}, nr_ports={:#x} allow={}",
+            self.handle.as_raw_fd(),
+            domid,
+            first_port,
+            nr_ports,
+            allow,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_IOPORT_PERMISSION,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                ioport_permission: IoPortPermission {
+                    first_port,
+                    nr_ports,
+                    allow: if allow { 1 } else { 0 },
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn irq_permission(&self, domid: u32, irq: u32, allow: bool) -> Result<()> {
+        trace!(
+            "domctl fd={} irq_permission domid={} irq={} allow={}",
+            self.handle.as_raw_fd(),
+            domid,
+            irq,
+            allow,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_IRQ_PERMISSION,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                irq_permission: IrqPermission {
+                    pirq: irq,
+                    allow: if allow { 1 } else { 0 },
+                    pad: [0; 3],
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn map_pirq(&self, domid: u32, index: isize, pirq: Option<u32>) -> Result<u32> {
+        trace!(
+            "physdev fd={} map_pirq domid={} index={} pirq={:?}",
+            self.handle.as_raw_fd(),
+            domid,
+            index,
+            pirq,
+        );
+        let mut physdev = PhysdevMapPirq::default();
+        physdev.domid = domid as u16;
+        physdev.typ = 0x1;
+        physdev.index = index as c_int;
+        physdev.pirq = pirq.map(|x| x as c_int).unwrap_or(index as c_int);
+        self.hypercall2(
+            HYPERVISOR_PHYSDEV_OP,
+            PHYSDEVOP_MAP_PIRQ,
+            addr_of_mut!(physdev) as c_ulong,
+        )
+        .await?;
+        Ok(physdev.pirq as u32)
+    }
+
+    pub async fn assign_device(&self, domid: u32, sbdf: u32, flags: u32) -> Result<()> {
+        trace!(
+            "domctl fd={} assign_device domid={} sbdf={} flags={}",
+            self.handle.as_raw_fd(),
+            domid,
+            sbdf,
+            flags,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_ASSIGN_DEVICE,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                assign_device: AssignDevice {
+                    device: DOMCTL_DEV_PCI,
+                    flags,
+                    pci_assign_device: PciAssignDevice { sbdf, padding: 0 },
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(())
     }
 }
