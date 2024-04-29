@@ -7,11 +7,11 @@ use crate::sys::{
     EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, Hypercall, HypercallInit,
     IoMemPermission, IoPortPermission, IrqPermission, MaxMem, MaxVcpus, MemoryMap,
     MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, PciAssignDevice,
-    VcpuGuestContext, VcpuGuestContextAny, XenCapabilitiesInfo, DOMCTL_DEV_PCI, HYPERVISOR_DOMCTL,
+    XenCapabilitiesInfo, DOMCTL_DEV_PCI, HYPERVISOR_DOMCTL,
     HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL,
     HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_ASSIGN_DEVICE, XEN_DOMCTL_CREATEDOMAIN,
     XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3,
-    XEN_DOMCTL_GETVCPUCONTEXT, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_IOMEM_PERMISSION,
+    XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_IOMEM_PERMISSION,
     XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION, XEN_DOMCTL_MAX_MEM,
     XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
     XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP,
@@ -23,8 +23,7 @@ use nix::errno::Errno;
 use std::ffi::{c_long, c_uint, c_ulong, c_void};
 use std::sync::Arc;
 use sys::{
-    E820Entry, ForeignMemoryMap, PhysdevMapPirq, HYPERVISOR_PHYSDEV_OP, PHYSDEVOP_MAP_PIRQ,
-    XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION, XEN_MEM_SET_MEMORY_MAP,
+    E820Entry, ForeignMemoryMap, PhysdevMapPirq, VcpuGuestContextAny, HYPERVISOR_PHYSDEV_OP, PHYSDEVOP_MAP_PIRQ, XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION, XEN_MEM_SET_MEMORY_MAP
 };
 use tokio::sync::Semaphore;
 
@@ -459,45 +458,19 @@ impl XenCall {
         Ok(())
     }
 
-    pub async fn get_vcpu_context(&self, domid: u32, vcpu: u32) -> Result<VcpuGuestContext> {
-        trace!(
-            "domctl fd={} get_vcpu_context domid={}",
-            self.handle.as_raw_fd(),
-            domid,
-        );
-        let mut wrapper = VcpuGuestContextAny {
-            value: VcpuGuestContext::default(),
-        };
-        let mut domctl = DomCtl {
-            cmd: XEN_DOMCTL_GETVCPUCONTEXT,
-            interface_version: self.domctl_interface_version,
-            domid,
-            value: DomCtlValue {
-                vcpu_context: DomCtlVcpuContext {
-                    vcpu,
-                    ctx: addr_of_mut!(wrapper) as c_ulong,
-                },
-            },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
-            .await?;
-        Ok(unsafe { wrapper.value })
-    }
-
     pub async fn set_vcpu_context(
         &self,
         domid: u32,
         vcpu: u32,
-        context: &VcpuGuestContext,
+        mut context: VcpuGuestContextAny,
     ) -> Result<()> {
         trace!(
             "domctl fd={} set_vcpu_context domid={} context={:?}",
             self.handle.as_raw_fd(),
             domid,
-            context,
+            unsafe { context.value }
         );
 
-        let mut value = VcpuGuestContextAny { value: *context };
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_SETVCPUCONTEXT,
             interface_version: self.domctl_interface_version,
@@ -505,7 +478,7 @@ impl XenCall {
             value: DomCtlValue {
                 vcpu_context: DomCtlVcpuContext {
                     vcpu,
-                    ctx: addr_of_mut!(value) as c_ulong,
+                    ctx: addr_of_mut!(context) as c_ulong,
                 },
             },
         };

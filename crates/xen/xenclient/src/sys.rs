@@ -119,6 +119,8 @@ pub const XEN_PAGE_MASK: u64 = !(XEN_PAGE_SIZE - 1);
 pub const SUPERPAGE_BATCH_SIZE: u64 = 512;
 pub const SUPERPAGE_2MB_SHIFT: u64 = 9;
 pub const SUPERPAGE_2MB_NR_PFNS: u64 = 1u64 << SUPERPAGE_2MB_SHIFT;
+pub const SUPERPAGE_1GB_SHIFT: u64 = 18;
+pub const SUPERPAGE_1GB_NR_PFNS: u64 = 1u64 << SUPERPAGE_1GB_SHIFT;
 pub const VGCF_IN_KERNEL: u64 = 1 << 2;
 pub const VGCF_ONLINE: u64 = 1 << 5;
 
