@@ -80,7 +80,11 @@ impl PhysicalPages {
     async fn pfn_alloc(&mut self, pfn: u64, count: u64) -> Result<u64> {
         let mut entries = vec![MmapEntry::default(); count as usize];
         for (i, entry) in entries.iter_mut().enumerate() {
-            entry.mfn = self.p2m[pfn as usize + i];
+            if !self.p2m.is_empty() {
+                entry.mfn = self.p2m[pfn as usize + i];
+            } else {
+                entry.mfn = pfn + i as u64;
+            }
         }
         let chunk_size = 1 << XEN_PAGE_SHIFT;
         let num_per_entry = chunk_size >> XEN_PAGE_SHIFT;

@@ -491,8 +491,7 @@ pub struct TrapInfo {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
-#[cfg(target_arch = "x86_64")]
-pub struct VcpuGuestContext {
+pub struct x8664VcpuGuestContext {
     pub fpu_ctx: VcpuGuestContextFpuCtx,
     pub flags: u64,
     pub user_regs: CpuUserRegs,
@@ -514,10 +513,9 @@ pub struct VcpuGuestContext {
     pub gs_base_user: u64,
 }
 
-#[cfg(target_arch = "x86_64")]
-impl Default for VcpuGuestContext {
+impl Default for x8664VcpuGuestContext {
     fn default() -> Self {
-        VcpuGuestContext {
+        Self {
             fpu_ctx: Default::default(),
             flags: 0,
             user_regs: Default::default(),
@@ -543,8 +541,7 @@ impl Default for VcpuGuestContext {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
-#[cfg(target_arch = "aarch64")]
-pub struct CpuUserRegs {
+pub struct Arm64CpuUserRegs {
     pub x0: u64,
     pub x1: u64,
     pub x2: u64,
@@ -590,8 +587,7 @@ pub struct CpuUserRegs {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
-#[cfg(target_arch = "aarch64")]
-pub struct VcpuGuestContext {
+pub struct Arm64VcpuGuestContext {
     pub flags: u32,
     pub user_regs: CpuUserRegs,
     pub sctlr: u64,
@@ -601,7 +597,10 @@ pub struct VcpuGuestContext {
 }
 
 pub union VcpuGuestContextAny {
-    pub value: VcpuGuestContext,
+    #[cfg(target_arch = "aarch64")]
+    pub value: Arm64VcpuGuestContext,
+    #[cfg(target_arch = "x86_64")]
+    pub value: x8664VcpuGuestContext,
 }
 
 #[repr(C)]
@@ -630,17 +629,11 @@ pub struct E820Entry {
     pub typ: u32,
 }
 
-#[cfg(target_arch = "x86_64")]
 pub const E820_MAX: u32 = 1024;
-#[cfg(target_arch = "x86_64")]
 pub const E820_RAM: u32 = 1;
-#[cfg(target_arch = "x86_64")]
 pub const E820_RESERVED: u32 = 2;
-#[cfg(target_arch = "x86_64")]
 pub const E820_ACPI: u32 = 3;
-#[cfg(target_arch = "x86_64")]
 pub const E820_NVS: u32 = 4;
-#[cfg(target_arch = "x86_64")]
 pub const E820_UNUSABLE: u32 = 5;
 
 pub const PHYSDEVOP_MAP_PIRQ: u64 = 13;
@@ -678,3 +671,12 @@ pub struct AssignDevice {
 }
 
 pub const DOMID_IO: u32 = 0x7FF1;
+pub const MEMFLAGS_POPULATE_ON_DEMAND: u32 = 1 << 16;
+
+pub struct PodTarget {
+    pub target_pages: u64,
+    pub total_pages: u64,
+    pub pod_cache_pages: u64,
+    pub pod_entries: u64,
+    pub domid: u16,
+}

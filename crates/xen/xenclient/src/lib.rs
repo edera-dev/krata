@@ -20,7 +20,7 @@ use std::time::Duration;
 use uuid::Uuid;
 use xencall::sys::{
     CreateDomain, DOMCTL_DEV_RDM_RELAXED, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST,
-    XEN_DOMCTL_CDF_IOMMU,
+    XEN_DOMCTL_CDF_IOMMU, XEN_X86_EMU_LAPIC,
 };
 use xencall::XenCall;
 use xenstore::{
@@ -30,6 +30,7 @@ use xenstore::{
 
 pub mod pci;
 pub mod x86pv;
+pub mod x86pvh;
 
 #[derive(Clone)]
 pub struct XenClient {
@@ -153,8 +154,8 @@ impl XenClient {
         if cfg!(target_arch = "aarch64") {
             domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP;
         } else {
-            domain.flags = XEN_DOMCTL_CDF_IOMMU;
-            domain.arch_domain_config.emulation_flags = 0;
+            domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP | XEN_DOMCTL_CDF_IOMMU;
+            domain.arch_domain_config.emulation_flags = XEN_X86_EMU_LAPIC;
         }
 
         let domid = self.call.create_domain(domain).await?;
@@ -294,7 +295,7 @@ impl XenClient {
         {
             let loader = ElfImageLoader::load_file_kernel(&config.kernel)?;
             let mut boot =
-                BootSetup::new(self.call.clone(), domid, X86PvPlatform::new(), loader, None);
+                BootSetup::new(self.call.clone(), domid, X86PvhPlatform::new(), loader, None);
             domain = boot.initialize(&config.initrd, config.mem_mb).await?;
             boot.boot(&mut domain, &config.cmdline).await?;
             xenstore_evtchn = domain.store_evtchn;
