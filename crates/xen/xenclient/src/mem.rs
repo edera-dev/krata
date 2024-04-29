@@ -6,11 +6,6 @@ use log::debug;
 use nix::errno::Errno;
 use std::ffi::c_void;
 
-#[cfg(target_arch = "aarch64")]
-pub(crate) use crate::arm64::ARM_PAGE_SHIFT as ARCH_PAGE_SHIFT;
-#[cfg(target_arch = "x86_64")]
-pub(crate) use crate::x86::X86_PAGE_SHIFT as ARCH_PAGE_SHIFT;
-
 use xencall::sys::MmapEntry;
 use xencall::XenCall;
 
@@ -21,16 +16,18 @@ pub struct PhysicalPage {
     count: u64,
 }
 
-pub struct PhysicalPages<'a> {
+pub struct PhysicalPages {
+    page_shift: u64,
     domid: u32,
-    pub(crate) p2m: Vec<u64>,
-    call: &'a XenCall,
+    pub p2m: Vec<u64>,
+    call: XenCall,
     pages: Vec<PhysicalPage>,
 }
 
-impl PhysicalPages<'_> {
-    pub fn new(call: &XenCall, domid: u32) -> PhysicalPages {
+impl PhysicalPages {
+    pub fn new(call: XenCall, domid: u32, page_shift: u64) -> PhysicalPages {
         PhysicalPages {
+            page_shift,
             domid,
             p2m: Vec::new(),
             call,
@@ -70,7 +67,7 @@ impl PhysicalPages<'_> {
                 }
             }
 
-            return Ok(page.ptr + ((pfn - page.pfn) << ARCH_PAGE_SHIFT));
+            return Ok(page.ptr + ((pfn - page.pfn) << self.page_shift));
         }
 
         if count == 0 {
@@ -161,7 +158,7 @@ impl PhysicalPages<'_> {
             unsafe {
                 let err = munmap(
                     page.ptr as *mut c_void,
-                    (page.count << ARCH_PAGE_SHIFT) as usize,
+                    (page.count << self.page_shift) as usize,
                 );
                 if err != 0 {
                     return Err(Error::UnmapFailed(Errno::from_raw(err)));
@@ -182,11 +179,11 @@ impl PhysicalPages<'_> {
         unsafe {
             let err = munmap(
                 page.ptr as *mut c_void,
-                (page.count << ARCH_PAGE_SHIFT) as usize,
+                (page.count << self.page_shift) as usize,
             );
             debug!(
                 "unmapped {:#x} foreign bytes at {:#x}",
-                (page.count << ARCH_PAGE_SHIFT) as usize,
+                (page.count << self.page_shift) as usize,
                 page.ptr
             );
             if err != 0 {

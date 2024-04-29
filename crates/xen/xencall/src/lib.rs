@@ -783,6 +783,7 @@ impl XenCall {
         Ok(())
     }
 
+    #[allow(clippy::field_reassign_with_default)]
     pub async fn map_pirq(&self, domid: u32, index: isize, pirq: Option<u32>) -> Result<u32> {
         trace!(
             "physdev fd={} map_pirq domid={} index={} pirq={:?}",
