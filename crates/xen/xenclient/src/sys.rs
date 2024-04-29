@@ -128,3 +128,5 @@ pub struct GrantEntry {
     pub domid: u16,
     pub frame: u32,
 }
+
+pub const XEN_HVM_START_MAGIC_VALUE: u64 = 0x336ec578;

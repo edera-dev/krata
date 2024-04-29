@@ -4,22 +4,10 @@ pub mod error;
 pub mod mem;
 pub mod sys;
 
-#[cfg(target_arch = "x86_64")]
-pub mod x86;
-
-#[cfg(target_arch = "x86_64")]
-use crate::x86::X86BootSetup;
-
-#[cfg(target_arch = "aarch64")]
-pub mod arm64;
-
-#[cfg(target_arch = "aarch64")]
-use crate::arm64::Arm64BootSetup;
-
-use crate::boot::{ArchBootSetup, BootSetup};
+use crate::boot::{BootDomain, BootSetup};
 use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
-use boot::BootState;
+use crate::x86pv::X86PvPlatform;
 use log::{debug, trace, warn};
 use pci::{PciBdf, XenPciBackend};
 use sys::XEN_PAGE_SHIFT;
@@ -31,7 +19,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use uuid::Uuid;
 use xencall::sys::{
-    CreateDomain, DOMCTL_DEV_RDM_RELAXED, X86_EMU_LAPIC, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST, XEN_DOMCTL_CDF_IOMMU
+    CreateDomain, DOMCTL_DEV_RDM_RELAXED, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST,
+    XEN_DOMCTL_CDF_IOMMU,
 };
 use xencall::XenCall;
 use xenstore::{
@@ -39,6 +28,7 @@ use xenstore::{
 };
 
 pub mod pci;
+pub mod x86pv;
 
 #[derive(Clone)]
 pub struct XenClient {
@@ -152,14 +142,17 @@ impl XenClient {
     }
 
     pub async fn create(&self, config: &DomainConfig) -> Result<CreatedDomain> {
-        let mut domain = CreateDomain::default();
+        let mut domain = CreateDomain {
+            max_vcpus: config.max_vcpus,
+            ..Default::default()
+        };
         domain.max_vcpus = config.max_vcpus;
 
         if cfg!(target_arch = "aarch64") {
             domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP;
         } else {
-            domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP | XEN_DOMCTL_CDF_IOMMU;
-            domain.arch_domain_config.emulation_flags = X86_EMU_LAPIC;
+            domain.flags = XEN_DOMCTL_CDF_IOMMU;
+            domain.arch_domain_config.emulation_flags = 0;
         }
 
         let domid = self.call.create_domain(domain).await?;
@@ -292,33 +285,18 @@ impl XenClient {
 
         self.call.set_max_vcpus(domid, config.max_vcpus).await?;
         self.call.set_max_mem(domid, config.mem_mb * 1024).await?;
-        let image_loader = ElfImageLoader::load_file_kernel(&config.kernel)?;
-
         let xenstore_evtchn: u32;
         let xenstore_mfn: u64;
 
-        let p2m: Vec<u64>;
-        let mut state: BootState;
+        let mut domain: BootDomain;
         {
-            let mut boot = BootSetup::new(&self.call, domid);
-            #[cfg(target_arch = "x86_64")]
-            let mut arch = Box::new(X86BootSetup::new()) as Box<dyn ArchBootSetup + Send + Sync>;
-            #[cfg(target_arch = "aarch64")]
-            let mut arch = Box::new(Arm64BootSetup::new()) as Box<dyn ArchBootSetup + Send + Sync>;
-            state = boot
-                .initialize(
-                    &mut arch,
-                    &image_loader,
-                    &config.initrd,
-                    config.max_vcpus,
-                    config.mem_mb,
-                    1,
-                )
-                .await?;
-            boot.boot(&mut arch, &mut state, &config.cmdline).await?;
-            xenstore_evtchn = state.store_evtchn;
-            xenstore_mfn = boot.phys.p2m[state.xenstore_segment.pfn as usize];
-            p2m = boot.phys.p2m;
+            let loader = ElfImageLoader::load_file_kernel(&config.kernel)?;
+            let mut boot =
+                BootSetup::new(self.call.clone(), domid, X86PvPlatform::new(), loader, None);
+            domain = boot.initialize(&config.initrd, config.mem_mb).await?;
+            boot.boot(&mut domain, &config.cmdline).await?;
+            xenstore_evtchn = domain.store_evtchn;
+            xenstore_mfn = domain.xenstore_mfn;
         }
 
         {
@@ -373,6 +351,7 @@ impl XenClient {
             return Err(Error::IntroduceDomainFailed);
         }
         self.console_device_add(
+            &mut domain,
             &DomainChannel {
                 typ: config
                     .use_console_backend
@@ -381,8 +360,6 @@ impl XenClient {
                     .to_string(),
                 initialized: true,
             },
-            &p2m,
-            &state,
             &dom_path,
             &backend_dom_path,
             config.backend_domid,
@@ -395,9 +372,8 @@ impl XenClient {
         for (index, channel) in config.channels.iter().enumerate() {
             let (Some(ring_ref), Some(evtchn)) = self
                 .console_device_add(
+                    &mut domain,
                     channel,
-                    &p2m,
-                    &state,
                     &dom_path,
                     &backend_dom_path,
                     config.backend_domid,
@@ -533,18 +509,17 @@ impl XenClient {
     #[allow(clippy::too_many_arguments, clippy::unnecessary_unwrap)]
     async fn console_device_add(
         &self,
+        domain: &mut BootDomain,
         channel: &DomainChannel,
-        p2m: &[u64],
-        state: &BootState,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
         domid: u32,
         index: usize,
     ) -> Result<(Option<u64>, Option<u32>)> {
-        let console = state.consoles.get(index);
+        let console = domain.consoles.get(index);
         let port = console.map(|x| x.0);
-        let ring = console.map(|x| p2m[x.1.pfn as usize]);
+        let ring = console.map(|x| x.1);
 
         let mut backend_entries = vec![
             ("frontend-id", domid.to_string()),
