@@ -620,7 +620,6 @@ pub struct EvtChnAllocUnbound {
     pub port: u32,
 }
 
-#[cfg(target_arch = "x86_64")]
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct E820Entry {
