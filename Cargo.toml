@@ -24,7 +24,7 @@ repository = "https://github.com/edera-dev/krata"
 [workspace.dependencies]
 anyhow = "1.0"
 arrayvec = "0.7.4"
-async-compression = "0.4.8"
+async-compression = "0.4.9"
 async-stream = "0.3.5"
 async-trait = "0.1.80"
 backhand = "0.15.0"
