@@ -31,7 +31,9 @@ it's corresponding code path from the above table.
 2. Install required packages:
 
 ```sh
-$ apt install git xen-system-amd64 build-essential libclang-dev musl-tools flex bison libelf-dev libssl-dev bc protobuf-compiler libprotobuf-dev squashfs-tools erofs-utils
+$ apt install git xen-system-amd64 build-essential \
+      libclang-dev musl-tools flex bison libelf-dev libssl-dev bc \
+      protobuf-compiler libprotobuf-dev squashfs-tools erofs-utils
 ```
 
 3. Install [rustup](https://rustup.rs) for managing a Rust environment.
@@ -68,7 +70,14 @@ $ cd krata
 $ ./hack/kernel/build.sh
 ```
 
-7. Copy the guest kernel image at `target/kernel/kernel-x86_64` to `/var/lib/krata/guest/kernel` to have it automatically detected by kratad.
+7. Copy the guest kernel artifacts to `/var/lib/krata/guest/kernel` so it is automatically detected by kratad:
+
+```sh
+$ mkdir -p /var/lib/krata/guest
+$ cp target/kernel/kernel-x86_64 /var/lib/krata/guest/kernel
+$ cp target/kernel/addons-x86_64.squashfs /var/lib/krata/guest/addons.squashfs
+```
+
 8. Launch `./hack/debug/kratad.sh` and keep it running in the foreground.
 9. Launch `./hack/debug/kratanet.sh` and keep it running in the foreground.
 10. Run kratactl to launch a guest:
