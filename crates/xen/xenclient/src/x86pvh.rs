@@ -5,18 +5,17 @@ use std::{
 };
 
 use libc::munmap;
-use log::{debug, trace};
+use log::trace;
 use nix::errno::Errno;
-use slice_copy::copy;
 use xencall::sys::{
-    x8664VcpuGuestContext, E820Entry, E820_MAX, E820_RAM, E820_UNUSABLE, MEMFLAGS_POPULATE_ON_DEMAND
+    x8664VcpuGuestContext, E820Entry, E820_RAM, MEMFLAGS_POPULATE_ON_DEMAND
 };
 
 use crate::{
     boot::{BootDomain, BootSetupPlatform, DomainSegment},
     error::{Error, Result},
     sys::{
-        GrantEntry, SUPERPAGE_1GB_NR_PFNS, SUPERPAGE_1GB_SHIFT, SUPERPAGE_2MB_NR_PFNS, SUPERPAGE_2MB_SHIFT, SUPERPAGE_BATCH_SIZE, VGCF_IN_KERNEL, VGCF_ONLINE, XEN_PAGE_SHIFT
+        GrantEntry, HVM_PARAM_BUFIOREQ_PFN, HVM_PARAM_CONSOLE_PFN, HVM_PARAM_IOREQ_PFN, HVM_PARAM_MONITOR_RING_PFN, HVM_PARAM_PAGING_RING_PFN, HVM_PARAM_SHARING_RING_PFN, HVM_PARAM_STORE_PFN, SUPERPAGE_1GB_NR_PFNS, SUPERPAGE_1GB_SHIFT, SUPERPAGE_2MB_NR_PFNS, SUPERPAGE_2MB_SHIFT, SUPERPAGE_BATCH_SIZE, VGCF_IN_KERNEL, VGCF_ONLINE, XEN_PAGE_SHIFT
     },
 };
 
@@ -84,53 +83,39 @@ pub struct StartInfo {
 pub const X86_GUEST_MAGIC: &str = "xen-3.0-x86_64";
 
 #[repr(C)]
-#[derive(Debug)]
-pub struct ArchVcpuInfo {
-    pub cr2: u64,
-    pub pad: u64,
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct VcpuInfoTime {
+#[derive(Default, Copy, Clone, Debug)]
+pub struct HvmStartInfo {
+    pub magic: u32,
     pub version: u32,
-    pub pad0: u32,
-    pub tsc_timestamp: u64,
-    pub system_time: u64,
-    pub tsc_to_system_mul: u32,
-    pub tsc_shift: i8,
-    pub flags: u8,
-    pub pad1: [u8; 2],
+    pub flags: u32,
+    pub nr_modules: u32,
+    pub modlist_paddr: u64,
+    pub cmdline_paddr: u64,
+    pub rsdp_paddr: u64,
+    pub memmap_paddr: u64,
+    pub memmap_entries: u32,
+    pub reserved: u32,
 }
 
 #[repr(C)]
-#[derive(Debug)]
-pub struct VcpuInfo {
-    pub evtchn_upcall_pending: u8,
-    pub evtchn_upcall_mask: u8,
-    pub evtchn_pending_sel: u64,
-    pub arch_vcpu_info: ArchVcpuInfo,
-    pub vcpu_info_time: VcpuInfoTime,
+#[derive(Default, Copy, Clone, Debug)]
+pub struct HvmModlistEntry {
+    pub paddr: u64,
+    pub size: u64,
+    pub cmdline_paddr: u64,
+    pub reserved: u64,
 }
 
 #[repr(C)]
-#[derive(Debug)]
-pub struct SharedInfo {
-    pub vcpu_info: [VcpuInfo; 32],
-    pub evtchn_pending: [u64; u64::BITS as usize],
-    pub evtchn_mask: [u64; u64::BITS as usize],
-    pub wc_version: u32,
-    pub wc_sec: u32,
-    pub wc_nsec: u32,
-    pub wc_sec_hi: u32,
-    // arch shared info
-    pub max_pfn: u64,
-    pub pfn_to_mfn_frame_list_list: u64,
-    pub nmi_reason: u64,
-    pub p2m_cr3: u64,
-    pub p2m_vaddr: u64,
-    pub p2m_generation: u64,
+#[derive(Default, Copy, Clone, Debug)]
+pub struct HvmMemmapTableEntry {
+    pub addr: u64,
+    pub size: u64,
+    pub typ: u32,
+    pub reserved: u32,
 }
+
+const HVMLOADER_MODULE_MAX_COUNT: u32 = 2;
 
 #[derive(Debug)]
 struct VmemRange {
@@ -142,9 +127,6 @@ struct VmemRange {
 
 #[derive(Default)]
 pub struct X86PvhPlatform {
-    table: PageTable,
-    p2m_segment: Option<DomainSegment>,
-    page_table_segment: Option<DomainSegment>,
     start_info_segment: Option<DomainSegment>,
     boot_stack_segment: Option<DomainSegment>,
     xenstore_segment: Option<DomainSegment>,
@@ -157,277 +139,27 @@ impl X86PvhPlatform {
         }
     }
 
-    const PAGE_PRESENT: u64 = 0x001;
-    const PAGE_RW: u64 = 0x002;
-    const PAGE_USER: u64 = 0x004;
-    const PAGE_ACCESSED: u64 = 0x020;
-    const PAGE_DIRTY: u64 = 0x040;
-    fn get_pg_prot(&mut self, l: usize, pfn: u64) -> u64 {
-        let prot = [
-            X86PvhPlatform::PAGE_PRESENT | X86PvhPlatform::PAGE_RW | X86PvhPlatform::PAGE_ACCESSED,
-            X86PvhPlatform::PAGE_PRESENT
-                | X86PvhPlatform::PAGE_RW
-                | X86PvhPlatform::PAGE_ACCESSED
-                | X86PvhPlatform::PAGE_DIRTY
-                | X86PvhPlatform::PAGE_USER,
-            X86PvhPlatform::PAGE_PRESENT
-                | X86PvhPlatform::PAGE_RW
-                | X86PvhPlatform::PAGE_ACCESSED
-                | X86PvhPlatform::PAGE_DIRTY
-                | X86PvhPlatform::PAGE_USER,
-            X86PvhPlatform::PAGE_PRESENT
-                | X86PvhPlatform::PAGE_RW
-                | X86PvhPlatform::PAGE_ACCESSED
-                | X86PvhPlatform::PAGE_DIRTY
-                | X86PvhPlatform::PAGE_USER,
+    pub fn construct_memmap(&self, mem_size_bytes: u64) -> Result<Vec<E820Entry>> {
+        let entries = vec![
+            E820Entry {
+                addr: 0,
+                size: mem_size_bytes,
+                typ: E820_RAM
+            },
+            E820Entry {
+                addr: (X86_HVM_END_SPECIAL_REGION - X86_HVM_NR_SPECIAL_PAGES) << XEN_PAGE_SHIFT,
+                size: X86_HVM_NR_SPECIAL_PAGES << XEN_PAGE_SHIFT,
+                typ: E820_RAM
+            },
         ];
-
-        let prot = prot[l];
-        if l > 0 {
-            return prot;
-        }
-
-        for m in 0..self.table.mappings_count {
-            let map = &self.table.mappings[m];
-            let pfn_s = map.levels[(X86_PGTABLE_LEVELS - 1) as usize].pfn;
-            let pfn_e = map.area.pgtables as u64 + pfn_s;
-            if pfn >= pfn_s && pfn < pfn_e {
-                return prot & !X86PvhPlatform::PAGE_RW;
-            }
-        }
-        prot
+        Ok(entries)
     }
 
-    fn count_page_tables(
-        &mut self,
-        domain: &mut BootDomain,
-        from: u64,
-        to: u64,
-        pfn: u64,
-    ) -> Result<usize> {
-        debug!("counting pgtables from={} to={} pfn={}", from, to, pfn);
-        if self.table.mappings_count == X86_PAGE_TABLE_MAX_MAPPINGS {
-            return Err(Error::MemorySetupFailed("max page table count reached"));
-        }
-
-        let m = self.table.mappings_count;
-
-        let pfn_end = pfn + ((to - from) >> X86_PAGE_SHIFT);
-        if pfn_end >= domain.phys.p2m_size() {
-            return Err(Error::MemorySetupFailed("pfn_end greater than p2m size"));
-        }
-
-        for idx in 0..self.table.mappings_count {
-            if from < self.table.mappings[idx].area.to && to > self.table.mappings[idx].area.from {
-                return Err(Error::MemorySetupFailed("page table calculation failed"));
-            }
-        }
-        let mut map = PageTableMapping::default();
-        map.area.from = from & X86_VIRT_MASK;
-        map.area.to = to & X86_VIRT_MASK;
-
-        for l in (0usize..X86_PGTABLE_LEVELS as usize).rev() {
-            map.levels[l].pfn = domain.pfn_alloc_end + map.area.pgtables as u64;
-            if l as u64 == X86_PGTABLE_LEVELS - 1 {
-                if self.table.mappings_count == 0 {
-                    map.levels[l].from = 0;
-                    map.levels[l].to = X86_VIRT_MASK;
-                    map.levels[l].pgtables = 1;
-                    map.area.pgtables += 1;
-                }
-                continue;
-            }
-
-            let bits = X86_PAGE_SHIFT + (l + 1) as u64 * X86_PGTABLE_LEVEL_SHIFT;
-            let mask = BootDomain::bits_to_mask(bits);
-            map.levels[l].from = map.area.from & !mask;
-            map.levels[l].to = map.area.to | mask;
-
-            for cmp in &mut self.table.mappings[0..self.table.mappings_count] {
-                if cmp.levels[l].from == cmp.levels[l].to {
-                    continue;
-                }
-
-                if map.levels[l].from >= cmp.levels[l].from && map.levels[l].to <= cmp.levels[l].to
-                {
-                    map.levels[l].from = 0;
-                    map.levels[l].to = 0;
-                    break;
-                }
-
-                if map.levels[l].from >= cmp.levels[l].from
-                    && map.levels[l].from <= cmp.levels[l].to
-                {
-                    map.levels[l].from = cmp.levels[l].to + 1;
-                }
-
-                if map.levels[l].to >= cmp.levels[l].from && map.levels[l].to <= cmp.levels[l].to {
-                    map.levels[l].to = cmp.levels[l].from - 1;
-                }
-            }
-
-            if map.levels[l].from < map.levels[l].to {
-                map.levels[l].pgtables =
-                    (((map.levels[l].to - map.levels[l].from) >> bits) + 1) as usize;
-            }
-
-            debug!(
-                "count_pgtables {:#x}/{}: {:#x} -> {:#x}, {} tables",
-                mask, bits, map.levels[l].from, map.levels[l].to, map.levels[l].pgtables
-            );
-            map.area.pgtables += map.levels[l].pgtables;
-        }
-        self.table.mappings[m] = map;
-        Ok(m)
-    }
-
-    fn e820_sanitize(
-        &self,
-        mut source: Vec<E820Entry>,
-        map_limit_kb: u64,
-        balloon_kb: u64,
-    ) -> Result<Vec<E820Entry>> {
-        let mut e820 = vec![E820Entry::default(); E820_MAX as usize];
-
-        for entry in &mut source {
-            if entry.addr > 0x100000 {
-                continue;
-            }
-
-            // entries under 1MB should be removed.
-            entry.typ = 0;
-            entry.size = 0;
-            entry.addr = u64::MAX;
-        }
-
-        let mut lowest = u64::MAX;
-        let mut highest = 0;
-
-        for entry in &source {
-            if entry.typ == E820_RAM || entry.typ == E820_UNUSABLE || entry.typ == 0 {
-                continue;
-            }
-
-            lowest = if entry.addr < lowest {
-                entry.addr
-            } else {
-                lowest
-            };
-
-            highest = if entry.addr + entry.size > highest {
-                entry.addr + entry.size
-            } else {
-                highest
-            }
-        }
-
-        let start_kb = if lowest > 1024 { lowest >> 10 } else { 0 };
-
-        let mut idx: usize = 0;
-
-        e820[idx].addr = 0;
-        e820[idx].size = map_limit_kb << 10;
-        e820[idx].typ = E820_RAM;
-
-        let mut delta_kb = 0u64;
-
-        if start_kb > 0 && map_limit_kb > start_kb {
-            delta_kb = map_limit_kb - start_kb;
-            if delta_kb > 0 {
-                e820[idx].size -= delta_kb << 10;
-            }
-        }
-
-        let ram_end = source[0].addr + source[0].size;
-        idx += 1;
-
-        for src in &mut source {
-            let end = src.addr + src.size;
-            if src.typ == E820_UNUSABLE || end < ram_end {
-                src.typ = 0;
-                continue;
-            }
-
-            if src.typ != E820_RAM {
-                continue;
-            }
-
-            if src.addr >= (1 << 32) {
-                continue;
-            }
-
-            if src.addr < ram_end {
-                let delta = ram_end - src.addr;
-                src.typ = E820_UNUSABLE;
-
-                if src.size < delta {
-                    src.typ = 0;
-                } else {
-                    src.size -= delta;
-                    src.addr = ram_end;
-                }
-
-                if src.addr + src.size != end {
-                    src.typ = 0;
-                }
-            }
-
-            if end > ram_end {
-                src.typ = E820_UNUSABLE;
-            }
-        }
-
-        if lowest > ram_end {
-            let mut add_unusable = true;
-
-            for src in &mut source {
-                if !add_unusable {
-                    break;
-                }
-
-                if src.typ != E820_UNUSABLE {
-                    continue;
-                }
-
-                if ram_end != src.addr {
-                    continue;
-                }
-
-                if lowest != src.addr + src.size {
-                    src.size = lowest - src.addr;
-                }
-                add_unusable = false;
-            }
-
-            if add_unusable {
-                e820[1].typ = E820_UNUSABLE;
-                e820[1].addr = ram_end;
-                e820[1].size = lowest - ram_end;
-            }
-        }
-
-        for src in &source {
-            if src.typ == E820_RAM || src.typ == 0 {
-                continue;
-            }
-
-            e820[idx].typ = src.typ;
-            e820[idx].addr = src.addr;
-            e820[idx].size = src.size;
-            idx += 1;
-        }
-
-        if balloon_kb > 0 || delta_kb > 0 {
-            e820[idx].typ = E820_RAM;
-            e820[idx].addr = if (1u64 << 32u64) > highest {
-                1u64 << 32u64
-            } else {
-                highest
-            };
-            e820[idx].size = (delta_kb << 10) + (balloon_kb << 10);
-        }
-        Ok(e820)
-    }
+    const _PAGE_PRESENT: u64 = 0x001;
+    const _PAGE_RW: u64 = 0x002;
+    const _PAGE_USER: u64 = 0x004;
+    const _PAGE_ACCESSED: u64 = 0x020;
+    const _PAGE_DIRTY: u64 = 0x040;
 }
 
 #[async_trait::async_trait]
@@ -518,13 +250,31 @@ impl BootSetupPlatform for X86PvhPlatform {
     }
 
     async fn alloc_magic_pages(&mut self, domain: &mut BootDomain) -> Result<()> {
+        let memmap = self.construct_memmap(domain.total_pages << XEN_PAGE_SHIFT)?;
+        domain.call.set_memory_map(domain.domid, memmap.clone()).await?;
+
         let mut special_array = vec![0u64; X86_HVM_NR_SPECIAL_PAGES as usize];
         for i in 0..X86_HVM_NR_SPECIAL_PAGES {
-            special_array[i as usize] = special_pfn(i);
+            special_array[i as usize] = special_pfn(i as u32);
         }
-        let pages = domain.call.populate_physmap(domain.domid, 8, 0, 0, &special_array).await?;
+        let _pages = domain.call.populate_physmap(domain.domid, X86_HVM_NR_SPECIAL_PAGES, 0, 0, &special_array).await?;
+        domain.phys.clear_pages(special_pfn(0), X86_HVM_NR_SPECIAL_PAGES).await?;
+        domain.call.set_hvm_param(domain.domid, HVM_PARAM_STORE_PFN, special_pfn(SPECIALPAGE_XENSTORE)).await?;
+        domain.call.set_hvm_param(domain.domid, HVM_PARAM_BUFIOREQ_PFN, special_pfn(SPECIALPAGE_BUFIOREQ)).await?;
+        domain.call.set_hvm_param(domain.domid, HVM_PARAM_IOREQ_PFN, special_pfn(SPECIALPAGE_IOREQ)).await?;
+        domain.call.set_hvm_param(domain.domid, HVM_PARAM_CONSOLE_PFN, special_pfn(SPECIALPAGE_CONSOLE)).await?;
+        domain.call.set_hvm_param(domain.domid, HVM_PARAM_PAGING_RING_PFN, special_pfn(SPECIALPAGE_PAGING)).await?;
+        domain.call.set_hvm_param(domain.domid, HVM_PARAM_MONITOR_RING_PFN, special_pfn(SPECIALPAGE_ACCESS)).await?;
+        domain.call.set_hvm_param(domain.domid, HVM_PARAM_SHARING_RING_PFN, special_pfn(SPECIALPAGE_SHARING)).await?;
 
-        
+        let mut start_info_size = size_of::<HvmStartInfo>();
+
+        start_info_size += BootDomain::round_up("".len() as u64 + 3, 3) as usize;
+        start_info_size += size_of::<E820Entry>() * memmap.len();
+
+        self.start_info_segment = Some(domain.alloc_segment(0, start_info_size as u64).await?);
+        domain.consoles.push((0, special_pfn(SPECIALPAGE_CONSOLE)));
+        domain.xenstore_mfn = special_pfn(SPECIALPAGE_XENSTORE);
 
         Ok(())
     }
@@ -547,11 +297,6 @@ impl BootSetupPlatform for X86PvhPlatform {
     }
 
     async fn bootlate(&mut self, domain: &mut BootDomain) -> Result<()> {
-        let map = domain.call.get_memory_map(E820_MAX).await?;
-        let mem_mb = domain.total_pages >> (20 - self.page_shift());
-        let mem_kb = mem_mb * 1024;
-        let e820 = self.e820_sanitize(map, mem_kb, 0)?;
-        domain.call.set_memory_map(domain.domid, e820).await?;
         Ok(())
     }
 
@@ -564,7 +309,7 @@ impl BootSetupPlatform for X86PvhPlatform {
             .start_info_segment
             .as_ref()
             .ok_or(Error::MemorySetupFailed("start_info_segment missing"))?;
-        let pg_pfn = page_table_segment.pfn;
+        let pg_pfn = 0;
         let pg_mfn = domain.phys.p2m[pg_pfn as usize];
         let mut vcpu = x8664VcpuGuestContext::default();
         vcpu.user_regs.rip = domain.image_info.virt_entry;
@@ -577,7 +322,6 @@ impl BootSetupPlatform for X86PvhPlatform {
         vcpu.debugreg[7] = 0x00000400;
         vcpu.flags = VGCF_IN_KERNEL | VGCF_ONLINE;
         let cr3_pfn = pg_mfn;
-        debug!("cr3: pfn {:#x} mfn {:#x}", page_table_segment.pfn, cr3_pfn);
         vcpu.ctrlreg[3] = cr3_pfn << 12;
         vcpu.user_regs.ds = 0x0;
         vcpu.user_regs.es = 0x0;
@@ -626,9 +370,18 @@ impl BootSetupPlatform for X86PvhPlatform {
     }
 }
 
-fn special_pfn(x: u64) -> u64 {
-    X86_HVM_END_SPECIAL_REGION - X86_HVM_NR_SPECIAL_PAGES + x
+fn special_pfn(x: u32) -> u64 {
+    (X86_HVM_END_SPECIAL_REGION - X86_HVM_NR_SPECIAL_PAGES) + (x as u64)
 }
 
 const X86_HVM_NR_SPECIAL_PAGES: u64 = 8;
 const X86_HVM_END_SPECIAL_REGION: u64 = 0xff000;
+
+const SPECIALPAGE_PAGING: u32 = 0;
+const SPECIALPAGE_ACCESS: u32  = 1;
+const SPECIALPAGE_SHARING: u32 =  2;
+const SPECIALPAGE_BUFIOREQ: u32 = 3;
+const SPECIALPAGE_XENSTORE: u32 = 4;
+const SPECIALPAGE_IOREQ : u32 =   5;
+const SPECIALPAGE_IDENT_PT: u32 = 6;
+const SPECIALPAGE_CONSOLE: u32 =  7;

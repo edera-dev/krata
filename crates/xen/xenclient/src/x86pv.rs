@@ -726,7 +726,7 @@ impl BootSetupPlatform for X86PvPlatform {
         let info = domain
             .phys
             .map_foreign_pages(shared_info_frame, X86_PAGE_SIZE)
-            .await? as *mut SharedInfo;
+            .await?.ptr as *mut SharedInfo;
         unsafe {
             let size = size_of::<SharedInfo>();
             let info_as_buff = slice::from_raw_parts_mut(info as *mut u8, size);

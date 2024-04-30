@@ -680,3 +680,12 @@ pub struct PodTarget {
     pub pod_entries: u64,
     pub domid: u16,
 }
+
+#[repr(C)]
+#[derive(Default, Clone, Copy, Debug)]
+pub struct HvmParam {
+    pub domid: u16,
+    pub pad: u8,
+    pub index: u32,
+    pub value: u64,
+}
