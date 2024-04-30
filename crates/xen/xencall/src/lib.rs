@@ -3,19 +3,7 @@ pub mod sys;
 
 use crate::error::{Error, Result};
 use crate::sys::{
-    AddressSize, AssignDevice, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
-    EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, Hypercall, HypercallInit,
-    IoMemPermission, IoPortPermission, IrqPermission, MaxMem, MaxVcpus, MemoryMap,
-    MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, PciAssignDevice,
-    XenCapabilitiesInfo, DOMCTL_DEV_PCI, HYPERVISOR_DOMCTL,
-    HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL,
-    HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_ASSIGN_DEVICE, XEN_DOMCTL_CREATEDOMAIN,
-    XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3,
-    XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_IOMEM_PERMISSION,
-    XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION, XEN_DOMCTL_MAX_MEM,
-    XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
-    XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP,
-    XEN_MEM_POPULATE_PHYSMAP,
+    AddressSize, AssignDevice, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext, EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, HvmParam, Hypercall, HypercallInit, IoMemPermission, IoPortPermission, IrqPermission, MaxMem, MaxVcpus, MemoryMap, MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, PciAssignDevice, XenCapabilitiesInfo, DOMCTL_DEV_PCI, HYPERVISOR_DOMCTL, HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_HVM_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL, HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_ASSIGN_DEVICE, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_IOMEM_PERMISSION, XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION, XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP, XEN_MEM_POPULATE_PHYSMAP
 };
 use libc::{c_int, mmap, usleep, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use log::trace;
@@ -807,6 +795,28 @@ impl XenCall {
         };
         self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
             .await?;
+        Ok(())
+    }
+
+    #[allow(clippy::field_reassign_with_default)]
+    pub async fn set_hvm_param(&self, domid: u32, index: u32, value: u64) -> Result<()> {
+        trace!(
+            "set_hvm_param fd={} domid={} index={} value={:?}",
+            self.handle.as_raw_fd(),
+            domid,
+            index,
+            value,
+        );
+        let mut param = HvmParam::default();
+        param.domid = domid as u16;
+        param.index = index;
+        param.value = value;
+        self.hypercall2(
+            HYPERVISOR_HVM_OP,
+            0,
+            addr_of_mut!(param) as c_ulong,
+        )
+        .await?;
         Ok(())
     }
 }

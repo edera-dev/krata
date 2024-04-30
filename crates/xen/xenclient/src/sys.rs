@@ -132,3 +132,13 @@ pub struct GrantEntry {
 }
 
 pub const XEN_HVM_START_MAGIC_VALUE: u64 = 0x336ec578;
+
+pub const HVM_PARAM_STORE_PFN: u32 = 1;
+pub const HVM_PARAM_STORE_EVTCHN: u32 = 2;
+pub const HVM_PARAM_IOREQ_PFN: u32 = 5;
+pub const HVM_PARAM_BUFIOREQ_PFN: u32 = 6;
+pub const HVM_PARAM_CONSOLE_PFN: u32 = 17;
+pub const HVM_PARAM_CONSOLE_EVTCHN: u32 = 8;
+pub const HVM_PARAM_PAGING_RING_PFN: u32 = 27;
+pub const HVM_PARAM_MONITOR_RING_PFN: u32 = 28;
+pub const HVM_PARAM_SHARING_RING_PFN: u32 = 29;

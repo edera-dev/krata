@@ -5,14 +5,15 @@ use libc::munmap;
 use log::debug;
 use nix::errno::Errno;
 use std::ffi::c_void;
+use std::slice;
 
 use xencall::sys::MmapEntry;
 use xencall::XenCall;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PhysicalPage {
     pfn: u64,
-    ptr: u64,
+    pub ptr: u64,
     count: u64,
 }
 
@@ -123,7 +124,7 @@ impl PhysicalPages {
         Ok(addr)
     }
 
-    pub async fn map_foreign_pages(&mut self, mfn: u64, size: u64) -> Result<u64> {
+    pub async fn map_foreign_pages(&mut self, mfn: u64, size: u64) -> Result<PhysicalPage> {
         let num = ((size + XEN_PAGE_SIZE - 1) >> XEN_PAGE_SHIFT) as usize;
         let mut pfns = vec![u64::MAX; num];
         for (i, item) in pfns.iter_mut().enumerate().take(num) {
@@ -145,7 +146,7 @@ impl PhysicalPages {
             return Err(Error::MmapFailed);
         }
         let page = PhysicalPage {
-            pfn: u64::MAX,
+            pfn: mfn,
             ptr: addr,
             count: num as u64,
         };
@@ -153,8 +154,21 @@ impl PhysicalPages {
             "alloc_mfn {:#x}+{:#x} at {:#x}",
             page.pfn, page.count, page.ptr
         );
-        self.pages.push(page);
-        Ok(addr)
+        self.pages.push(page.clone());
+        Ok(page)
+    }
+
+    pub async fn clear_pages(&mut self, pfn: u64, count: u64) -> Result<()> {
+        let mfn = if !self.p2m.is_empty() {
+            self.p2m[pfn as usize]
+        } else {
+            pfn
+        };
+        let page = self.map_foreign_pages(mfn, count << XEN_PAGE_SHIFT).await?;
+        let _slice = unsafe { slice::from_raw_parts_mut(page.ptr as *mut u8, (count * XEN_PAGE_SIZE) as usize) };
+        // slice.fill(0);
+        self.unmap(pfn)?;
+        Ok(())
     }
 
     pub fn unmap_all(&mut self) -> Result<()> {
