@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::sys::{XEN_PAGE_SHIFT, XEN_PAGE_SIZE};
 use crate::Error;
-use libc::munmap;
+use libc::{memset, munmap};
 use log::debug;
 use nix::errno::Errno;
 use std::ffi::c_void;
@@ -125,7 +125,7 @@ impl PhysicalPages {
     }
 
     pub async fn map_foreign_pages(&mut self, mfn: u64, size: u64) -> Result<PhysicalPage> {
-        let num = ((size + XEN_PAGE_SIZE - 1) >> XEN_PAGE_SHIFT) as usize;
+        let num = (size >> XEN_PAGE_SHIFT) as usize;
         let mut pfns = vec![u64::MAX; num];
         for (i, item) in pfns.iter_mut().enumerate().take(num) {
             *item = mfn + i as u64;
@@ -165,9 +165,8 @@ impl PhysicalPages {
             pfn
         };
         let page = self.map_foreign_pages(mfn, count << XEN_PAGE_SHIFT).await?;
-        let _slice = unsafe { slice::from_raw_parts_mut(page.ptr as *mut u8, (count * XEN_PAGE_SIZE) as usize) };
-        // slice.fill(0);
-        self.unmap(pfn)?;
+        let slice = unsafe { slice::from_raw_parts_mut(page.ptr as *mut u8, (count << XEN_PAGE_SHIFT) as usize) };
+        slice.fill(0);
         Ok(())
     }
 

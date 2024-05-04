@@ -242,6 +242,7 @@ pub union DomCtlValue {
     pub iomem_permission: IoMemPermission,
     pub irq_permission: IrqPermission,
     pub assign_device: AssignDevice,
+    pub hvm_context: HvmContext,
     pub pad: [u8; 128],
 }
 
@@ -491,6 +492,7 @@ pub struct TrapInfo {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
+#[allow(non_camel_case_types)]
 pub struct x8664VcpuGuestContext {
     pub fpu_ctx: VcpuGuestContextFpuCtx,
     pub flags: u64,
@@ -688,4 +690,11 @@ pub struct HvmParam {
     pub pad: u8,
     pub index: u32,
     pub value: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct HvmContext {
+    pub size: u32,
+    pub buffer: u64,
 }

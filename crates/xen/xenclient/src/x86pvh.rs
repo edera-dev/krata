@@ -1,7 +1,5 @@
 use std::{
-    mem::size_of,
-    os::raw::{c_char, c_void},
-    slice,
+    mem::{size_of, MaybeUninit}, os::raw::{c_char, c_void}, ptr::addr_of_mut, slice
 };
 
 use libc::munmap;
@@ -115,22 +113,140 @@ pub struct HvmMemmapTableEntry {
     pub reserved: u32,
 }
 
-const HVMLOADER_MODULE_MAX_COUNT: u32 = 2;
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+struct HvmSaveDescriptor {
+    pub typecode: u16,
+    pub instance: u16,
+    pub length: u32,
+}
+
+#[repr(C)]
+#[derive(Default, Copy, Clone, Debug)]
+struct HvmSaveHeader {
+    magic: u32,
+    version: u32,
+    changeset: u64,
+    cpuid: u32,
+    gtsc_khz: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+struct HvmCpu {
+    pub fpu_regs: [u8; 512],
+    pub rax: u64,
+    pub rbx: u64,
+    pub rcx: u64,
+    pub rdx: u64,
+    pub rbp: u64,
+    pub rsi: u64,
+    pub rdi: u64,
+    pub rsp: u64,
+    pub r8: u64,
+    pub r9: u64,
+    pub r10: u64,
+    pub r11: u64,
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
+    pub rip: u64,
+    pub rflags: u64,
+    pub cr0: u64,
+    pub cr2: u64,
+    pub cr3: u64,
+    pub cr4: u64,
+    pub dr0: u64,
+    pub dr1: u64,
+    pub dr2: u64,
+    pub dr3: u64,
+    pub dr6: u64,
+    pub dr7: u64,
+    pub cs_sel: u32,
+    pub ds_sel: u32,
+    pub es_sel: u32,
+    pub fs_sel: u32,
+    pub gs_sel: u32,
+    pub ss_sel: u32,
+    pub tr_sel: u32,
+    pub ldtr_sel: u32,
+    pub cs_limit: u32,
+    pub ds_limit: u32,
+    pub es_limit: u32,
+    pub fs_limit: u32,
+    pub gs_limit: u32,
+    pub ss_limit: u32,
+    pub tr_limit: u32,
+    pub ldtr_limit: u32,
+    pub idtr_limit: u32,
+    pub gdtr_limit: u32,
+    pub cs_base: u64,
+    pub ds_base: u64,
+    pub es_base: u64,
+    pub fs_base: u64,
+    pub gs_base: u64,
+    pub ss_base: u64,
+    pub tr_base: u64,
+    pub ldtr_base: u64,
+    pub idtr_base: u64,
+    pub gdtr_base: u64,
+    pub cs_arbytes: u32,
+    pub ds_arbytes: u32,
+    pub es_arbytes: u32,
+    pub fs_arbytes: u32,
+    pub gs_arbytes: u32,
+    pub ss_arbytes: u32,
+    pub tr_arbytes: u32,
+    pub ldtr_arbytes: u32,
+    pub sysenter_cs: u64,
+    pub sysenter_esp: u64,
+    pub sysenter_eip: u64,
+    pub shadow_gs: u64,
+    pub msr_flags: u64,
+    pub msr_lstar: u64,
+    pub msr_star: u64,
+    pub msr_cstar: u64,
+    pub msr_syscall_mask: u64,
+    pub msr_efer: u64,
+    pub msr_tsc_aux: u64,
+    pub tsc: u64,
+    pub pending_event: u32,
+    pub error_code: u32,
+    pub flags: u32,
+    pub pad0: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+struct HvmEnd {}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+struct BspCtx {
+    header_d: HvmSaveDescriptor,
+    header: HvmSaveHeader,
+    cpu_d: HvmSaveDescriptor,
+    cpu: HvmCpu,
+    end_d: HvmSaveDescriptor,
+    end: HvmEnd,
+}
 
 #[derive(Debug)]
 struct VmemRange {
     start: u64,
     end: u64,
     _flags: u32,
-    nid: u32,
+    _nid: u32,
 }
 
 #[derive(Default)]
 pub struct X86PvhPlatform {
     start_info_segment: Option<DomainSegment>,
-    boot_stack_segment: Option<DomainSegment>,
-    xenstore_segment: Option<DomainSegment>,
 }
+
+const X86_CR0_PE: u64 = 0x01;
+const X86_CR0_ET: u64 =  0x10;
 
 impl X86PvhPlatform {
     pub fn new() -> Self {
@@ -188,7 +304,7 @@ impl BootSetupPlatform for X86PvhPlatform {
             start: 0,
             end: domain.total_pages << self.page_shift(),
             _flags: 0,
-            nid: 0,
+            _nid: 0,
         };
         vmemranges.push(stub);
 
@@ -257,7 +373,8 @@ impl BootSetupPlatform for X86PvhPlatform {
         for i in 0..X86_HVM_NR_SPECIAL_PAGES {
             special_array[i as usize] = special_pfn(i as u32);
         }
-        let _pages = domain.call.populate_physmap(domain.domid, X86_HVM_NR_SPECIAL_PAGES, 0, 0, &special_array).await?;
+        let pages = domain.call.populate_physmap(domain.domid, X86_HVM_NR_SPECIAL_PAGES, 0, 0, &special_array).await?;
+        println!("{:?}", pages);
         domain.phys.clear_pages(special_pfn(0), X86_HVM_NR_SPECIAL_PAGES).await?;
         domain.call.set_hvm_param(domain.domid, HVM_PARAM_STORE_PFN, special_pfn(SPECIALPAGE_XENSTORE)).await?;
         domain.call.set_hvm_param(domain.domid, HVM_PARAM_BUFIOREQ_PFN, special_pfn(SPECIALPAGE_BUFIOREQ)).await?;
@@ -296,54 +413,44 @@ impl BootSetupPlatform for X86PvhPlatform {
        Ok(())
     }
 
-    async fn bootlate(&mut self, domain: &mut BootDomain) -> Result<()> {
+    async fn bootlate(&mut self, _: &mut BootDomain) -> Result<()> {
         Ok(())
     }
 
     async fn vcpu(&mut self, domain: &mut BootDomain) -> Result<()> {
-        let boot_stack_segment = self
-            .boot_stack_segment
-            .as_ref()
-            .ok_or(Error::MemorySetupFailed("boot_stack_segment missing"))?;
-        let start_info_segment = self
-            .start_info_segment
-            .as_ref()
-            .ok_or(Error::MemorySetupFailed("start_info_segment missing"))?;
-        let pg_pfn = 0;
-        let pg_mfn = domain.phys.p2m[pg_pfn as usize];
-        let mut vcpu = x8664VcpuGuestContext::default();
-        vcpu.user_regs.rip = domain.image_info.virt_entry;
-        vcpu.user_regs.rsp =
-            domain.image_info.virt_base + (boot_stack_segment.pfn + 1) * self.page_size();
-        vcpu.user_regs.rsi =
-            domain.image_info.virt_base + (start_info_segment.pfn) * self.page_size();
-        vcpu.user_regs.rflags = 1 << 9;
-        vcpu.debugreg[6] = 0xffff0ff0;
-        vcpu.debugreg[7] = 0x00000400;
-        vcpu.flags = VGCF_IN_KERNEL | VGCF_ONLINE;
-        let cr3_pfn = pg_mfn;
-        vcpu.ctrlreg[3] = cr3_pfn << 12;
-        vcpu.user_regs.ds = 0x0;
-        vcpu.user_regs.es = 0x0;
-        vcpu.user_regs.fs = 0x0;
-        vcpu.user_regs.gs = 0x0;
-        vcpu.user_regs.ss = 0xe02b;
-        vcpu.user_regs.cs = 0xe033;
-        vcpu.kernel_ss = vcpu.user_regs.ss as u64;
-        vcpu.kernel_sp = vcpu.user_regs.rsp;
-        trace!("vcpu context: {:?}", vcpu);
-        domain.call.set_vcpu_context(domain.domid, 0, xencall::sys::VcpuGuestContextAny { value: vcpu }).await?;
+        let size = domain.call.get_hvm_context(domain.domid, None).await?;
+        let mut full_context = vec![0u8; size as usize];
+        domain.call.get_hvm_context(domain.domid, Some(&mut full_context)).await?;
+        let mut ctx: BspCtx = unsafe { MaybeUninit::zeroed().assume_init() };
+        unsafe { std::ptr::copy(full_context.as_ptr(), addr_of_mut!(ctx) as *mut u8, size_of::<HvmSaveDescriptor>() + size_of::<HvmSaveHeader>()) };
+        ctx.cpu_d.instance = 0;
+        ctx.cpu.cs_base = 0;
+        ctx.cpu.ds_base = 0;
+        ctx.cpu.es_base = 0;
+        ctx.cpu.ss_base = 0;
+        ctx.cpu.tr_base = 0;
+        ctx.cpu.cs_limit = !0;
+        ctx.cpu.ds_limit = !0;
+        ctx.cpu.es_limit = !0;
+        ctx.cpu.ss_limit = !0;
+        ctx.cpu.tr_limit = 0x67;
+        ctx.cpu.cs_arbytes = 0xc9b;
+        ctx.cpu.ds_arbytes = 0xc93;
+        ctx.cpu.es_arbytes = 0xc93;
+        ctx.cpu.ss_arbytes = 0xc93;
+        ctx.cpu.tr_arbytes = 0x8b;
+        ctx.cpu.cr0 = X86_CR0_PE | X86_CR0_ET;
+        ctx.cpu.rip = domain.image_info.virt_entry;
+        ctx.cpu.dr6 = 0xffff0ff0;
+        ctx.cpu.dr7 = 0x00000400;
+        let addr = addr_of_mut!(ctx) as *mut u8;
+        let slice = unsafe { std::slice::from_raw_parts_mut(addr, size_of::<BspCtx>()) };
+        domain.call.set_hvm_context(domain.domid, slice).await?;
         Ok(())
     }
 
     async fn gnttab_seed(&mut self, domain: &mut BootDomain) -> Result<()> {
-        let xenstore_segment = self
-            .xenstore_segment
-            .as_ref()
-            .ok_or(Error::MemorySetupFailed("xenstore_segment missing"))?;
-
         let console_gfn = domain.consoles.first().map(|x| x.1).unwrap_or(0) as usize;
-        let xenstore_gfn = domain.phys.p2m[xenstore_segment.pfn as usize];
         let addr = domain
             .call
             .mmap(0, 1 << XEN_PAGE_SHIFT)
@@ -359,7 +466,7 @@ impl BootSetupPlatform for X86PvhPlatform {
         entries[0].frame = console_gfn as u32;
         entries[1].flags = 1 << 0;
         entries[1].domid = 0;
-        entries[1].frame = xenstore_gfn as u32;
+        entries[1].frame = domain.xenstore_mfn as u32;
         unsafe {
             let result = munmap(addr as *mut c_void, 1 << XEN_PAGE_SHIFT);
             if result != 0 {
