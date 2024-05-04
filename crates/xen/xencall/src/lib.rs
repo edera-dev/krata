@@ -3,7 +3,7 @@ pub mod sys;
 
 use crate::error::{Error, Result};
 use crate::sys::{
-    AddressSize, AssignDevice, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext, EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, HvmParam, Hypercall, HypercallInit, IoMemPermission, IoPortPermission, IrqPermission, MaxMem, MaxVcpus, MemoryMap, MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, PciAssignDevice, XenCapabilitiesInfo, DOMCTL_DEV_PCI, HYPERVISOR_DOMCTL, HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_HVM_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL, HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_ASSIGN_DEVICE, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_IOMEM_PERMISSION, XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION, XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP, XEN_MEM_POPULATE_PHYSMAP
+    AddressSize, AssignDevice, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext, EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, HvmContext, HvmParam, Hypercall, HypercallInit, IoMemPermission, IoPortPermission, IrqPermission, MaxMem, MaxVcpus, MemoryMap, MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, PciAssignDevice, XenCapabilitiesInfo, DOMCTL_DEV_PCI, HYPERVISOR_DOMCTL, HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_HVM_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL, HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_ASSIGN_DEVICE, XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETHVMCONTEXT, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_IOMEM_PERMISSION, XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION, XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETHVMCONTEXT, XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP, XEN_MEM_POPULATE_PHYSMAP
 };
 use libc::{c_int, mmap, usleep, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use log::trace;
@@ -17,7 +17,7 @@ use tokio::sync::Semaphore;
 
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
-use std::ptr::addr_of_mut;
+use std::ptr::{addr_of_mut, null_mut};
 use std::slice;
 
 #[derive(Clone)]
@@ -818,5 +818,49 @@ impl XenCall {
         )
         .await?;
         Ok(())
+    }
+
+    pub async fn get_hvm_context(&self, domid: u32, buffer: Option<&mut [u8]>) -> Result<u32> {
+        trace!(
+            "domctl fd={} get_hvm_context domid={}",
+            self.handle.as_raw_fd(),
+            domid,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_GETHVMCONTEXT,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                hvm_context: HvmContext {
+                    size: buffer.as_ref().map(|x| x.len()).unwrap_or(0) as u32,
+                    buffer: buffer.map(|x| x.as_mut_ptr()).unwrap_or(null_mut()) as u64,
+                }
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(unsafe { domctl.value.hvm_context.size })
+    }
+
+    pub async fn set_hvm_context(&self, domid: u32, buffer: &mut [u8]) -> Result<u32> {
+        trace!(
+            "domctl fd={} set_hvm_context domid={}",
+            self.handle.as_raw_fd(),
+            domid,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_SETHVMCONTEXT,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                hvm_context: HvmContext {
+                    size: buffer.len() as u32,
+                    buffer: buffer.as_ptr() as u64,
+                }
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(unsafe { domctl.value.hvm_context.size })
     }
 }

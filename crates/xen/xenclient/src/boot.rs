@@ -203,7 +203,7 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
         }
 
         domain.initrd_segment =
-            initrd_segment.ok_or(Error::MemorySetupFailed("initd_segment missing"))?;
+            initrd_segment.ok_or(Error::MemorySetupFailed("initrd_segment missing"))?;
         domain.store_evtchn = self.call.evtchn_alloc_unbound(self.domid, 0).await?;
 
         let _kernel_segment =

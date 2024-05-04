@@ -326,6 +326,8 @@ impl XenClient {
                 .await?;
             tx.write_string(format!("{}/domid", dom_path).as_str(), &domid.to_string())
                 .await?;
+            tx.write_string(format!("{}/type", dom_path).as_str(), "PVH")
+            .await?;
             tx.write_string(
                 format!("{}/store/port", dom_path).as_str(),
                 &xenstore_evtchn.to_string(),
