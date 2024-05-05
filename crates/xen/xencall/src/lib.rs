@@ -791,7 +791,13 @@ impl XenCall {
             index,
             pirq,
         );
-        let mut physdev = PhysdevMapPirq::default();
+        let mut physdev = PhysdevMapPirq {
+            domid: domid as u16,
+            typ: 0x1,
+            index: index as c_int,
+            pirq: pirq.map(|x| x as c_int).unwrap_or(index as c_int),
+            ..Default::default()
+        };
         physdev.domid = domid as u16;
         physdev.typ = 0x1;
         physdev.index = index as c_int;

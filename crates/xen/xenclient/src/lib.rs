@@ -20,12 +20,12 @@ use crate::boot::{ArchBootSetup, BootSetup};
 use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
 use boot::BootState;
+use indexmap::IndexMap;
 use log::{debug, trace, warn};
 use pci::{PciBdf, XenPciBackend};
 use sys::XEN_PAGE_SHIFT;
 use tokio::time::timeout;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -36,7 +36,8 @@ use xencall::sys::{
 };
 use xencall::XenCall;
 use xenstore::{
-    XsPermission, XsdClient, XsdInterface, XS_PERM_NONE, XS_PERM_READ, XS_PERM_READ_WRITE,
+    XsPermission, XsdClient, XsdInterface, XsdTransaction, XS_PERM_NONE, XS_PERM_READ,
+    XS_PERM_READ_WRITE,
 };
 
 pub mod pci;
@@ -145,6 +146,7 @@ pub struct CreatedDomain {
     pub channels: Vec<CreatedChannel>,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl XenClient {
     pub async fn open(current_domid: u32) -> Result<XenClient> {
         let store = XsdClient::open().await?;
@@ -374,7 +376,10 @@ impl XenClient {
         {
             return Err(Error::IntroduceDomainFailed);
         }
+
+        let tx = self.store.transaction().await?;
         self.console_device_add(
+            &tx,
             &DomainChannel {
                 typ: config
                     .use_console_backend
@@ -397,6 +402,7 @@ impl XenClient {
         for (index, channel) in config.channels.iter().enumerate() {
             let (Some(ring_ref), Some(evtchn)) = self
                 .console_device_add(
+                    &tx,
                     channel,
                     &p2m,
                     &state,
@@ -415,6 +421,7 @@ impl XenClient {
 
         for (index, disk) in config.disks.iter().enumerate() {
             self.disk_device_add(
+                &tx,
                 &dom_path,
                 &backend_dom_path,
                 config.backend_domid,
@@ -427,6 +434,7 @@ impl XenClient {
 
         for (index, filesystem) in config.filesystems.iter().enumerate() {
             self.fs_9p_device_add(
+                &tx,
                 &dom_path,
                 &backend_dom_path,
                 config.backend_domid,
@@ -439,6 +447,7 @@ impl XenClient {
 
         for (index, vif) in config.vifs.iter().enumerate() {
             self.vif_device_add(
+                &tx,
                 &dom_path,
                 &backend_dom_path,
                 config.backend_domid,
@@ -451,6 +460,7 @@ impl XenClient {
 
         for (index, pci) in config.pcis.iter().enumerate() {
             self.pci_device_add(
+                &tx,
                 &dom_path,
                 &backend_dom_path,
                 config.backend_domid,
@@ -468,13 +478,13 @@ impl XenClient {
                 .evtchn_alloc_unbound(domid, config.backend_domid)
                 .await?;
             let channel_path = format!("{}/evtchn/{}", dom_path, channel.name);
-            self.store
-                .write_string(&format!("{}/name", channel_path), &channel.name)
+            tx.write_string(&format!("{}/name", channel_path), &channel.name)
                 .await?;
-            self.store
-                .write_string(&format!("{}/channel", channel_path), &id.to_string())
+            tx.write_string(&format!("{}/channel", channel_path), &id.to_string())
                 .await?;
         }
+
+        tx.commit().await?;
 
         self.call.unpause_domain(domid).await?;
         Ok(CreatedDomain { domid, channels })
@@ -482,6 +492,7 @@ impl XenClient {
 
     async fn disk_device_add(
         &self,
+        tx: &XsdTransaction,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
@@ -519,6 +530,7 @@ impl XenClient {
         ];
 
         self.device_add(
+            tx,
             "vbd",
             id,
             dom_path,
@@ -532,9 +544,10 @@ impl XenClient {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments, clippy::unnecessary_unwrap)]
+    #[allow(clippy::unnecessary_unwrap)]
     async fn console_device_add(
         &self,
+        tx: &XsdTransaction,
         channel: &DomainChannel,
         p2m: &[u64],
         state: &BootState,
@@ -587,6 +600,7 @@ impl XenClient {
         }
 
         self.device_add(
+            tx,
             "console",
             index as u64,
             dom_path,
@@ -602,6 +616,7 @@ impl XenClient {
 
     async fn fs_9p_device_add(
         &self,
+        tx: &XsdTransaction,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
@@ -625,6 +640,7 @@ impl XenClient {
         ];
 
         self.device_add(
+            tx,
             "9pfs",
             id,
             dom_path,
@@ -640,6 +656,7 @@ impl XenClient {
 
     async fn vif_device_add(
         &self,
+        tx: &XsdTransaction,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
@@ -683,6 +700,7 @@ impl XenClient {
         ];
 
         self.device_add(
+            tx,
             "vif",
             id,
             dom_path,
@@ -696,9 +714,9 @@ impl XenClient {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn pci_device_add(
         &self,
+        tx: &XsdTransaction,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
@@ -729,7 +747,12 @@ impl XenClient {
             }
         }
 
-        // backend.reset(&device.bdf).await?;
+        if let Some(irq) = backend.read_irq(&device.bdf).await? {
+            let irq = self.call.map_pirq(domid, irq as isize, None).await?;
+            self.call.irq_permission(domid, irq, true).await?;
+        }
+
+        backend.reset(&device.bdf).await?;
 
         self.call
             .assign_device(
@@ -742,6 +765,10 @@ impl XenClient {
                 },
             )
             .await?;
+
+        if device.permissive {
+            backend.enable_permissive(&device.bdf).await?;
+        }
 
         let id = 60;
 
@@ -759,6 +786,7 @@ impl XenClient {
             ];
 
             self.device_add(
+                tx,
                 "pci",
                 id,
                 dom_path,
@@ -773,31 +801,26 @@ impl XenClient {
 
         let backend_path = format!("{}/backend/{}/{}/{}", backend_dom_path, "pci", domid, id);
 
-        let transaction = self.store.transaction().await?;
-
-        transaction
-            .write_string(
-                format!("{}/key-{}", backend_path, index),
-                &device.bdf.to_string(),
-            )
-            .await?;
-        transaction
-            .write_string(
-                format!("{}/dev-{}", backend_path, index),
-                &device.bdf.to_string(),
-            )
-            .await?;
+        tx.write_string(
+            format!("{}/key-{}", backend_path, index),
+            &device.bdf.to_string(),
+        )
+        .await?;
+        tx.write_string(
+            format!("{}/dev-{}", backend_path, index),
+            &device.bdf.to_string(),
+        )
+        .await?;
 
         if let Some(vdefn) = device.bdf.vdefn {
-            transaction
-                .write_string(
-                    format!("{}/vdefn-{}", backend_path, index),
-                    &format!("{:#x}", vdefn),
-                )
-                .await?;
+            tx.write_string(
+                format!("{}/vdefn-{}", backend_path, index),
+                &format!("{:#x}", vdefn),
+            )
+            .await?;
         }
 
-        let mut options = HashMap::new();
+        let mut options = IndexMap::new();
         options.insert("permissive", if device.permissive { "1" } else { "0" });
         options.insert("rdm_policy", device.rdm_reserve_policy.to_option_str());
         options.insert("msitranslate", if device.msi_translate { "1" } else { "0" });
@@ -811,17 +834,14 @@ impl XenClient {
             .collect::<Vec<_>>()
             .join(",");
 
-        transaction
-            .write_string(format!("{}/opts-{}", backend_path, index), &options)
+        tx.write_string(format!("{}/opts-{}", backend_path, index), &options)
             .await?;
-
-        transaction.commit().await?;
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn device_add(
         &self,
+        tx: &XsdTransaction,
         typ: &str,
         id: u64,
         dom_path: &str,
@@ -866,7 +886,6 @@ impl XenClient {
             },
         ];
 
-        let tx = self.store.transaction().await?;
         tx.mknod(&frontend_path, frontend_perms).await?;
         for (p, value) in &frontend_items {
             let path = format!("{}/{}", frontend_path, *p);
@@ -880,7 +899,6 @@ impl XenClient {
             let path = format!("{}/{}", backend_path, *p);
             tx.write_string(&path, value).await?;
         }
-        tx.commit().await?;
         Ok(())
     }
 

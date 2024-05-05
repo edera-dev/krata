@@ -1600,6 +1600,7 @@ dependencies = [
  "elf",
  "env_logger",
  "flate2",
+ "indexmap 2.2.6",
  "krata-xencall",
  "krata-xenstore",
  "libc",

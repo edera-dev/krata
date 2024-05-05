@@ -112,6 +112,13 @@ impl XenPciBackend {
         Ok(resources)
     }
 
+    pub async fn enable_permissive(&self, bdf: &PciBdf) -> Result<()> {
+        let mut path: PathBuf = self.path.clone();
+        path.push("permissive");
+        fs::write(path, bdf.to_string()).await?;
+        Ok(())
+    }
+
     pub async fn has_slot(&self, bdf: &PciBdf) -> Result<bool> {
         let mut slots_path = self.path.clone();
         slots_path.push("slots");
@@ -128,8 +135,9 @@ impl XenPciBackend {
 
     pub async fn reset(&self, bdf: &PciBdf) -> Result<()> {
         let mut path: PathBuf = self.path.clone();
-        path.push("do_flr");
-        fs::write(&path, bdf.to_string()).await?;
+        path.push(bdf.to_string());
+        path.push("reset");
+        let _ = fs::write(path, "1\n").await;
         Ok(())
     }
 }
