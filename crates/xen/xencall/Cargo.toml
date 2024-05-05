@@ -33,7 +33,3 @@ path = "examples/domain_create.rs"
 [[example]]
 name = "xencall-version-capabilities"
 path = "examples/version_capabilities.rs"
-
-[[example]]
-name = "xencall-vcpu-context"
-path = "examples/vcpu_context.rs"

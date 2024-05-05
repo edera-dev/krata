@@ -1,7 +1,7 @@
 use crate::error::Result;
-use crate::sys::{XEN_PAGE_SHIFT, XEN_PAGE_SIZE};
+use crate::sys::XEN_PAGE_SHIFT;
 use crate::Error;
-use libc::{memset, munmap};
+use libc::munmap;
 use log::debug;
 use nix::errno::Errno;
 use std::ffi::c_void;
@@ -124,11 +124,20 @@ impl PhysicalPages {
         Ok(addr)
     }
 
-    pub async fn map_foreign_pages(&mut self, mfn: u64, size: u64) -> Result<PhysicalPage> {
-        let num = (size >> XEN_PAGE_SHIFT) as usize;
+    pub async fn map_foreign_pages(&mut self, mfn: u64, size: u64) -> Result<u64> {
+        let count = (size >> XEN_PAGE_SHIFT) as usize;
+        let mut entries = vec![MmapEntry::default(); count];
+        for (i, entry) in entries.iter_mut().enumerate() {
+            entry.mfn = mfn + i as u64;
+        }
+        let chunk_size = 1 << XEN_PAGE_SHIFT;
+        let num_per_entry = chunk_size >> XEN_PAGE_SHIFT;
+        let num = num_per_entry * count;
         let mut pfns = vec![u64::MAX; num];
-        for (i, item) in pfns.iter_mut().enumerate().take(num) {
-            *item = mfn + i as u64;
+        for i in 0..count {
+            for j in 0..num_per_entry {
+                pfns[i * num_per_entry + j] = entries[i].mfn + j as u64;
+            }
         }
 
         let actual_mmap_len = (num as u64) << XEN_PAGE_SHIFT;
@@ -148,24 +157,21 @@ impl PhysicalPages {
         let page = PhysicalPage {
             pfn: mfn,
             ptr: addr,
-            count: num as u64,
+            count: count as u64,
         };
         debug!(
             "alloc_mfn {:#x}+{:#x} at {:#x}",
             page.pfn, page.count, page.ptr
         );
-        self.pages.push(page.clone());
-        Ok(page)
+        self.pages.push(page);
+        Ok(addr)
     }
 
     pub async fn clear_pages(&mut self, pfn: u64, count: u64) -> Result<()> {
-        let mfn = if !self.p2m.is_empty() {
-            self.p2m[pfn as usize]
-        } else {
-            pfn
+        let ptr = self.pfn_to_ptr(pfn, count).await?;
+        let slice = unsafe {
+            slice::from_raw_parts_mut(ptr as *mut u8, (count * (1 << self.page_shift)) as usize)
         };
-        let page = self.map_foreign_pages(mfn, count << XEN_PAGE_SHIFT).await?;
-        let slice = unsafe { slice::from_raw_parts_mut(page.ptr as *mut u8, (count << XEN_PAGE_SHIFT) as usize) };
         slice.fill(0);
         Ok(())
     }

@@ -16,12 +16,10 @@ use tokio::time::timeout;
 
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
-use xencall::sys::{
-    CreateDomain, DOMCTL_DEV_RDM_RELAXED, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST,
-    XEN_DOMCTL_CDF_IOMMU, XEN_X86_EMU_LAPIC,
-};
+use xencall::sys::{CreateDomain, DOMCTL_DEV_RDM_RELAXED};
 use xencall::XenCall;
 use xenstore::{
     XsPermission, XsdClient, XsdInterface, XsdTransaction, XS_PERM_NONE, XS_PERM_READ,
@@ -33,9 +31,10 @@ pub mod x86pv;
 pub mod x86pvh;
 
 #[derive(Clone)]
-pub struct XenClient {
+pub struct XenClient<P: BootSetupPlatform> {
     pub store: XsdClient,
     call: XenCall,
+    platform: Arc<P>,
 }
 
 #[derive(Clone, Debug)]
@@ -141,23 +140,16 @@ impl XenClient {
     pub async fn open(current_domid: u32) -> Result<XenClient> {
         let store = XsdClient::open().await?;
         let call = XenCall::open(current_domid)?;
-        Ok(XenClient { store, call })
+        Ok(XenClient {
+            store,
+            call,
+            platform: Arc::new(platform),
+        })
     }
 
     pub async fn create(&self, config: &DomainConfig) -> Result<CreatedDomain> {
-        let mut domain = CreateDomain {
-            max_vcpus: config.max_vcpus,
-            ..Default::default()
-        };
+        let mut domain = self.platform.create_domain();
         domain.max_vcpus = config.max_vcpus;
-
-        if cfg!(target_arch = "aarch64") {
-            domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP;
-        } else {
-            domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP | XEN_DOMCTL_CDF_IOMMU;
-            domain.arch_domain_config.emulation_flags = XEN_X86_EMU_LAPIC;
-        }
-
         let domid = self.call.create_domain(domain).await?;
         match self.init(domid, &domain, config).await {
             Ok(created) => Ok(created),
@@ -173,18 +165,18 @@ impl XenClient {
     async fn init(
         &self,
         domid: u32,
-        domain: &CreateDomain,
+        created: &CreateDomain,
         config: &DomainConfig,
     ) -> Result<CreatedDomain> {
         trace!(
             "XenClient init domid={} domain={:?} config={:?}",
             domid,
-            domain,
+            created,
             config
         );
         let backend_dom_path = self.store.get_domain_path(0).await?;
         let dom_path = self.store.get_domain_path(domid).await?;
-        let uuid_string = Uuid::from_bytes(domain.handle).to_string();
+        let uuid_string = Uuid::from_bytes(created.handle).to_string();
         let vm_path = format!("/vm/{}", uuid_string);
 
         let ro_perm = &[
@@ -265,7 +257,7 @@ impl XenClient {
 
             tx.write_string(
                 format!("{}/uuid", vm_path).as_str(),
-                &Uuid::from_bytes(domain.handle).to_string(),
+                &Uuid::from_bytes(created.handle).to_string(),
             )
             .await?;
             tx.write_string(format!("{}/name", dom_path).as_str(), &config.name)
@@ -287,19 +279,16 @@ impl XenClient {
         }
 
         self.call.set_max_vcpus(domid, config.max_vcpus).await?;
-        self.call.set_max_mem(domid, config.mem_mb * 1024).await?;
-        let xenstore_evtchn: u32;
-        let xenstore_mfn: u64;
-
+        self.call
+            .set_max_mem(domid, (config.mem_mb * 1024) + 1024)
+            .await?;
         let mut domain: BootDomain;
         {
             let loader = ElfImageLoader::load_file_kernel(&config.kernel)?;
-            let mut boot =
-                BootSetup::new(self.call.clone(), domid, X86PvhPlatform::new(), loader, None);
+            let platform = (*self.platform).clone();
+            let mut boot = BootSetup::new(self.call.clone(), domid, platform, loader, None);
             domain = boot.initialize(&config.initrd, config.mem_mb).await?;
             boot.boot(&mut domain, &config.cmdline).await?;
-            xenstore_evtchn = domain.store_evtchn;
-            xenstore_mfn = domain.xenstore_mfn;
         }
 
         {
@@ -327,15 +316,15 @@ impl XenClient {
             tx.write_string(format!("{}/domid", dom_path).as_str(), &domid.to_string())
                 .await?;
             tx.write_string(format!("{}/type", dom_path).as_str(), "PVH")
-            .await?;
+                .await?;
             tx.write_string(
                 format!("{}/store/port", dom_path).as_str(),
-                &xenstore_evtchn.to_string(),
+                &domain.store_evtchn.to_string(),
             )
             .await?;
             tx.write_string(
                 format!("{}/store/ring-ref", dom_path).as_str(),
-                &xenstore_mfn.to_string(),
+                &domain.store_mfn.to_string(),
             )
             .await?;
             for i in 0..config.max_vcpus {
@@ -350,7 +339,7 @@ impl XenClient {
         }
         if !self
             .store
-            .introduce_domain(domid, xenstore_mfn, xenstore_evtchn)
+            .introduce_domain(domid, domain.store_mfn, domain.store_evtchn)
             .await?
         {
             return Err(Error::IntroduceDomainFailed);

@@ -35,8 +35,8 @@ pub struct MmapBatch {
     pub num: u32,
     pub domid: u16,
     pub addr: u64,
-    pub mfns: *mut u64,
-    pub errors: *mut c_int,
+    pub mfns: u64,
+    pub errors: u64,
 }
 
 #[repr(C)]
@@ -200,6 +200,7 @@ pub const XEN_DOMCTL_PSR_CAT_OP: u32 = 78;
 pub const XEN_DOMCTL_SOFT_RESET: u32 = 79;
 pub const XEN_DOMCTL_SET_GNTTAB_LIMITS: u32 = 80;
 pub const XEN_DOMCTL_VUART_OP: u32 = 81;
+pub const XEN_DOMCTL_SET_PAGING_MEMPOOL_SIZE: u32 = 86;
 pub const XEN_DOMCTL_GDBSX_GUESTMEMIO: u32 = 1000;
 pub const XEN_DOMCTL_GDBSX_PAUSEVCPU: u32 = 1001;
 pub const XEN_DOMCTL_GDBSX_UNPAUSEVCPU: u32 = 1002;
@@ -243,6 +244,7 @@ pub union DomCtlValue {
     pub irq_permission: IrqPermission,
     pub assign_device: AssignDevice,
     pub hvm_context: HvmContext,
+    pub paging_mempool: PagingMempool,
     pub pad: [u8; 128],
 }
 
@@ -270,8 +272,6 @@ impl Default for CreateDomain {
             handle: Uuid::new_v4().into_bytes(),
             #[cfg(target_arch = "x86_64")]
             flags: 0,
-            #[cfg(target_arch = "aarch64")]
-            flags: 1 << XEN_DOMCTL_CDF_HVM_GUEST,
             iommu_opts: 0,
             max_vcpus: 1,
             max_evtchn_port: 1023,
@@ -697,4 +697,10 @@ pub struct HvmParam {
 pub struct HvmContext {
     pub size: u32,
     pub buffer: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PagingMempool {
+    pub size: u64,
 }

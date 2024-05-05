@@ -1,19 +1,25 @@
 use std::{
-    mem::{size_of, MaybeUninit}, os::raw::{c_char, c_void}, ptr::addr_of_mut, slice
+    mem::{size_of, MaybeUninit},
+    os::raw::{c_char, c_void},
+    ptr::addr_of_mut,
+    slice,
 };
 
 use libc::munmap;
-use log::trace;
 use nix::errno::Errno;
 use xencall::sys::{
-    x8664VcpuGuestContext, E820Entry, E820_RAM, MEMFLAGS_POPULATE_ON_DEMAND
+    ArchDomainConfig, CreateDomain, E820Entry, E820_RAM, E820_RESERVED,
+    MEMFLAGS_POPULATE_ON_DEMAND, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST,
+    XEN_DOMCTL_CDF_IOMMU, XEN_X86_EMU_LAPIC,
 };
 
 use crate::{
     boot::{BootDomain, BootSetupPlatform, DomainSegment},
     error::{Error, Result},
     sys::{
-        GrantEntry, HVM_PARAM_BUFIOREQ_PFN, HVM_PARAM_CONSOLE_PFN, HVM_PARAM_IOREQ_PFN, HVM_PARAM_MONITOR_RING_PFN, HVM_PARAM_PAGING_RING_PFN, HVM_PARAM_SHARING_RING_PFN, HVM_PARAM_STORE_PFN, SUPERPAGE_1GB_NR_PFNS, SUPERPAGE_1GB_SHIFT, SUPERPAGE_2MB_NR_PFNS, SUPERPAGE_2MB_SHIFT, SUPERPAGE_BATCH_SIZE, VGCF_IN_KERNEL, VGCF_ONLINE, XEN_PAGE_SHIFT
+        GrantEntry, HVM_PARAM_ALTP2M, HVM_PARAM_BUFIOREQ_PFN, HVM_PARAM_CONSOLE_PFN,
+        HVM_PARAM_IOREQ_PFN, HVM_PARAM_MONITOR_RING_PFN, HVM_PARAM_PAGING_RING_PFN,
+        HVM_PARAM_SHARING_RING_PFN, HVM_PARAM_STORE_PFN, HVM_PARAM_TIMER_MODE, XEN_PAGE_SHIFT,
     },
 };
 
@@ -240,13 +246,16 @@ struct VmemRange {
     _nid: u32,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct X86PvhPlatform {
     start_info_segment: Option<DomainSegment>,
+    lowmem_end: u64,
+    highmem_end: u64,
+    mmio_start: u64,
 }
 
 const X86_CR0_PE: u64 = 0x01;
-const X86_CR0_ET: u64 =  0x10;
+const X86_CR0_ET: u64 = 0x10;
 
 impl X86PvhPlatform {
     pub fn new() -> Self {
@@ -255,19 +264,35 @@ impl X86PvhPlatform {
         }
     }
 
-    pub fn construct_memmap(&self, mem_size_bytes: u64) -> Result<Vec<E820Entry>> {
-        let entries = vec![
-            E820Entry {
-                addr: 0,
-                size: mem_size_bytes,
-                typ: E820_RAM
-            },
-            E820Entry {
-                addr: (X86_HVM_END_SPECIAL_REGION - X86_HVM_NR_SPECIAL_PAGES) << XEN_PAGE_SHIFT,
-                size: X86_HVM_NR_SPECIAL_PAGES << XEN_PAGE_SHIFT,
-                typ: E820_RAM
-            },
-        ];
+    pub fn construct_memmap(&self) -> Result<Vec<E820Entry>> {
+        let mut entries = Vec::new();
+
+        let highmem_size = if self.highmem_end > 0 {
+            self.highmem_end - (1u64 << 32)
+        } else {
+            0
+        };
+        let lowmem_start = 0u64;
+        entries.push(E820Entry {
+            addr: lowmem_start,
+            size: self.lowmem_end - lowmem_start,
+            typ: E820_RAM,
+        });
+
+        entries.push(E820Entry {
+            addr: (X86_HVM_END_SPECIAL_REGION - X86_HVM_NR_SPECIAL_PAGES) << XEN_PAGE_SHIFT,
+            size: X86_HVM_NR_SPECIAL_PAGES << XEN_PAGE_SHIFT,
+            typ: E820_RESERVED,
+        });
+
+        if highmem_size > 0 {
+            entries.push(E820Entry {
+                addr: 1u64 << 32,
+                size: highmem_size,
+                typ: E820_RAM,
+            });
+        }
+
         Ok(entries)
     }
 
@@ -280,6 +305,17 @@ impl X86PvhPlatform {
 
 #[async_trait::async_trait]
 impl BootSetupPlatform for X86PvhPlatform {
+    fn create_domain(&self) -> CreateDomain {
+        CreateDomain {
+            flags: XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP | XEN_DOMCTL_CDF_IOMMU,
+            arch_domain_config: ArchDomainConfig {
+                emulation_flags: XEN_X86_EMU_LAPIC,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
     fn page_size(&self) -> u64 {
         X86_PAGE_SIZE
     }
@@ -292,7 +328,49 @@ impl BootSetupPlatform for X86PvhPlatform {
         false
     }
 
-    async fn initialize_memory(&self, domain: &mut BootDomain) -> Result<()> {
+    async fn initialize_early(&mut self, domain: &mut BootDomain) -> Result<()> {
+        let mut memory_start =
+            (X86_HVM_END_SPECIAL_REGION - X86_HVM_NR_SPECIAL_PAGES) << self.page_shift();
+        memory_start = memory_start.min(LAPIC_BASE_ADDRESS);
+        memory_start = memory_start.min(ACPI_INFO_PHYSICAL_ADDRESS);
+        let mmio_size = (4 * 1024 * 1024 * 1024) - memory_start;
+        let mut lowmem_end = domain.total_pages << self.page_shift();
+        let mut highmem_end = 0u64;
+        let mmio_start = (1u64 << 32) - mmio_size;
+
+        if lowmem_end > mmio_start {
+            highmem_end = (1 << 32) + (lowmem_end - mmio_start);
+            lowmem_end = mmio_start;
+        }
+        self.lowmem_end = lowmem_end;
+        self.highmem_end = highmem_end;
+        self.mmio_start = mmio_start;
+
+        domain
+            .call
+            .set_hvm_param(domain.domid, HVM_PARAM_TIMER_MODE, 1)
+            .await?;
+        domain
+            .call
+            .set_hvm_param(domain.domid, HVM_PARAM_ALTP2M, 0)
+            .await?;
+        domain
+            .call
+            .set_paging_mempool_size(domain.domid, 1024 << 12)
+            .await?;
+        let memmap = self.construct_memmap()?;
+        domain
+            .call
+            .set_memory_map(domain.domid, memmap.clone())
+            .await?;
+        Ok(())
+    }
+
+    async fn initialize_memory(&mut self, domain: &mut BootDomain) -> Result<()> {
+        domain
+            .call
+            .claim_pages(domain.domid, domain.total_pages)
+            .await?;
         let memflags = if domain.target_pages > domain.total_pages {
             MEMFLAGS_POPULATE_ON_DEMAND
         } else {
@@ -300,13 +378,21 @@ impl BootSetupPlatform for X86PvhPlatform {
         };
 
         let mut vmemranges: Vec<VmemRange> = Vec::new();
-        let stub = VmemRange {
+        vmemranges.push(VmemRange {
             start: 0,
-            end: domain.total_pages << self.page_shift(),
+            end: self.lowmem_end,
             _flags: 0,
             _nid: 0,
-        };
-        vmemranges.push(stub);
+        });
+
+        if self.highmem_end > (1u64 << 32) {
+            vmemranges.push(VmemRange {
+                start: 1u64 << 32,
+                end: self.highmem_end,
+                _flags: 0,
+                _nid: 0,
+            });
+        }
 
         let mut p2m_size: u64 = 0;
         let mut total: u64 = 0;
@@ -320,8 +406,6 @@ impl BootSetupPlatform for X86PvhPlatform {
         }
 
         for range in &vmemranges {
-            let memflags = memflags;
-
             let end_pages = range.end >> self.page_shift();
             let mut cur_pages = range.start >> self.page_shift();
 
@@ -334,26 +418,25 @@ impl BootSetupPlatform for X86PvhPlatform {
                         extents[i as usize] = cur_pages + i;
                     }
 
-                    let _ = domain.call.populate_physmap(domain.domid, count, 0 as u32, memflags, &extents).await?;
-                    cur_pages += count as u64;
+                    let _ = domain
+                        .call
+                        .populate_physmap(domain.domid, count, 0_u32, memflags, &extents)
+                        .await?;
+                    cur_pages += count;
                 }
             }
         }
 
+        domain.call.claim_pages(domain.domid, 0).await?;
+
         Ok(())
     }
 
-    async fn alloc_p2m_segment(
-        &mut self,
-        _: &mut BootDomain,
-    ) -> Result<Option<DomainSegment>> {
+    async fn alloc_p2m_segment(&mut self, _: &mut BootDomain) -> Result<Option<DomainSegment>> {
         Ok(None)
     }
 
-    async fn alloc_page_tables(
-        &mut self,
-        _: &mut BootDomain,
-    ) -> Result<Option<DomainSegment>> {
+    async fn alloc_page_tables(&mut self, _: &mut BootDomain) -> Result<Option<DomainSegment>> {
         Ok(None)
     }
 
@@ -366,23 +449,81 @@ impl BootSetupPlatform for X86PvhPlatform {
     }
 
     async fn alloc_magic_pages(&mut self, domain: &mut BootDomain) -> Result<()> {
-        let memmap = self.construct_memmap(domain.total_pages << XEN_PAGE_SHIFT)?;
-        domain.call.set_memory_map(domain.domid, memmap.clone()).await?;
-
+        let memmap = self.construct_memmap()?;
         let mut special_array = vec![0u64; X86_HVM_NR_SPECIAL_PAGES as usize];
         for i in 0..X86_HVM_NR_SPECIAL_PAGES {
             special_array[i as usize] = special_pfn(i as u32);
         }
-        let pages = domain.call.populate_physmap(domain.domid, X86_HVM_NR_SPECIAL_PAGES, 0, 0, &special_array).await?;
-        println!("{:?}", pages);
-        domain.phys.clear_pages(special_pfn(0), X86_HVM_NR_SPECIAL_PAGES).await?;
-        domain.call.set_hvm_param(domain.domid, HVM_PARAM_STORE_PFN, special_pfn(SPECIALPAGE_XENSTORE)).await?;
-        domain.call.set_hvm_param(domain.domid, HVM_PARAM_BUFIOREQ_PFN, special_pfn(SPECIALPAGE_BUFIOREQ)).await?;
-        domain.call.set_hvm_param(domain.domid, HVM_PARAM_IOREQ_PFN, special_pfn(SPECIALPAGE_IOREQ)).await?;
-        domain.call.set_hvm_param(domain.domid, HVM_PARAM_CONSOLE_PFN, special_pfn(SPECIALPAGE_CONSOLE)).await?;
-        domain.call.set_hvm_param(domain.domid, HVM_PARAM_PAGING_RING_PFN, special_pfn(SPECIALPAGE_PAGING)).await?;
-        domain.call.set_hvm_param(domain.domid, HVM_PARAM_MONITOR_RING_PFN, special_pfn(SPECIALPAGE_ACCESS)).await?;
-        domain.call.set_hvm_param(domain.domid, HVM_PARAM_SHARING_RING_PFN, special_pfn(SPECIALPAGE_SHARING)).await?;
+        domain
+            .call
+            .populate_physmap(
+                domain.domid,
+                special_array.len() as u64,
+                0,
+                0,
+                &special_array,
+            )
+            .await?;
+        domain
+            .phys
+            .clear_pages(special_pfn(0), special_array.len() as u64)
+            .await?;
+        domain
+            .call
+            .set_hvm_param(
+                domain.domid,
+                HVM_PARAM_STORE_PFN,
+                special_pfn(SPECIALPAGE_XENSTORE),
+            )
+            .await?;
+        domain
+            .call
+            .set_hvm_param(
+                domain.domid,
+                HVM_PARAM_BUFIOREQ_PFN,
+                special_pfn(SPECIALPAGE_BUFIOREQ),
+            )
+            .await?;
+        domain
+            .call
+            .set_hvm_param(
+                domain.domid,
+                HVM_PARAM_IOREQ_PFN,
+                special_pfn(SPECIALPAGE_IOREQ),
+            )
+            .await?;
+        domain
+            .call
+            .set_hvm_param(
+                domain.domid,
+                HVM_PARAM_CONSOLE_PFN,
+                special_pfn(SPECIALPAGE_CONSOLE),
+            )
+            .await?;
+        domain
+            .call
+            .set_hvm_param(
+                domain.domid,
+                HVM_PARAM_PAGING_RING_PFN,
+                special_pfn(SPECIALPAGE_PAGING),
+            )
+            .await?;
+        domain
+            .call
+            .set_hvm_param(
+                domain.domid,
+                HVM_PARAM_MONITOR_RING_PFN,
+                special_pfn(SPECIALPAGE_ACCESS),
+            )
+            .await?;
+        domain
+            .call
+            .set_hvm_param(
+                domain.domid,
+                HVM_PARAM_SHARING_RING_PFN,
+                special_pfn(SPECIALPAGE_SHARING),
+            )
+            .await?;
 
         let mut start_info_size = size_of::<HvmStartInfo>();
 
@@ -391,26 +532,17 @@ impl BootSetupPlatform for X86PvhPlatform {
 
         self.start_info_segment = Some(domain.alloc_segment(0, start_info_size as u64).await?);
         domain.consoles.push((0, special_pfn(SPECIALPAGE_CONSOLE)));
-        domain.xenstore_mfn = special_pfn(SPECIALPAGE_XENSTORE);
+        domain.store_mfn = special_pfn(SPECIALPAGE_XENSTORE);
 
         Ok(())
     }
 
-    async fn setup_shared_info(
-        &mut self,
-        _: &mut BootDomain,
-        _: u64,
-    ) -> Result<()> {
+    async fn setup_shared_info(&mut self, _: &mut BootDomain, _: u64) -> Result<()> {
         Ok(())
     }
 
-    async fn setup_start_info(
-        &mut self,
-        _: &mut BootDomain,
-        _: &str,
-        _: u64,
-    ) -> Result<()> {
-       Ok(())
+    async fn setup_start_info(&mut self, _: &mut BootDomain, _: &str, _: u64) -> Result<()> {
+        Ok(())
     }
 
     async fn bootlate(&mut self, _: &mut BootDomain) -> Result<()> {
@@ -420,9 +552,18 @@ impl BootSetupPlatform for X86PvhPlatform {
     async fn vcpu(&mut self, domain: &mut BootDomain) -> Result<()> {
         let size = domain.call.get_hvm_context(domain.domid, None).await?;
         let mut full_context = vec![0u8; size as usize];
-        domain.call.get_hvm_context(domain.domid, Some(&mut full_context)).await?;
+        domain
+            .call
+            .get_hvm_context(domain.domid, Some(&mut full_context))
+            .await?;
         let mut ctx: BspCtx = unsafe { MaybeUninit::zeroed().assume_init() };
-        unsafe { std::ptr::copy(full_context.as_ptr(), addr_of_mut!(ctx) as *mut u8, size_of::<HvmSaveDescriptor>() + size_of::<HvmSaveHeader>()) };
+        unsafe {
+            std::ptr::copy(
+                full_context.as_ptr(),
+                addr_of_mut!(ctx) as *mut u8,
+                size_of::<HvmSaveDescriptor>() + size_of::<HvmSaveHeader>(),
+            )
+        };
         ctx.cpu_d.instance = 0;
         ctx.cpu.cs_base = 0;
         ctx.cpu.ds_base = 0;
@@ -466,7 +607,7 @@ impl BootSetupPlatform for X86PvhPlatform {
         entries[0].frame = console_gfn as u32;
         entries[1].flags = 1 << 0;
         entries[1].domid = 0;
-        entries[1].frame = domain.xenstore_mfn as u32;
+        entries[1].frame = domain.store_mfn as u32;
         unsafe {
             let result = munmap(addr as *mut c_void, 1 << XEN_PAGE_SHIFT);
             if result != 0 {
@@ -485,10 +626,12 @@ const X86_HVM_NR_SPECIAL_PAGES: u64 = 8;
 const X86_HVM_END_SPECIAL_REGION: u64 = 0xff000;
 
 const SPECIALPAGE_PAGING: u32 = 0;
-const SPECIALPAGE_ACCESS: u32  = 1;
-const SPECIALPAGE_SHARING: u32 =  2;
+const SPECIALPAGE_ACCESS: u32 = 1;
+const SPECIALPAGE_SHARING: u32 = 2;
 const SPECIALPAGE_BUFIOREQ: u32 = 3;
 const SPECIALPAGE_XENSTORE: u32 = 4;
-const SPECIALPAGE_IOREQ : u32 =   5;
-const SPECIALPAGE_IDENT_PT: u32 = 6;
-const SPECIALPAGE_CONSOLE: u32 =  7;
+const SPECIALPAGE_IOREQ: u32 = 5;
+const _SPECIALPAGE_IDENT_PT: u32 = 6;
+const SPECIALPAGE_CONSOLE: u32 = 7;
+const LAPIC_BASE_ADDRESS: u64 = 0xfee00000;
+const ACPI_INFO_PHYSICAL_ADDRESS: u64 = 0xFC000000;

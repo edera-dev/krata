@@ -7,7 +7,7 @@ use log::error;
 use loopdev::LoopControl;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
-use xenclient::XenClient;
+use xenclient::{x86pv::X86PvPlatform, XenClient};
 use xenstore::{XsdClient, XsdInterface};
 
 use self::{
@@ -49,13 +49,13 @@ pub struct GuestInfo {
 #[derive(Clone)]
 pub struct RuntimeContext {
     pub autoloop: AutoLoop,
-    pub xen: XenClient,
+    pub xen: XenClient<X86PvPlatform>,
     pub ipvendor: IpVendor,
 }
 
 impl RuntimeContext {
     pub async fn new(host_uuid: Uuid) -> Result<Self> {
-        let xen = XenClient::open(0).await?;
+        let xen = XenClient::open(0, X86PvPlatform::new()).await?;
         let ipv4_network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
         let ipv6_network = Ipv6Network::from_str("fdd4:1476:6c7e::/48")?;
         let ipvend =
