@@ -5,7 +5,7 @@ use ipnetwork::IpNetwork;
 use loopdev::LoopControl;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
-use xenclient::XenClient;
+use xenclient::{x86pv::X86PvPlatform, XenClient};
 use xenstore::{XsdClient, XsdInterface};
 
 use self::{
@@ -46,12 +46,12 @@ pub struct GuestInfo {
 #[derive(Clone)]
 pub struct RuntimeContext {
     pub autoloop: AutoLoop,
-    pub xen: XenClient,
+    pub xen: XenClient<X86PvPlatform>,
 }
 
 impl RuntimeContext {
     pub async fn new() -> Result<Self> {
-        let xen = XenClient::open(0).await?;
+        let xen = XenClient::new(0, X86PvPlatform::new()).await?;
         Ok(RuntimeContext {
             autoloop: AutoLoop::new(LoopControl::open()?),
             xen,

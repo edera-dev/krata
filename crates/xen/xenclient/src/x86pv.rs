@@ -9,7 +9,8 @@ use log::{debug, trace};
 use nix::errno::Errno;
 use slice_copy::copy;
 use xencall::sys::{
-    x8664VcpuGuestContext, E820Entry, VcpuGuestContextAny, E820_MAX, E820_RAM, E820_UNUSABLE, MMUEXT_PIN_L4_TABLE
+    x8664VcpuGuestContext, CreateDomain, E820Entry, VcpuGuestContextAny, E820_MAX, E820_RAM,
+    E820_UNUSABLE, MMUEXT_PIN_L4_TABLE, XEN_DOMCTL_CDF_IOMMU,
 };
 
 use crate::{
@@ -141,7 +142,7 @@ struct VmemRange {
     _nid: u32,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct X86PvPlatform {
     table: PageTable,
     p2m_segment: Option<DomainSegment>,
@@ -433,6 +434,13 @@ impl X86PvPlatform {
 
 #[async_trait::async_trait]
 impl BootSetupPlatform for X86PvPlatform {
+    fn create_domain(&self) -> CreateDomain {
+        CreateDomain {
+            flags: XEN_DOMCTL_CDF_IOMMU,
+            ..Default::default()
+        }
+    }
+
     fn page_size(&self) -> u64 {
         X86_PAGE_SIZE
     }
@@ -445,7 +453,11 @@ impl BootSetupPlatform for X86PvPlatform {
         false
     }
 
-    async fn initialize_memory(&self, domain: &mut BootDomain) -> Result<()> {
+    async fn initialize_early(&mut self, _: &mut BootDomain) -> Result<()> {
+        Ok(())
+    }
+
+    async fn initialize_memory(&mut self, domain: &mut BootDomain) -> Result<()> {
         domain.call.set_address_size(domain.domid, 64).await?;
         domain
             .call
@@ -695,7 +707,7 @@ impl BootSetupPlatform for X86PvPlatform {
         }
         self.start_info_segment = Some(domain.alloc_page()?);
         self.xenstore_segment = Some(domain.alloc_page()?);
-        domain.xenstore_mfn = domain.phys.p2m[self.xenstore_segment.as_ref().unwrap().pfn as usize];
+        domain.store_mfn = domain.phys.p2m[self.xenstore_segment.as_ref().unwrap().pfn as usize];
         let evtchn = domain.call.evtchn_alloc_unbound(domain.domid, 0).await?;
         let page = domain.alloc_page()?;
         domain
@@ -726,7 +738,7 @@ impl BootSetupPlatform for X86PvPlatform {
         let info = domain
             .phys
             .map_foreign_pages(shared_info_frame, X86_PAGE_SIZE)
-            .await?.ptr as *mut SharedInfo;
+            .await? as *mut SharedInfo;
         unsafe {
             let size = size_of::<SharedInfo>();
             let info_as_buff = slice::from_raw_parts_mut(info as *mut u8, size);
@@ -861,9 +873,10 @@ impl BootSetupPlatform for X86PvPlatform {
         vcpu.kernel_ss = vcpu.user_regs.ss as u64;
         vcpu.kernel_sp = vcpu.user_regs.rsp;
         trace!("vcpu context: {:?}", vcpu);
-        domain.call.set_vcpu_context(domain.domid, 0, VcpuGuestContextAny {
-            value: vcpu,
-        }).await?;
+        domain
+            .call
+            .set_vcpu_context(domain.domid, 0, VcpuGuestContextAny { value: vcpu })
+            .await?;
         Ok(())
     }
 

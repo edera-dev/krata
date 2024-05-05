@@ -2,7 +2,7 @@ use std::slice;
 
 use log::debug;
 use slice_copy::copy;
-use xencall::XenCall;
+use xencall::{sys::CreateDomain, XenCall};
 
 use crate::{
     error::{Error, Result},
@@ -18,7 +18,7 @@ pub struct BootSetup<I: BootImageLoader, P: BootSetupPlatform> {
     pub dtb: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct DomainSegment {
     pub vstart: u64,
     pub vend: u64,
@@ -40,7 +40,7 @@ pub struct BootDomain {
     pub image_info: BootImageInfo,
     pub phys: PhysicalPages,
     pub store_evtchn: u32,
-    pub xenstore_mfn: u64,
+    pub store_mfn: u64,
     pub initrd_segment: DomainSegment,
     pub consoles: Vec<(u32, u64)>,
 }
@@ -174,8 +174,10 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
             phys: PhysicalPages::new(self.call.clone(), self.domid, self.platform.page_shift()),
             initrd_segment: DomainSegment::default(),
             store_evtchn: 0,
-            xenstore_mfn: 0,
+            store_mfn: 0,
         };
+
+        self.platform.initialize_early(&mut domain).await?;
 
         let mut initrd_segment = if !domain.image_info.unmapped_initrd {
             Some(domain.alloc_module(initrd).await?)
@@ -248,12 +250,15 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
 }
 
 #[async_trait::async_trait]
-pub trait BootSetupPlatform {
+pub trait BootSetupPlatform: Clone {
+    fn create_domain(&self) -> CreateDomain;
     fn page_size(&self) -> u64;
     fn page_shift(&self) -> u64;
     fn needs_early_kernel(&self) -> bool;
 
-    async fn initialize_memory(&self, domain: &mut BootDomain) -> Result<()>;
+    async fn initialize_early(&mut self, domain: &mut BootDomain) -> Result<()>;
+
+    async fn initialize_memory(&mut self, domain: &mut BootDomain) -> Result<()>;
 
     async fn alloc_page_tables(&mut self, domain: &mut BootDomain)
         -> Result<Option<DomainSegment>>;
