@@ -12,6 +12,7 @@ resolver = "2"
 async-trait = { workspace = true }
 elf = { workspace = true }
 flate2 = { workspace = true }
+indexmap = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 krata-xencall = { path = "../xencall", version = "^0.0.10" }
