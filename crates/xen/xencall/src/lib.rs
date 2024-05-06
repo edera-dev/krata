@@ -3,7 +3,7 @@ pub mod sys;
 
 use crate::error::{Error, Result};
 use crate::sys::{
-    AddressSize, AssignDevice, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
+    AddToPhysmap, AddressSize, AssignDevice, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
     EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, HvmContext, HvmParam, Hypercall,
     HypercallInit, IoMemPermission, IoPortPermission, IrqPermission, MaxMem, MaxVcpus, MemoryMap,
     MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, PagingMempool,
@@ -15,7 +15,8 @@ use crate::sys::{
     XEN_DOMCTL_IOMEM_PERMISSION, XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION,
     XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETHVMCONTEXT,
     XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_SET_PAGING_MEMPOOL_SIZE,
-    XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP, XEN_MEM_POPULATE_PHYSMAP,
+    XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_ADD_TO_PHYSMAP, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP,
+    XEN_MEM_POPULATE_PHYSMAP,
 };
 use libc::{c_int, mmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use log::trace;
@@ -648,6 +649,31 @@ impl XenCall {
             HYPERVISOR_MEMORY_OP,
             XEN_MEM_CLAIM_PAGES as c_ulong,
             addr_of_mut!(reservation) as c_ulong,
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn add_to_physmap(&self, domid: u32, space: u32, idx: u64, pfn: u64) -> Result<()> {
+        trace!(
+            "memory fd={} add_to_physmap domid={} space={} idx={} pfn={}",
+            self.handle.as_raw_fd(),
+            domid,
+            space,
+            idx,
+            pfn,
+        );
+        let mut add = AddToPhysmap {
+            domid: domid as u16,
+            size: 0,
+            space,
+            idx,
+            gpfn: pfn,
+        };
+        self.hypercall2(
+            HYPERVISOR_MEMORY_OP,
+            XEN_MEM_ADD_TO_PHYSMAP as c_ulong,
+            addr_of_mut!(add) as c_ulong,
         )
         .await?;
         Ok(())

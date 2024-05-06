@@ -403,6 +403,16 @@ pub struct MemoryReservation {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
+pub struct AddToPhysmap {
+    pub domid: u16,
+    pub size: u16,
+    pub space: u32,
+    pub idx: u64,
+    pub gpfn: u64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub struct MultiCallEntry {
     pub op: c_ulong,
     pub result: c_ulong,
@@ -413,6 +423,7 @@ pub const XEN_MEM_POPULATE_PHYSMAP: u32 = 6;
 pub const XEN_MEM_MEMORY_MAP: u32 = 10;
 pub const XEN_MEM_SET_MEMORY_MAP: u32 = 13;
 pub const XEN_MEM_CLAIM_PAGES: u32 = 24;
+pub const XEN_MEM_ADD_TO_PHYSMAP: u32 = 7;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]

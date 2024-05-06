@@ -27,6 +27,7 @@ use xenstore::{
 };
 
 pub mod pci;
+mod x86acpi;
 pub mod x86pv;
 pub mod x86pvh;
 
@@ -113,7 +114,7 @@ pub struct DomainConfig {
     pub initrd: Vec<u8>,
     pub cmdline: String,
     pub disks: Vec<DomainDisk>,
-    pub use_console_backend: Option<String>,
+    pub swap_console_backend: Option<String>,
     pub channels: Vec<DomainChannel>,
     pub vifs: Vec<DomainNetworkInterface>,
     pub filesystems: Vec<DomainFilesystem>,
@@ -280,14 +281,21 @@ impl XenClient {
 
         self.call.set_max_vcpus(domid, config.max_vcpus).await?;
         self.call
-            .set_max_mem(domid, (config.mem_mb * 1024) + 1024)
+            .set_max_mem(domid, (config.mem_mb * 1024) + 2048)
             .await?;
         let mut domain: BootDomain;
         {
             let loader = ElfImageLoader::load_file_kernel(&config.kernel)?;
             let platform = (*self.platform).clone();
             let mut boot = BootSetup::new(self.call.clone(), domid, platform, loader, None);
-            domain = boot.initialize(&config.initrd, config.mem_mb).await?;
+            domain = boot
+                .initialize(
+                    &config.initrd,
+                    config.mem_mb,
+                    config.max_vcpus,
+                    &config.cmdline,
+                )
+                .await?;
             boot.boot(&mut domain, &config.cmdline).await?;
         }
 
@@ -350,11 +358,11 @@ impl XenClient {
             &tx,
             &DomainChannel {
                 typ: config
-                    .use_console_backend
+                    .swap_console_backend
                     .clone()
                     .unwrap_or("xenconsoled".to_string())
                     .to_string(),
-                initialized: true,
+                initialized: false,
             },
             &dom_path,
             &backend_dom_path,
@@ -490,7 +498,7 @@ impl XenClient {
             ("virtual-device", id.to_string()),
             ("device-type", "disk".to_string()),
             ("trusted", "1".to_string()),
-            ("protocol", "x86_64-abi".to_string()),
+            ("protocol", "x86_32-abi".to_string()),
         ];
 
         self.device_add(

@@ -2,7 +2,7 @@ use crate::boot::{BootImageInfo, BootImageLoader};
 use crate::error::Result;
 use crate::sys::{
     XEN_ELFNOTE_ENTRY, XEN_ELFNOTE_HYPERCALL_PAGE, XEN_ELFNOTE_INIT_P2M, XEN_ELFNOTE_MOD_START_PFN,
-    XEN_ELFNOTE_PADDR_OFFSET, XEN_ELFNOTE_TYPES, XEN_ELFNOTE_VIRT_BASE,
+    XEN_ELFNOTE_PADDR_OFFSET, XEN_ELFNOTE_PHYS32_ENTRY, XEN_ELFNOTE_TYPES, XEN_ELFNOTE_VIRT_BASE,
 };
 use crate::Error;
 use elf::abi::{PF_R, PF_W, PF_X, PT_LOAD, SHT_NOTE};
@@ -130,7 +130,7 @@ struct ElfNoteValue {
 
 #[async_trait::async_trait]
 impl BootImageLoader for ElfImageLoader {
-    async fn parse(&self) -> Result<BootImageInfo> {
+    async fn parse(&self, hvm: bool) -> Result<BootImageInfo> {
         let elf = ElfBytes::<AnyEndian>::minimal_parse(self.data.as_slice())?;
         let headers = elf.section_headers().ok_or(Error::ElfInvalidImage)?;
         let mut linux_notes: HashMap<u64, Vec<u8>> = HashMap::new();
@@ -201,6 +201,8 @@ impl BootImageLoader for ElfImageLoader {
             .ok_or(Error::ElfInvalidImage)?
             .value;
 
+        let phys32_entry = xen_notes.get(&XEN_ELFNOTE_PHYS32_ENTRY).map(|x| x.value);
+
         let mut start: u64 = u64::MAX;
         let mut end: u64 = 0;
 
@@ -228,8 +230,14 @@ impl BootImageLoader for ElfImageLoader {
         let virt_offset = virt_base - paddr_offset;
         let virt_kstart = start + virt_offset;
         let virt_kend = end + virt_offset;
-        let virt_entry = entry;
-
+        let mut virt_entry = entry;
+        if hvm {
+            if let Some(entry) = phys32_entry {
+                virt_entry = entry;
+            } else {
+                virt_entry = elf.ehdr.e_entry;
+            }
+        }
         let image_info = BootImageInfo {
             start,
             virt_base,

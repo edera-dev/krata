@@ -37,12 +37,14 @@ pub struct BootDomain {
     pub virt_pgtab_end: u64,
     pub total_pages: u64,
     pub target_pages: u64,
+    pub max_vcpus: u32,
     pub image_info: BootImageInfo,
     pub phys: PhysicalPages,
     pub store_evtchn: u32,
     pub store_mfn: u64,
     pub initrd_segment: DomainSegment,
     pub consoles: Vec<(u32, u64)>,
+    pub cmdline: String,
 }
 
 impl BootDomain {
@@ -157,9 +159,15 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
         }
     }
 
-    pub async fn initialize(&mut self, initrd: &[u8], mem_mb: u64) -> Result<BootDomain> {
+    pub async fn initialize(
+        &mut self,
+        initrd: &[u8],
+        mem_mb: u64,
+        max_vcpus: u32,
+        cmdline: &str,
+    ) -> Result<BootDomain> {
         let total_pages = mem_mb << (20 - self.platform.page_shift());
-        let image_info = self.image_loader.parse().await?;
+        let image_info = self.image_loader.parse(true).await?;
         let mut domain = BootDomain {
             domid: self.domid,
             call: self.call.clone(),
@@ -171,10 +179,12 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
             page_size: self.platform.page_size(),
             image_info,
             consoles: Vec::new(),
+            max_vcpus,
             phys: PhysicalPages::new(self.call.clone(), self.domid, self.platform.page_shift()),
             initrd_segment: DomainSegment::default(),
             store_evtchn: 0,
             store_mfn: 0,
+            cmdline: cmdline.to_string(),
         };
 
         self.platform.initialize_early(&mut domain).await?;
@@ -294,7 +304,7 @@ pub trait BootSetupPlatform: Clone {
 
 #[async_trait::async_trait]
 pub trait BootImageLoader {
-    async fn parse(&self) -> Result<BootImageInfo>;
+    async fn parse(&self, hvm: bool) -> Result<BootImageInfo>;
     async fn load(&self, image_info: &BootImageInfo, dst: &mut [u8]) -> Result<()>;
 }
 

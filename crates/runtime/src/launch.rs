@@ -227,7 +227,7 @@ impl GuestLauncher {
             kernel: request.kernel,
             initrd: request.initrd,
             cmdline,
-            use_console_backend: Some("krata-console".to_string()),
+            swap_console_backend: Some("krata-console".to_string()),
             disks,
             channels: vec![DomainChannel {
                 typ: "krata-channel".to_string(),
