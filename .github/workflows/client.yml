@@ -27,18 +27,22 @@ jobs:
       run:
         shell: bash
     steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
+      with:
+        egress-policy: audit
     - run: git config --global core.autocrlf false && git config --global core.eol lf
       if: ${{ matrix.platform.os == 'windows' }}
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
       if: ${{ matrix.platform.os != 'darwin' }}
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
       with:
         targets: "${{ matrix.platform.arch }}-apple-darwin"
       if: ${{ matrix.platform.os == 'darwin' }}
-    - uses: homebrew/actions/setup-homebrew@master
+    - uses: homebrew/actions/setup-homebrew@4b34604e75af8f8b23b454f0b5ffb7c5d8ce0056 # master
       if: ${{ matrix.platform.os == 'darwin' }}
     - run: ./hack/ci/install-${{ matrix.platform.deps }}-deps.sh
     - run: ./hack/build/cargo.sh build --bin kratactl

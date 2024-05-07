@@ -19,10 +19,14 @@ jobs:
       TARGET_ARCH: "${{ matrix.arch }}"
     name: server build ${{ matrix.arch }}
     steps:
-    - uses: actions/checkout@v4
+    - name: Harden Runner
+      uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
+      with:
+        egress-policy: audit
+    - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
     - run: ./hack/ci/install-linux-deps.sh
     - run: ./hack/build/cargo.sh build
   test:
@@ -36,10 +40,15 @@ jobs:
       TARGET_ARCH: "${{ matrix.arch }}"
     name: server test ${{ matrix.arch }}
     steps:
-    - uses: actions/checkout@v4
+    - name: Harden Runner
+      uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
+      with:
+        egress-policy: audit
+
+    - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
     - run: ./hack/ci/install-linux-deps.sh
     - run: ./hack/build/cargo.sh test
   clippy:
@@ -53,10 +62,14 @@ jobs:
       TARGET_ARCH: "${{ matrix.arch }}"
     name: server clippy ${{ matrix.arch }}
     steps:
-    - uses: actions/checkout@v4
+    - name: Harden Runner
+      uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
+      with:
+        egress-policy: audit
+    - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
       with:
         components: clippy
     - run: ./hack/ci/install-linux-deps.sh
@@ -72,10 +85,14 @@ jobs:
       TARGET_ARCH: "${{ matrix.arch }}"
     name: server initrd ${{ matrix.arch }}
     steps:
-    - uses: actions/checkout@v4
+    - name: Harden Runner
+      uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
+      with:
+        egress-policy: audit
+    - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
       with:
         targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
     - run: ./hack/ci/install-linux-deps.sh
