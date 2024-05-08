@@ -288,7 +288,7 @@ impl X86PvhPlatform {
             }
             ptr = ptr
                 .add(size_of::<HvmSaveDescriptor>())
-                .add((*sd).length as usize) as *mut u8;
+                .add((*sd).length as usize);
         }
         std::ptr::null_mut()
     }
@@ -630,7 +630,7 @@ impl BootSetupPlatform for X86PvhPlatform {
 
         let mut start_info_size = size_of::<HvmStartInfo>();
         start_info_size += domain.cmdline.len() + 1;
-        start_info_size += size_of::<E820Entry>() * memmap.len();
+        start_info_size += size_of::<HvmMemmapTableEntry>() * memmap.len();
         self.start_info_segment = Some(domain.alloc_segment(0, start_info_size as u64).await?);
 
         let pt = domain
@@ -657,7 +657,10 @@ impl BootSetupPlatform for X86PvhPlatform {
             )
             .await?;
 
-        domain.consoles.push((0, special_pfn(SPECIALPAGE_CONSOLE)));
+        let evtchn = domain.call.evtchn_alloc_unbound(domain.domid, 0).await?;
+        domain
+            .consoles
+            .push((evtchn, special_pfn(SPECIALPAGE_CONSOLE)));
         domain.store_mfn = special_pfn(SPECIALPAGE_XENSTORE);
 
         Ok(())
@@ -673,9 +676,16 @@ impl BootSetupPlatform for X86PvhPlatform {
             .start_info_segment
             .as_ref()
             .ok_or_else(|| Error::GenericError("start_info_segment missing".to_string()))?;
-        let ptr = domain.phys.pfn_to_ptr(start_info_segment.pfn, 1).await?;
-        let byte_slice =
-            unsafe { slice::from_raw_parts_mut(ptr as *mut u8, X86_PAGE_SIZE as usize) };
+        let ptr = domain
+            .phys
+            .pfn_to_ptr(start_info_segment.pfn, start_info_segment.pages)
+            .await?;
+        let byte_slice = unsafe {
+            slice::from_raw_parts_mut(
+                ptr as *mut u8,
+                (self.page_size() * start_info_segment.pages) as usize,
+            )
+        };
         byte_slice.fill(0);
         let info = ptr as *mut HvmStartInfo;
         unsafe {
@@ -886,7 +896,7 @@ unsafe extern "C" fn acpi_mem_free(_: *mut acpi_ctxt, _: *mut libc::c_void, _: u
 
 unsafe extern "C" fn acpi_v2p(ctxt: *mut acpi_ctxt, v: *mut c_void) -> libc::c_ulong {
     let ctx = (*ctxt).ptr as *mut AcpiBuildContext;
-    (*ctx).guest_start + (v.sub((*ctx).buf as usize) as u64)
+    (*ctx).guest_start + (v as u64 - ((*ctx).buf as u64))
 }
 
 #[repr(C)]

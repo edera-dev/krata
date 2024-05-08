@@ -362,7 +362,7 @@ impl XenClient {
                     .clone()
                     .unwrap_or("xenconsoled".to_string())
                     .to_string(),
-                initialized: false,
+                initialized: true,
             },
             &dom_path,
             &backend_dom_path,
