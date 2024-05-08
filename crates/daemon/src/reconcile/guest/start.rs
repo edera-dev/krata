@@ -25,9 +25,6 @@ use crate::{
     reconcile::guest::{guestinfo_to_networkstate, GuestReconcilerResult},
 };
 
-// if a kernel is >= 100MB, that's kinda scary.
-const OCI_SPEC_TAR_FILE_MAX_SIZE: usize = 100 * 1024 * 1024;
-
 pub struct GuestStarter<'a> {
     pub devices: &'a DaemonDeviceManager,
     pub kernel_path: &'a Path,
@@ -65,13 +62,6 @@ impl GuestStarter<'_> {
         while let Some(entry) = entries.next().await {
             let mut entry = entry?;
             let path = entry.path()?;
-            if entry.header().size()? as usize > OCI_SPEC_TAR_FILE_MAX_SIZE {
-                return Err(anyhow!(
-                    "file {} in image {} is larger than the size limit",
-                    file.to_string_lossy(),
-                    oci.digest
-                ));
-            }
             if path == file {
                 let mut buffer = Vec::new();
                 entry.read_to_end(&mut buffer).await?;
