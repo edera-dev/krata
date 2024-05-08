@@ -47,7 +47,7 @@ impl Default for ImageName {
 }
 
 impl ImageName {
-    pub const DOCKER_HUB_MIRROR: &'static str = "registry-1.docker.io";
+    pub const DOCKER_HUB_MIRROR: &'static str = "mirror.gcr.io";
     pub const DEFAULT_IMAGE_TAG: &'static str = "latest";
 
     pub fn parse(name: &str) -> Result<Self> {
