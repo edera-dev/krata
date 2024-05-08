@@ -169,12 +169,7 @@ impl XenClient {
         created: &CreateDomain,
         config: &DomainConfig,
     ) -> Result<CreatedDomain> {
-        trace!(
-            "XenClient init domid={} domain={:?} config={:?}",
-            domid,
-            created,
-            config
-        );
+        trace!("XenClient init domid={} domain={:?}", domid, created,);
         let backend_dom_path = self.store.get_domain_path(0).await?;
         let dom_path = self.store.get_domain_path(domid).await?;
         let uuid_string = Uuid::from_bytes(created.handle).to_string();

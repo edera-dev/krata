@@ -108,7 +108,6 @@ impl XsdClient {
     }
 
     async fn write<P: AsRef<str>>(&self, tx: u32, path: P, data: Vec<u8>) -> Result<bool> {
-        trace!("write tx={tx} path={} data={:?}", path.as_ref(), data);
         let mut buffer = Vec::new();
         let path = CString::new(path.as_ref())?;
         buffer.extend_from_slice(path.as_bytes_with_nul());
@@ -118,6 +117,11 @@ impl XsdClient {
             .send_buf(tx, XSD_WRITE, buffer.as_slice())
             .await?;
         response.parse_bool()
+    }
+
+    async fn write_string<P: AsRef<str>>(&self, tx: u32, path: P, data: &str) -> Result<bool> {
+        trace!("write tx={tx} path={} data=\"{}\"", path.as_ref(), data);
+        self.write(tx, path, data.as_bytes().to_vec()).await
     }
 
     async fn mkdir<P: AsRef<str>>(&self, tx: u32, path: P) -> Result<bool> {
@@ -247,7 +251,7 @@ impl XsdInterface for XsdClient {
     }
 
     async fn write_string<P: AsRef<str>>(&self, path: P, data: &str) -> Result<bool> {
-        self.write(0, path, data.as_bytes().to_vec()).await
+        self.write_string(0, path, data).await
     }
 
     async fn mkdir<P: AsRef<str>>(&self, path: P) -> Result<bool> {
@@ -287,9 +291,7 @@ impl XsdInterface for XsdTransaction {
     }
 
     async fn write_string<P: AsRef<str>>(&self, path: P, data: &str) -> Result<bool> {
-        self.client
-            .write(self.tx, path, data.as_bytes().to_vec())
-            .await
+        self.client.write_string(self.tx, path, data).await
     }
 
     async fn mkdir<P: AsRef<str>>(&self, path: P) -> Result<bool> {

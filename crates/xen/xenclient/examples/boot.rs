@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
         mem_mb: 512,
         kernel: fs::read(&kernel_image_path).await?,
         initrd: fs::read(&initrd_path).await?,
-        cmdline: "console=hvc0 debug earlyprintk=xen,keep loglevel=10".to_string(),
+        cmdline: "earlyprintk=xen earlycon=xen console=hvc0 init=/init".to_string(),
         swap_console_backend: None,
         disks: vec![],
         channels: vec![],
