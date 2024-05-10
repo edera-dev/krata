@@ -19,7 +19,7 @@ it's corresponding code path from the above table.
 | Component     | Specification | Notes                                                                             |
 | ------------- | ------------- | --------------------------------------------------------------------------------- |
 | Architecture  | x86_64        | aarch64 support is still in development                                           |
-| Memory        | At least 6GB  | dom0 will need to be configured will lower memory limit to give krata guests room | 
+| Memory        | At least 6GB  | dom0 will need to be configured with lower memory limit to give krata guests room | 
 | Xen           | 4.17          | Temporary due to hardcoded interface version constants                            |
 | Debian        | stable / sid  | Debian is recommended due to the ease of Xen setup                                |
 | rustup        | any           | Install Rustup from https://rustup.rs                                             |
@@ -80,7 +80,7 @@ $ cp target/kernel/addons-x86_64.squashfs /var/lib/krata/guest/addons.squashfs
 
 8. Launch `./hack/debug/kratad.sh` and keep it running in the foreground.
 9. Launch `./hack/debug/kratanet.sh` and keep it running in the foreground.
-10. Run kratactl to launch a guest:
+10. Run `kratactl` to launch a guest:
 
 ```sh
 $ ./hack/debug/kratactl.sh launch --attach alpine:latest
