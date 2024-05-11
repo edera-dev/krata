@@ -16,17 +16,22 @@ jobs:
       TARGET_ARCH: "${{ matrix.arch }}"
     name: nightly server ${{ matrix.arch }}
     steps:
-    - uses: actions/checkout@v4
+    - name: Harden Runner
+      uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
+      with:
+        egress-policy: audit
+
+    - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
       with:
         targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
     - run: ./hack/ci/install-linux-deps.sh
     - run: ./hack/dist/bundle.sh
       env:
         KRATA_KERNEL_BUILD_JOBS: "5"
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: krata-bundle-systemd-${{ matrix.arch }}
         path: "target/dist/bundle-systemd-${{ matrix.arch }}.tgz"
@@ -34,7 +39,7 @@ jobs:
     - run: ./hack/dist/deb.sh
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: krata-debian-${{ matrix.arch }}
         path: "target/dist/*.deb"
@@ -42,7 +47,7 @@ jobs:
     - run: ./hack/dist/apk.sh
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: krata-alpine-${{ matrix.arch }}
         path: "target/dist/*_${{ matrix.arch }}.apk"
@@ -50,7 +55,7 @@ jobs:
     - run: ./hack/os/build.sh
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: krata-os-${{ matrix.arch }}
         path: "target/os/krata-${{ matrix.arch }}.qcow2"
@@ -75,27 +80,32 @@ jobs:
       run:
         shell: bash
     steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
+      with:
+        egress-policy: audit
+
     - run: git config --global core.autocrlf false && git config --global core.eol lf
       if: ${{ matrix.platform.os == 'windows' }}
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
       if: ${{ matrix.platform.os != 'darwin' }}
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
       with:
         targets: "${{ matrix.platform.arch }}-apple-darwin"
       if: ${{ matrix.platform.os == 'darwin' }}
-    - uses: homebrew/actions/setup-homebrew@master
+    - uses: homebrew/actions/setup-homebrew@4b34604e75af8f8b23b454f0b5ffb7c5d8ce0056 # master
       if: ${{ matrix.platform.os == 'darwin' }}
     - run: ./hack/ci/install-${{ matrix.platform.deps }}-deps.sh
     - run: ./hack/build/cargo.sh build --release --bin kratactl
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
         path: "target/*/release/kratactl"
       if: ${{ matrix.platform.os != 'windows' }}
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
         path: "target/*/release/kratactl.exe"
