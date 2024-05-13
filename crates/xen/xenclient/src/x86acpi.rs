@@ -377,8 +377,9 @@ pub struct acpi_info {
     pub pci_hi_len: uint64_t,
 }
 #[inline]
-unsafe extern "C" fn test_bit(mut _b: libc::c_uint, mut _p: *const libc::c_void) -> libc::c_int {
-    panic!("Reached end of non-void function without returning");
+unsafe extern "C" fn test_bit(mut b: libc::c_uint, mut p: *const libc::c_void) -> libc::c_int {
+    let p = p as *const u8;
+    (*(p.offset((b >> 3) as isize)) & (1 << b & 7)) as i32
 }
 #[no_mangle]
 pub static mut ssdt_s3: [libc::c_uchar; 49] = [
@@ -29650,9 +29651,9 @@ pub unsafe extern "C" fn acpi_build_tables(
                                     )]);
                                 i = 0 as libc::c_int;
                                 while secondary_tables[i as usize] != 0 {
-                                    (*addr_of_mut!((*xsdt).entry)
-                                        .offset((i + 1 as libc::c_int) as isize))[0] =
-                                        secondary_tables[i as usize];
+                                    addr_of_mut!((*xsdt).entry)
+                                        .offset((i + 1 as libc::c_int) as isize)
+                                        .write_unaligned([secondary_tables[i as usize]]);
                                     i += 1;
                                 }
                                 (*xsdt).header.length =
