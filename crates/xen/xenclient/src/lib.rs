@@ -7,7 +7,7 @@ pub mod sys;
 use crate::boot::{BootDomain, BootSetup};
 use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
-use boot::BootState;
+use boot::BootSetupPlatform;
 use indexmap::IndexMap;
 use log::{debug, trace, warn};
 use pci::{PciBdf, XenPciBackend};
@@ -137,8 +137,8 @@ pub struct CreatedDomain {
 }
 
 #[allow(clippy::too_many_arguments)]
-impl XenClient {
-    pub async fn open(current_domid: u32) -> Result<XenClient> {
+impl<P: BootSetupPlatform> XenClient<P> {
+    pub async fn new(current_domid: u32, platform: P) -> Result<XenClient<P>> {
         let store = XsdClient::open().await?;
         let call = XenCall::open(current_domid)?;
         Ok(XenClient {
@@ -351,6 +351,7 @@ impl XenClient {
         let tx = self.store.transaction().await?;
         self.console_device_add(
             &tx,
+            &mut domain,
             &DomainChannel {
                 typ: config
                     .swap_console_backend
@@ -372,6 +373,7 @@ impl XenClient {
             let (Some(ring_ref), Some(evtchn)) = self
                 .console_device_add(
                     &tx,
+                    &mut domain,
                     channel,
                     &dom_path,
                     &backend_dom_path,
@@ -515,6 +517,7 @@ impl XenClient {
     async fn console_device_add(
         &self,
         tx: &XsdTransaction,
+        domain: &mut BootDomain,
         channel: &DomainChannel,
         dom_path: &str,
         backend_dom_path: &str,
