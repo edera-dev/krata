@@ -224,12 +224,12 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
         Ok(domain)
     }
 
-    pub async fn boot(&mut self, domain: &mut BootDomain, cmdline: &str) -> Result<()> {
+    pub async fn boot(&mut self, domain: &mut BootDomain) -> Result<()> {
         let domain_info = self.call.get_domain_info(self.domid).await?;
         let shared_info_frame = domain_info.shared_info_frame;
         self.platform.setup_page_tables(domain).await?;
         self.platform
-            .setup_start_info(domain, cmdline, shared_info_frame)
+            .setup_start_info(domain, shared_info_frame)
             .await?;
         self.platform.setup_hypercall_page(domain).await?;
         self.platform.bootlate(domain).await?;
@@ -289,7 +289,6 @@ pub trait BootSetupPlatform: Clone {
     async fn setup_start_info(
         &mut self,
         domain: &mut BootDomain,
-        cmdline: &str,
         shared_info_frame: u64,
     ) -> Result<()>;
 

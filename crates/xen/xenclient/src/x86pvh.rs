@@ -42,6 +42,10 @@ pub struct HvmStartInfo {
     pub reserved: u32,
 }
 
+const HVM_START_MAX_CMDLINE_SIZE: usize = 1024;
+const HVM_START_MAX_MEMMAP_ENTRIES: usize = 8;
+const HVM_START_MAX_MODLIST_COUNT: usize = 8;
+
 #[repr(C)]
 #[derive(Default, Copy, Clone, Debug)]
 pub struct HvmModlistEntry {
@@ -552,7 +556,6 @@ impl BootSetupPlatform for X86PvhPlatform {
     }
 
     async fn alloc_magic_pages(&mut self, domain: &mut BootDomain) -> Result<()> {
-        let memmap = self.construct_memmap()?;
         let mut special_array = vec![0u64; X86_HVM_NR_SPECIAL_PAGES as usize];
         for i in 0..X86_HVM_NR_SPECIAL_PAGES {
             special_array[i as usize] = special_pfn(i as u32);
@@ -629,8 +632,10 @@ impl BootSetupPlatform for X86PvhPlatform {
             .await?;
 
         let mut start_info_size = size_of::<HvmStartInfo>();
-        start_info_size += domain.cmdline.len() + 1;
-        start_info_size += size_of::<HvmMemmapTableEntry>() * memmap.len();
+        start_info_size += HVM_START_MAX_CMDLINE_SIZE;
+        start_info_size += size_of::<HvmMemmapTableEntry>() * HVM_START_MAX_MEMMAP_ENTRIES;
+        start_info_size += size_of::<HvmModlistEntry>() * HVM_START_MAX_MODLIST_COUNT;
+        start_info_size += 1;
         self.start_info_segment = Some(domain.alloc_segment(0, start_info_size as u64).await?);
 
         let pt = domain
@@ -670,7 +675,7 @@ impl BootSetupPlatform for X86PvhPlatform {
         Ok(())
     }
 
-    async fn setup_start_info(&mut self, domain: &mut BootDomain, _: &str, _: u64) -> Result<()> {
+    async fn setup_start_info(&mut self, domain: &mut BootDomain, _: u64) -> Result<()> {
         let memmap = self.construct_memmap()?;
         let start_info_segment = self
             .start_info_segment
@@ -695,16 +700,19 @@ impl BootSetupPlatform for X86PvhPlatform {
                 (start_info_segment.pfn << self.page_shift()) + size_of::<HvmStartInfo>() as u64;
             (*info).memmap_paddr = (start_info_segment.pfn << self.page_shift())
                 + size_of::<HvmStartInfo>() as u64
-                + domain.cmdline.len() as u64
-                + 1;
+                + HVM_START_MAX_CMDLINE_SIZE as u64;
             (*info).memmap_entries = memmap.len() as u32;
             (*info).rsdp_paddr = self.acpi_modules[0].guest_addr;
+            (*info).nr_modules = 1;
+            (*info).modlist_paddr = (start_info_segment.pfn << self.page_shift())
+                + size_of::<HvmStartInfo>() as u64
+                + (size_of::<HvmMemmapTableEntry>() * HVM_START_MAX_MEMMAP_ENTRIES) as u64;
         };
         let cmdline_ptr = (ptr + size_of::<HvmStartInfo>() as u64) as *mut u8;
         for (i, c) in domain.cmdline.chars().enumerate() {
             unsafe { *cmdline_ptr.add(i) = c as u8 };
         }
-        let entries = (ptr + size_of::<HvmStartInfo>() as u64 + domain.cmdline.len() as u64 + 1)
+        let entries = (ptr + size_of::<HvmStartInfo>() as u64 + HVM_START_MAX_CMDLINE_SIZE as u64)
             as *mut HvmMemmapTableEntry;
         let entries = unsafe { std::slice::from_raw_parts_mut(entries, memmap.len()) };
         for (i, e820) in memmap.iter().enumerate() {
@@ -713,6 +721,22 @@ impl BootSetupPlatform for X86PvhPlatform {
             entry.size = e820.size;
             entry.typ = e820.typ;
             entry.reserved = 0;
+        }
+        let modlist = (ptr
+            + (size_of::<HvmStartInfo>()
+                + HVM_START_MAX_CMDLINE_SIZE
+                + (size_of::<HvmMemmapTableEntry>() * HVM_START_MAX_MEMMAP_ENTRIES))
+                as u64) as *mut HvmModlistEntry;
+        let modlist_cmdline_paddr = (start_info_segment.pfn << self.page_shift())
+            + (size_of::<HvmStartInfo>()
+                + HVM_START_MAX_CMDLINE_SIZE
+                + (size_of::<HvmMemmapTableEntry>() * HVM_START_MAX_MEMMAP_ENTRIES)
+                + (size_of::<HvmModlistEntry>() * HVM_START_MAX_MODLIST_COUNT))
+                as u64;
+        unsafe {
+            (*modlist).paddr = domain.initrd_segment.pfn << self.page_shift();
+            (*modlist).size = domain.initrd_segment.size;
+            (*modlist).cmdline_paddr = modlist_cmdline_paddr as u64;
         }
         Ok(())
     }

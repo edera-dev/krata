@@ -291,7 +291,7 @@ impl XenClient {
                     &config.cmdline,
                 )
                 .await?;
-            boot.boot(&mut domain, &config.cmdline).await?;
+            boot.boot(&mut domain).await?;
         }
 
         {

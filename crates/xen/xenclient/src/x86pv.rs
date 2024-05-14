@@ -754,7 +754,6 @@ impl BootSetupPlatform for X86PvPlatform {
     async fn setup_start_info(
         &mut self,
         domain: &mut BootDomain,
-        cmdline: &str,
         shared_info_frame: u64,
     ) -> Result<()> {
         let start_info_segment = self
@@ -800,7 +799,7 @@ impl BootSetupPlatform for X86PvPlatform {
             (*info).console.evtchn = console.0;
             (*info).mod_start = domain.initrd_segment.vstart;
             (*info).mod_len = domain.initrd_segment.size;
-            for (i, c) in cmdline.chars().enumerate() {
+            for (i, c) in domain.cmdline.chars().enumerate() {
                 (*info).cmdline[i] = c as c_char;
             }
             (*info).cmdline[MAX_GUEST_CMDLINE - 1] = 0;
