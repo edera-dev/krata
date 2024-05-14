@@ -375,7 +375,6 @@ impl KrataChannelBackendProcessor {
                         };
 
                         ring_ref = self.use_reserved_ref.unwrap_or(ring_ref);
-
                         break (ring_ref, port);
                     }
                 }

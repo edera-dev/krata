@@ -493,7 +493,7 @@ impl XenClient {
             ("virtual-device", id.to_string()),
             ("device-type", "disk".to_string()),
             ("trusted", "1".to_string()),
-            ("protocol", "x86_32-abi".to_string()),
+            ("protocol", "x86_64-abi".to_string()),
         ];
 
         self.device_add(

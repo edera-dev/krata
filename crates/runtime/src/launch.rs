@@ -138,12 +138,7 @@ impl GuestLauncher {
         } else {
             None
         };
-        let cmdline_options = [
-            "earlycon=xen,keep",
-            "earlyprintk=xen,keep",
-            "debug",
-            "elevator=noop",
-        ];
+        let cmdline_options = ["earlyprintk=xen,keep", "console=hvc0", "debug"];
         let cmdline = cmdline_options.join(" ");
 
         let guest_mac_string = container_mac.to_string().replace('-', ":");

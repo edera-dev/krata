@@ -670,7 +670,15 @@ impl BootSetupPlatform for X86PvhPlatform {
         domain
             .consoles
             .push((evtchn, special_pfn(SPECIALPAGE_CONSOLE)));
+        domain
+            .phys
+            .clear_pages(special_pfn(SPECIALPAGE_CONSOLE), 1)
+            .await?;
         domain.store_mfn = special_pfn(SPECIALPAGE_XENSTORE);
+        domain
+            .phys
+            .clear_pages(special_pfn(SPECIALPAGE_XENSTORE), 1)
+            .await?;
 
         Ok(())
     }
