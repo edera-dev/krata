@@ -631,6 +631,10 @@ impl BootSetupPlatform for X86PvhPlatform {
             )
             .await?;
 
+        if domain.cmdline.chars().count() > HVM_START_MAX_CMDLINE_SIZE - 1 {
+            return Err(Error::GenericError("kernel cmdline too large".to_string()));
+        }
+
         let mut start_info_size = size_of::<HvmStartInfo>();
         start_info_size += HVM_START_MAX_CMDLINE_SIZE;
         start_info_size += size_of::<HvmMemmapTableEntry>() * HVM_START_MAX_MEMMAP_ENTRIES;
@@ -705,8 +709,10 @@ impl BootSetupPlatform for X86PvhPlatform {
             (*info).rsdp_paddr = self.acpi_modules[0].guest_addr;
             (*info).nr_modules = 1;
             (*info).modlist_paddr = (start_info_segment.pfn << self.page_shift())
-                + size_of::<HvmStartInfo>() as u64
-                + (size_of::<HvmMemmapTableEntry>() * HVM_START_MAX_MEMMAP_ENTRIES) as u64;
+                + (size_of::<HvmStartInfo>()
+                    + HVM_START_MAX_CMDLINE_SIZE
+                    + (size_of::<HvmMemmapTableEntry>() * HVM_START_MAX_MEMMAP_ENTRIES))
+                    as u64;
         };
         let cmdline_ptr = (ptr + size_of::<HvmStartInfo>() as u64) as *mut u8;
         for (i, c) in domain.cmdline.chars().enumerate() {

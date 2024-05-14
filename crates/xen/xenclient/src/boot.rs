@@ -208,14 +208,15 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
             kernel_segment = Some(self.load_kernel_segment(&mut domain).await?);
         }
 
-        self.platform.alloc_magic_pages(&mut domain).await?;
-
         if domain.image_info.unmapped_initrd {
             initrd_segment = Some(domain.alloc_module(initrd).await?);
         }
 
         domain.initrd_segment =
             initrd_segment.ok_or(Error::MemorySetupFailed("initrd_segment missing"))?;
+
+        self.platform.alloc_magic_pages(&mut domain).await?;
+
         domain.store_evtchn = self.call.evtchn_alloc_unbound(self.domid, 0).await?;
 
         let _kernel_segment =
