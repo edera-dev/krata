@@ -1,12 +1,12 @@
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv6Addr};
+use std::fs;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::{fs, net::Ipv4Addr, str::FromStr};
 
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
-use ipnetwork::{IpNetwork, Ipv4Network};
+use ipnetwork::IpNetwork;
 use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
     LaunchPackedFormat, LaunchRoot,
@@ -15,7 +15,6 @@ use krataoci::packer::OciPackedImage;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
-use xenstore::XsdInterface;
 
 use crate::cfgblk::ConfigBlock;
 use crate::RuntimeContext;
@@ -66,13 +65,7 @@ impl GuestLauncher {
         container_mac.set_multicast(false);
 
         let _launch_permit = self.launch_semaphore.acquire().await?;
-        let guest_ipv4 = self.allocate_ipv4(context).await?;
-        let guest_ipv6 = container_mac.to_link_local_ipv6();
-        let gateway_ipv4 = "10.75.70.1";
-        let gateway_ipv6 = "fe80::1";
-        let ipv4_network_mask: u32 = 16;
-        let ipv6_network_mask: u32 = 10;
-
+        let mut ip = context.ipvendor.assign(uuid).await?;
         let launch_config = LaunchInfo {
             root: LaunchRoot {
                 format: request.format.clone(),
@@ -87,12 +80,12 @@ impl GuestLauncher {
             network: Some(LaunchNetwork {
                 link: "eth0".to_string(),
                 ipv4: LaunchNetworkIpv4 {
-                    address: format!("{}/{}", guest_ipv4, ipv4_network_mask),
-                    gateway: gateway_ipv4.to_string(),
+                    address: format!("{}/{}", ip.ipv4, ip.ipv4_prefix),
+                    gateway: ip.gateway_ipv4.to_string(),
                 },
                 ipv6: LaunchNetworkIpv6 {
-                    address: format!("{}/{}", guest_ipv6, ipv6_network_mask),
-                    gateway: gateway_ipv6.to_string(),
+                    address: format!("{}/{}", ip.ipv6, ip.ipv6_prefix),
+                    gateway: ip.gateway_ipv6.to_string(),
                 },
                 resolver: LaunchNetworkResolver {
                     nameservers: vec![
@@ -198,11 +191,11 @@ impl GuestLauncher {
             ("krata/loops".to_string(), loops.join(",")),
             (
                 "krata/network/guest/ipv4".to_string(),
-                format!("{}/{}", guest_ipv4, ipv4_network_mask),
+                format!("{}/{}", ip.ipv4, ip.ipv4_prefix),
             ),
             (
                 "krata/network/guest/ipv6".to_string(),
-                format!("{}/{}", guest_ipv6, ipv6_network_mask),
+                format!("{}/{}", ip.ipv6, ip.ipv6_prefix),
             ),
             (
                 "krata/network/guest/mac".to_string(),
@@ -210,11 +203,11 @@ impl GuestLauncher {
             ),
             (
                 "krata/network/gateway/ipv4".to_string(),
-                format!("{}/{}", gateway_ipv4, ipv4_network_mask),
+                format!("{}/{}", ip.gateway_ipv4, ip.ipv4_prefix),
             ),
             (
                 "krata/network/gateway/ipv6".to_string(),
-                format!("{}/{}", gateway_ipv6, ipv6_network_mask),
+                format!("{}/{}", ip.gateway_ipv6, ip.ipv6_prefix),
             ),
             (
                 "krata/network/gateway/mac".to_string(),
@@ -253,32 +246,29 @@ impl GuestLauncher {
             extra_rw_paths: vec!["krata/guest".to_string()],
         };
         match context.xen.create(&config).await {
-            Ok(created) => Ok(GuestInfo {
-                name: request.name.as_ref().map(|x| x.to_string()),
-                uuid,
-                domid: created.domid,
-                image: request.image.digest,
-                loops: vec![],
-                guest_ipv4: Some(IpNetwork::new(
-                    IpAddr::V4(guest_ipv4),
-                    ipv4_network_mask as u8,
-                )?),
-                guest_ipv6: Some(IpNetwork::new(
-                    IpAddr::V6(guest_ipv6),
-                    ipv6_network_mask as u8,
-                )?),
-                guest_mac: Some(guest_mac_string.clone()),
-                gateway_ipv4: Some(IpNetwork::new(
-                    IpAddr::V4(Ipv4Addr::from_str(gateway_ipv4)?),
-                    ipv4_network_mask as u8,
-                )?),
-                gateway_ipv6: Some(IpNetwork::new(
-                    IpAddr::V6(Ipv6Addr::from_str(gateway_ipv6)?),
-                    ipv6_network_mask as u8,
-                )?),
-                gateway_mac: Some(gateway_mac_string.clone()),
-                state: GuestState { exit_code: None },
-            }),
+            Ok(created) => {
+                ip.commit().await?;
+                Ok(GuestInfo {
+                    name: request.name.as_ref().map(|x| x.to_string()),
+                    uuid,
+                    domid: created.domid,
+                    image: request.image.digest,
+                    loops: vec![],
+                    guest_ipv4: Some(IpNetwork::new(IpAddr::V4(ip.ipv4), ip.ipv4_prefix)?),
+                    guest_ipv6: Some(IpNetwork::new(IpAddr::V6(ip.ipv6), ip.ipv6_prefix)?),
+                    guest_mac: Some(guest_mac_string.clone()),
+                    gateway_ipv4: Some(IpNetwork::new(
+                        IpAddr::V4(ip.gateway_ipv4),
+                        ip.ipv4_prefix,
+                    )?),
+                    gateway_ipv6: Some(IpNetwork::new(
+                        IpAddr::V6(ip.gateway_ipv6),
+                        ip.ipv6_prefix,
+                    )?),
+                    gateway_mac: Some(gateway_mac_string.clone()),
+                    state: GuestState { exit_code: None },
+                })
+            }
             Err(error) => {
                 let _ = context.autoloop.unloop(&image_squashfs_loop.path).await;
                 let _ = context.autoloop.unloop(&cfgblk_squashfs_loop.path).await;
@@ -286,39 +276,5 @@ impl GuestLauncher {
                 Err(error.into())
             }
         }
-    }
-
-    async fn allocate_ipv4(&self, context: &RuntimeContext) -> Result<Ipv4Addr> {
-        let network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
-        let mut used: Vec<Ipv4Addr> = vec![];
-        for domid_candidate in context.xen.store.list("/local/domain").await? {
-            let dom_path = format!("/local/domain/{}", domid_candidate);
-            let ip_path = format!("{}/krata/network/guest/ipv4", dom_path);
-            let existing_ip = context.xen.store.read_string(&ip_path).await?;
-            if let Some(existing_ip) = existing_ip {
-                let ipv4_network = Ipv4Network::from_str(&existing_ip)?;
-                used.push(ipv4_network.ip());
-            }
-        }
-
-        let mut found: Option<Ipv4Addr> = None;
-        for ip in network.iter() {
-            let last = ip.octets()[3];
-            if last == 0 || last == 255 {
-                continue;
-            }
-            if !used.contains(&ip) {
-                found = Some(ip);
-                break;
-            }
-        }
-
-        if found.is_none() {
-            return Err(anyhow!(
-                "unable to find ipv4 to allocate to guest, ipv4 addresses are exhausted"
-            ));
-        }
-
-        Ok(found.unwrap())
     }
 }
