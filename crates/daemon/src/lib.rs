@@ -93,7 +93,7 @@ impl Daemon {
         let addons_path = detect_guest_path(&store, "addons.squashfs")?;
 
         let packer = OciPackerService::new(None, &image_cache_dir, OciPlatform::current()).await?;
-        let runtime = Runtime::new().await?;
+        let runtime = Runtime::new(host_uuid).await?;
         let glt = GuestLookupTable::new(0, host_uuid);
         let guests_db_path = format!("{}/guests.db", store);
         let guests = GuestStore::open(&PathBuf::from(guests_db_path))?;

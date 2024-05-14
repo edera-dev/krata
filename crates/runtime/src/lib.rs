@@ -1,7 +1,9 @@
-use std::{fs, path::PathBuf, str::FromStr, sync::Arc};
+use std::{fs, net::Ipv4Addr, path::PathBuf, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use ipnetwork::IpNetwork;
+use ip::IpVendor;
+use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
+use log::error;
 use loopdev::LoopControl;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -16,6 +18,7 @@ use self::{
 pub mod autoloop;
 pub mod cfgblk;
 pub mod channel;
+pub mod ip;
 pub mod launch;
 
 pub struct GuestLoopInfo {
@@ -47,14 +50,20 @@ pub struct GuestInfo {
 pub struct RuntimeContext {
     pub autoloop: AutoLoop,
     pub xen: XenClient,
+    pub ipvendor: IpVendor,
 }
 
 impl RuntimeContext {
-    pub async fn new() -> Result<Self> {
+    pub async fn new(host_uuid: Uuid) -> Result<Self> {
         let xen = XenClient::open(0).await?;
+        let ipv4_network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
+        let ipv6_network = Ipv6Network::from_str("fdd4:1476:6c7e::/48")?;
+        let ipvend =
+            IpVendor::new(xen.store.clone(), host_uuid, ipv4_network, ipv6_network).await?;
         Ok(RuntimeContext {
             autoloop: AutoLoop::new(LoopControl::open()?),
             xen,
+            ipvendor: ipvend,
         })
     }
 
@@ -217,16 +226,18 @@ impl RuntimeContext {
 
 #[derive(Clone)]
 pub struct Runtime {
+    host_uuid: Uuid,
     context: RuntimeContext,
     launch_semaphore: Arc<Semaphore>,
 }
 
 impl Runtime {
-    pub async fn new() -> Result<Self> {
-        let context = RuntimeContext::new().await?;
+    pub async fn new(host_uuid: Uuid) -> Result<Self> {
+        let context = RuntimeContext::new(host_uuid).await?;
         Ok(Self {
+            host_uuid,
             context,
-            launch_semaphore: Arc::new(Semaphore::new(1)),
+            launch_semaphore: Arc::new(Semaphore::new(10)),
         })
     }
 
@@ -260,6 +271,11 @@ impl Runtime {
             return Err(anyhow!("unable to find krata uuid based on the domain",));
         }
         let uuid = Uuid::parse_str(&uuid)?;
+        let ip = self
+            .context
+            .ipvendor
+            .read_domain_assignment(uuid, domid)
+            .await?;
         let loops = store
             .read_string(format!("{}/krata/loops", dom_path).as_str())
             .await?;
@@ -279,6 +295,16 @@ impl Runtime {
                 }
             }
         }
+
+        if let Some(ip) = ip {
+            if let Err(error) = self.context.ipvendor.recall(&ip).await {
+                error!(
+                    "failed to recall ip assignment for guest {}: {}",
+                    uuid, error
+                );
+            }
+        }
+
         Ok(uuid)
     }
 
@@ -287,6 +313,6 @@ impl Runtime {
     }
 
     pub async fn dupe(&self) -> Result<Runtime> {
-        Runtime::new().await
+        Runtime::new(self.host_uuid).await
     }
 }
