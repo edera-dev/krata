@@ -231,7 +231,7 @@ impl GuestReconciler {
         let start_status = guest.state.as_ref().map(|x| x.status()).unwrap_or_default();
         let result = match start_status {
             GuestStatus::Starting => self.start(uuid, &mut guest).await,
-            // GuestStatus::Exited => self.exited(&mut guest).await,
+            GuestStatus::Exited => self.exited(&mut guest).await,
             GuestStatus::Destroying => self.destroy(uuid, &mut guest).await,
             _ => Ok(GuestReconcilerResult::Unchanged),
         };
@@ -289,7 +289,7 @@ impl GuestReconciler {
         starter.start(uuid, guest).await
     }
 
-    async fn _exited(&self, guest: &mut Guest) -> Result<GuestReconcilerResult> {
+    async fn exited(&self, guest: &mut Guest) -> Result<GuestReconcilerResult> {
         if let Some(ref mut state) = guest.state {
             state.set_status(GuestStatus::Destroying);
             Ok(GuestReconcilerResult::Changed { rerun: true })

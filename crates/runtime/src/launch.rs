@@ -138,7 +138,7 @@ impl GuestLauncher {
         } else {
             None
         };
-        let cmdline_options = ["earlyprintk=xen,keep", "console=hvc0", "debug"];
+        let cmdline_options = ["console=hvc0", "quiet"];
         let cmdline = cmdline_options.join(" ");
 
         let guest_mac_string = container_mac.to_string().replace('-', ":");

@@ -375,6 +375,10 @@ impl KrataChannelBackendProcessor {
                         };
 
                         ring_ref = self.use_reserved_ref.unwrap_or(ring_ref);
+                        debug!(
+                            "channel backend for domain {} channel {}: ring-ref={} port={}",
+                            self.domid, self.id, ring_ref, port,
+                        );
                         break (ring_ref, port);
                     }
                 }
@@ -388,14 +392,24 @@ impl KrataChannelBackendProcessor {
         self.store
             .write_string(format!("{}/state", self.backend), "4")
             .await?;
-        let memory = self.gnttab.map_grant_refs(
-            vec![GrantRef {
-                domid: self.domid,
-                reference: ring_ref as u32,
-            }],
-            true,
-            true,
-        )?;
+        let memory = self
+            .gnttab
+            .map_grant_refs(
+                vec![GrantRef {
+                    domid: self.domid,
+                    reference: ring_ref as u32,
+                }],
+                true,
+                true,
+            )
+            .map_err(|e| {
+                anyhow!(
+                    "failed to map grant ref {} for domid {}: {}",
+                    ring_ref,
+                    self.domid,
+                    e
+                )
+            })?;
         let mut channel = self.evtchn.bind(self.domid, port).await?;
         unsafe {
             let buffer = self.read_output_buffer(channel.local_port, &memory).await?;
