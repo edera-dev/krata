@@ -4,7 +4,15 @@ updates:
   directory: "/"
   schedule:
     interval: "daily"
+  groups:
+    version-updates:
+      dependency-type: "all"
+      applies-to: "version-updates"
 - package-ecosystem: "cargo"
   directory: "/"
   schedule:
     interval: "daily"
+  groups:
+    version-updates:
+      dependency-type: "all"
+      applies-to: "version-updates"
