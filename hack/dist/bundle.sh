@@ -24,10 +24,7 @@ do
   cp "${KRATA_DIR}/target/${RUST_TARGET}/release/${X}" "${BUNDLE_DIR}/${X}"
 done
 ./hack/initrd/build.sh
-if [ "${KRATA_KERNEL_BUILD_SKIP}" != "1" ]
-then
-  ./hack/kernel/build.sh "-j${KRATA_KERNEL_BUILD_JOBS}"
-fi
+./hack/kernel/fetch.sh
 
 cd "${BUNDLE_DIR}"
 

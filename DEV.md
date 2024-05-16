@@ -64,10 +64,10 @@ $ git clone https://github.com/edera-dev/krata.git krata
 $ cd krata
 ```
 
-6. Build a guest kernel image:
+6. Fetch the guest kernel image:
 
 ```sh
-$ ./hack/kernel/build.sh
+$ ./hack/kernel/fetch.sh -u
 ```
 
 7. Copy the guest kernel artifacts to `/var/lib/krata/guest/kernel` so it is automatically detected by kratad:

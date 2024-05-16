@@ -14,24 +14,23 @@ jobs:
     name: release-plz
     runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
-        with:
-          egress-policy: audit
-      - uses: actions/create-github-app-token@a0de6af83968303c8c955486bf9739a57d23c7f1 # v1.10.0
-        id: generate-token
-        with:
-          app-id: "${{ secrets.EDERA_CULTIVATION_APP_ID }}"
-          private-key: "${{ secrets.EDERA_CULTIVATION_APP_PRIVATE_KEY }}"
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b # v4.1.5
-        with:
-          submodules: recursive
-          fetch-depth: 0
-          token: "${{ steps.generate-token.outputs.token }}"
-      - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
-      - run: ./hack/ci/install-linux-deps.sh
-      - name: release-plz
-        uses: MarcoIeni/release-plz-action@a2904442184b59b09f10f6c7197cfa8e48bd2fc4 # v0.5.57
-        env:
-          GITHUB_TOKEN: "${{ steps.generate-token.outputs.token }}"
-          CARGO_REGISTRY_TOKEN: "${{ secrets.KRATA_RELEASE_CARGO_TOKEN }}"
+    - uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
+      with:
+        egress-policy: audit
+    - uses: actions/create-github-app-token@a0de6af83968303c8c955486bf9739a57d23c7f1 # v1.10.0
+      id: generate-token
+      with:
+        app-id: "${{ secrets.EDERA_CULTIVATION_APP_ID }}"
+        private-key: "${{ secrets.EDERA_CULTIVATION_APP_PRIVATE_KEY }}"
+    - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b # v4.1.5
+      with:
+        submodules: recursive
+        fetch-depth: 0
+        token: "${{ steps.generate-token.outputs.token }}"
+    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
+    - run: ./hack/ci/install-linux-deps.sh
+    - name: release-plz
+      uses: MarcoIeni/release-plz-action@a2904442184b59b09f10f6c7197cfa8e48bd2fc4 # v0.5.57
+      env:
+        GITHUB_TOKEN: "${{ steps.generate-token.outputs.token }}"
+        CARGO_REGISTRY_TOKEN: "${{ secrets.KRATA_RELEASE_CARGO_TOKEN }}"
