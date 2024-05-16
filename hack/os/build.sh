@@ -99,7 +99,10 @@ sudo mount --make-private "${ROOT_DIR}/sys"
 
 sudo cp "${PWD}/os/internal/stage2.sh" "${ROOT_DIR}/stage2.sh"
 echo "${ROOT_UUID}" | sudo tee "${ROOT_DIR}/root-uuid" > /dev/null
+sudo mv "${ROOT_DIR}/etc/resolv.conf" "${ROOT_DIR}/etc/resolv.conf.orig"
+sudo cp "/etc/resolv.conf" "${ROOT_DIR}/etc/resolv.conf"
 sudo chroot "${ROOT_DIR}" /bin/sh -c "/stage2.sh ${TARGET_ARCH} ${TARGET_ARCH_ALT}"
+sudo mv "${ROOT_DIR}/etc/resolv.conf.orig" "${ROOT_DIR}/etc/resolv.conf"
 sudo rm -f "${ROOT_DIR}/stage2.sh"
 sudo rm -f "${ROOT_DIR}/root-uuid"
 
