@@ -27,8 +27,7 @@ jobs:
       run:
         shell: bash
     steps:
-    - name: Harden Runner
-      uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
+    - uses: step-security/harden-runner@a4aa98b93cab29d9b1101a6143fb8bce00e2eac4 # v2.7.1
       with:
         egress-policy: audit
     - run: git config --global core.autocrlf false && git config --global core.eol lf

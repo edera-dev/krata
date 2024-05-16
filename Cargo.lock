@@ -1407,6 +1407,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "krata-buildtools"
+version = "0.0.10"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "krata-oci",
+ "krata-tokio-tar",
+ "oci-spec",
+ "scopeguard",
+ "tokio",
+ "tokio-stream",
+ "uuid",
+]
+
+[[package]]
 name = "krata-ctl"
 version = "0.0.10"
 dependencies = [
