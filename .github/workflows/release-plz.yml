@@ -30,7 +30,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
     - run: ./hack/ci/install-linux-deps.sh
     - name: release-plz
-      uses: MarcoIeni/release-plz-action@a2904442184b59b09f10f6c7197cfa8e48bd2fc4 # v0.5.57
+      uses: MarcoIeni/release-plz-action@7fe60ae5d741fc80fa624aef172aee9de2b98747 # v0.5.58
       env:
         GITHUB_TOKEN: "${{ steps.generate-token.outputs.token }}"
         CARGO_REGISTRY_TOKEN: "${{ secrets.KRATA_RELEASE_CARGO_TOKEN }}"
