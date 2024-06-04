@@ -25,6 +25,8 @@ ROOT_UUID="$(cat /root-uuid)"
     echo 'GRUB_SAVEDEFAULT="true"'
 } >> /etc/default/grub
 
+# fix bug in grub detection of xen support
+cp /boot/config-*-lts /boot/config-lts
 grub-mkconfig -o /boot/grub/grub.cfg
 grub-set-default "$(grep ^menuentry /boot/grub/grub.cfg | grep Xen | cut -d \' -f 2 | head -1)"
 rm -rf /var/cache/apk/*
