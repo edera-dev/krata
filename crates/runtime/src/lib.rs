@@ -7,7 +7,7 @@ use log::error;
 use loopdev::LoopControl;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
-use xenclient::{x86pvh::X86PvhPlatform, XenClient};
+use xenclient::{x86pv::X86PvPlatform, XenClient};
 use xenstore::{XsdClient, XsdInterface};
 
 use self::{
@@ -21,7 +21,7 @@ pub mod channel;
 pub mod ip;
 pub mod launch;
 
-type RuntimePlatform = X86PvhPlatform;
+type RuntimePlatform = X86PvPlatform;
 
 pub struct GuestLoopInfo {
     pub device: String,
@@ -57,7 +57,7 @@ pub struct RuntimeContext {
 
 impl RuntimeContext {
     pub async fn new(host_uuid: Uuid) -> Result<Self> {
-        let xen = XenClient::open(0, RuntimePlatform::new()).await?;
+        let xen = XenClient::new(0, RuntimePlatform::new()).await?;
         let ipv4_network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
         let ipv6_network = Ipv6Network::from_str("fdd4:1476:6c7e::/48")?;
         let ipvend =
