@@ -453,6 +453,10 @@ impl BootSetupPlatform for X86PvPlatform {
         false
     }
 
+    fn hvm(&self) -> bool {
+        false
+    }
+
     async fn initialize_early(&mut self, _: &mut BootDomain) -> Result<()> {
         Ok(())
     }

@@ -330,6 +330,10 @@ impl BootSetupPlatform for X86PvhPlatform {
         false
     }
 
+    fn hvm(&self) -> bool {
+        true
+    }
+
     async fn initialize_early(&mut self, domain: &mut BootDomain) -> Result<()> {
         {
             let mut config: acpi_config = unsafe { MaybeUninit::zeroed().assume_init() };

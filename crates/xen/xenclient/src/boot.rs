@@ -167,7 +167,7 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
         cmdline: &str,
     ) -> Result<BootDomain> {
         let total_pages = mem_mb << (20 - self.platform.page_shift());
-        let image_info = self.image_loader.parse(true).await?;
+        let image_info = self.image_loader.parse(self.platform.hvm()).await?;
         let mut domain = BootDomain {
             domid: self.domid,
             call: self.call.clone(),
@@ -266,6 +266,7 @@ pub trait BootSetupPlatform: Clone {
     fn page_size(&self) -> u64;
     fn page_shift(&self) -> u64;
     fn needs_early_kernel(&self) -> bool;
+    fn hvm(&self) -> bool;
 
     async fn initialize_early(&mut self, domain: &mut BootDomain) -> Result<()>;
 
