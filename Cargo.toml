@@ -83,7 +83,7 @@ toml = "0.8.14"
 tonic-build = "0.11.0"
 tower = "0.4.13"
 udp-stream = "0.0.11"
-url = "2.5.0"
+url = "2.5.1"
 walkdir = "2"
 xz2 = "0.1"
 
