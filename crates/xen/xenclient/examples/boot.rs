@@ -1,7 +1,7 @@
 use std::{env, process};
 use tokio::fs;
 use xenclient::error::Result;
-use xenclient::x86pvh::X86PvhPlatform;
+use xenclient::x86pv::X86PvPlatform;
 use xenclient::{DomainConfig, XenClient};
 
 #[tokio::main]
@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     }
     let kernel_image_path = args.get(1).expect("argument not specified");
     let initrd_path = args.get(2).expect("argument not specified");
-    let client = XenClient::new(0, X86PvhPlatform::new()).await?;
+    let client = XenClient::new(0, X86PvPlatform::new()).await?;
     let config = DomainConfig {
         backend_domid: 0,
         name: "xenclient-test".to_string(),

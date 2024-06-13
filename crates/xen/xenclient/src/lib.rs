@@ -27,9 +27,7 @@ use xenstore::{
 };
 
 pub mod pci;
-mod x86acpi;
 pub mod x86pv;
-pub mod x86pvh;
 
 #[derive(Clone)]
 pub struct XenClient<P: BootSetupPlatform> {
@@ -318,7 +316,7 @@ impl<P: BootSetupPlatform> XenClient<P> {
                 .await?;
             tx.write_string(format!("{}/domid", dom_path).as_str(), &domid.to_string())
                 .await?;
-            tx.write_string(format!("{}/type", dom_path).as_str(), "PVH")
+            tx.write_string(format!("{}/type", dom_path).as_str(), "PV")
                 .await?;
             tx.write_string(
                 format!("{}/store/port", dom_path).as_str(),
