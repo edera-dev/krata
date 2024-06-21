@@ -43,7 +43,8 @@ pub struct BootDomain {
     pub store_evtchn: u32,
     pub store_mfn: u64,
     pub initrd_segment: DomainSegment,
-    pub consoles: Vec<(u32, u64)>,
+    pub console_evtchn: u32,
+    pub console_mfn: u64,
     pub cmdline: String,
 }
 
@@ -177,7 +178,8 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
             target_pages: total_pages,
             page_size: self.platform.page_size(),
             image_info,
-            consoles: Vec::new(),
+            console_evtchn: 0,
+            console_mfn: 0,
             max_vcpus,
             phys: PhysicalPages::new(self.call.clone(), self.domid, self.platform.page_shift()),
             initrd_segment: DomainSegment::default(),
@@ -261,7 +263,7 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
 
 #[async_trait::async_trait]
 pub trait BootSetupPlatform: Clone {
-    fn create_domain(&self, needs_passthrough: bool) -> CreateDomain;
+    fn create_domain(&self, enable_iommu: bool) -> CreateDomain;
     fn page_size(&self) -> u64;
     fn page_shift(&self) -> u64;
     fn needs_early_kernel(&self) -> bool;

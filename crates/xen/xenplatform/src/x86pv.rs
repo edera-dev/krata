@@ -434,9 +434,9 @@ impl X86PvPlatform {
 
 #[async_trait::async_trait]
 impl BootSetupPlatform for X86PvPlatform {
-    fn create_domain(&self, needs_passthrough: bool) -> CreateDomain {
+    fn create_domain(&self, enable_iommu: bool) -> CreateDomain {
         CreateDomain {
-            flags: if needs_passthrough {
+            flags: if enable_iommu {
                 XEN_DOMCTL_CDF_IOMMU
             } else {
                 0
@@ -718,9 +718,8 @@ impl BootSetupPlatform for X86PvPlatform {
         domain.store_mfn = domain.phys.p2m[self.xenstore_segment.as_ref().unwrap().pfn as usize];
         let evtchn = domain.call.evtchn_alloc_unbound(domain.domid, 0).await?;
         let page = domain.alloc_page()?;
-        domain
-            .consoles
-            .push((evtchn, domain.phys.p2m[page.pfn as usize]));
+        domain.console_evtchn = evtchn;
+        domain.console_mfn = domain.phys.p2m[page.pfn as usize];
         self.page_table_segment = self.alloc_page_tables(domain).await?;
         self.boot_stack_segment = Some(domain.alloc_page()?);
 
@@ -802,9 +801,8 @@ impl BootSetupPlatform for X86PvPlatform {
             (*info).flags = 0;
             (*info).store_evtchn = domain.store_evtchn;
             (*info).store_mfn = domain.phys.p2m[xenstore_segment.pfn as usize];
-            let console = domain.consoles.first().unwrap();
-            (*info).console.mfn = console.1;
-            (*info).console.evtchn = console.0;
+            (*info).console.mfn = domain.console_mfn;
+            (*info).console.evtchn = domain.console_evtchn;
             (*info).mod_start = domain.initrd_segment.vstart;
             (*info).mod_len = domain.initrd_segment.size;
             for (i, c) in domain.cmdline.chars().enumerate() {
@@ -893,7 +891,7 @@ impl BootSetupPlatform for X86PvPlatform {
             .as_ref()
             .ok_or(Error::MemorySetupFailed("xenstore_segment missing"))?;
 
-        let console_gfn = domain.consoles.first().map(|x| x.1).unwrap_or(0) as usize;
+        let console_gfn = domain.console_mfn as usize;
         let xenstore_gfn = domain.phys.p2m[xenstore_segment.pfn as usize];
         let addr = domain
             .call
