@@ -26,6 +26,7 @@ async fn main() -> Result<()> {
     fs::create_dir_all("target/kernel").await?;
 
     let arch = env::var("TARGET_ARCH").map_err(|_| anyhow!("missing TARGET_ARCH env var"))?;
+    println!("kernel architecture: {}", arch);
     let platform = OciPlatform::new(
         Os::Linux,
         match arch.as_str() {
