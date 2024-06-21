@@ -22,7 +22,7 @@ fpm -s tar -t deb \
   --depends "xen-system-${TARGET_ARCH_DEBIAN}" \
   --depends "squashfs-tools" \
   --depends "erofs-utils" \
-  --description "Krata Hypervisor" \
+  --description "Krata Isolation Engine" \
   --url "https://krata.dev" \
   --maintainer "Edera Team <contact@edera.dev>" \
   -x "usr/lib/**" \

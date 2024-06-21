@@ -1,6 +1,6 @@
 [package]
 name = "krata-oci"
-description = "OCI services for the krata hypervisor."
+description = "OCI services for the krata isolation engine"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true

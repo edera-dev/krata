@@ -138,7 +138,7 @@ impl TopApp {
 
 impl Widget for &mut TopApp {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = Title::from(" krata hypervisor ".bold());
+        let title = Title::from(" krata isolation engine ".bold());
         let instructions = Title::from(vec![" Quit ".into(), "<Q> ".blue().bold()]);
         let block = Block::default()
             .title(title.alignment(Alignment::Center))

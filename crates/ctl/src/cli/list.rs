@@ -28,7 +28,7 @@ enum ListFormat {
 }
 
 #[derive(Parser)]
-#[command(about = "List the guests on the hypervisor")]
+#[command(about = "List the guests on the isolation engine")]
 pub struct ListCommand {
     #[arg(short, long, default_value = "table", help = "Output format")]
     format: ListFormat,

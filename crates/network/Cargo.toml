@@ -1,6 +1,6 @@
 [package]
 name = "krata-network"
-description = "Networking services for the krata hypervisor."
+description = "Networking services for the krata isolation engine"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "krata-ctl"
-description = "Command-line tool to control the krata hypervisor"
+description = "Command-line tool to control the krata isolation engine"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true

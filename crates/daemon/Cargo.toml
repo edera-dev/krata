@@ -1,6 +1,6 @@
 [package]
 name = "krata-daemon"
-description = "Daemon for the krata hypervisor."
+description = "Daemon for the krata isolation engine"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true

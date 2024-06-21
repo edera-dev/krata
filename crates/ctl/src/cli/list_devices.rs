@@ -23,7 +23,7 @@ enum ListDevicesFormat {
 }
 
 #[derive(Parser)]
-#[command(about = "List the devices on the hypervisor")]
+#[command(about = "List the devices on the isolation engine")]
 pub struct ListDevicesCommand {
     #[arg(short, long, default_value = "table", help = "Output format")]
     format: ListDevicesFormat,

@@ -6,7 +6,7 @@ use std::str::FromStr;
 use crate::Daemon;
 
 #[derive(Parser)]
-#[command(version, about = "Krata hypervisor daemon")]
+#[command(version, about = "krata isolation engine daemon")]
 pub struct DaemonCommand {
     #[arg(
         short,

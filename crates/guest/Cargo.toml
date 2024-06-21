@@ -1,6 +1,6 @@
 [package]
 name = "krata-guest"
-description = "Guest services for the krata hypervisor."
+description = "Guest services for the krata isolation engine"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true

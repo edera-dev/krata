@@ -21,7 +21,7 @@ fpm -s tar -t apk \
   --architecture "${TARGET_ARCH}" \
   --depends "squashfs-tools" \
   --depends "erofs-utils" \
-  --description "Krata Hypervisor" \
+  --description "Krata Isolation Engine" \
   --url "https://krata.dev" \
   --maintainer "Edera Team <contact@edera.dev>" \
   "${OUTPUT_DIR}/system-openrc-${TARGET_ARCH}.tgz"

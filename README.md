@@ -1,6 +1,6 @@
 # krata
 
-The Edera Hypervisor
+An isolation engine for securing compute workloads.
 
 ![license](https://img.shields.io/github/license/edera-dev/krata)
 ![discord](https://img.shields.io/discord/1207447453083766814?label=discord)
@@ -16,13 +16,13 @@ The Edera Hypervisor
 
 ## Introduction
 
-krata is a single-host hypervisor service built for OCI-compliant containers. It isolates containers using a type-1 hypervisor, providing workload isolation that can exceed the security level of KVM-based OCI-compliant runtimes.
+krata is a single-host workload isolation service. It isolates workloads using a type-1 hypervisor, providing a tight security boundary while preserving performance.
 
-krata utilizes the core of the Xen hypervisor, with a fully memory-safe Rust control plane to bring Xen tooling into a new secure era.
+krata utilizes the core of the Xen hypervisor with a fully memory-safe Rust control plane.
 
 ## Hardware Support
 
-| Architecture | Completion Level | Virtualization Technology |
-| ------------ | ---------------- | ------------------------- |
-| x86_64       | 100% Completed   | Intel VT-x, AMD-V         |
-| aarch64      | 30% Completed    | AArch64 virtualization    |
+| Architecture | Completion Level | Hardware Virtualization         |
+| ------------ | ---------------- | ------------------------------- |
+| x86_64       | 100% Completed   | None, Intel VT-x, AMD-V         |
+| aarch64      | 10% Completed    | AArch64 virtualization          |

@@ -1,6 +1,6 @@
 [package]
 name = "krata"
-description = "Client library and common services for the krata hypervisor."
+description = "Client library and common services for the krata isolation engine"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true

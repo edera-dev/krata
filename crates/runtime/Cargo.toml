@@ -1,6 +1,6 @@
 [package]
 name = "krata-runtime"
-description = "Runtime for running guests on the krata hypervisor."
+description = "Runtime for running guests on the krata isolation engine"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true

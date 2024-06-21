@@ -33,13 +33,13 @@ use self::{
 #[derive(Parser)]
 #[command(
     version,
-    about = "Control the krata hypervisor, a secure platform for running containers"
+    about = "Control the krata isolation engine"
 )]
 pub struct ControlCommand {
     #[arg(
         short,
         long,
-        help = "The connection URL to the krata hypervisor",
+        help = "The connection URL to the krata isolation engine",
         default_value = "unix:///var/lib/krata/daemon.socket"
     )]
     connection: String,
