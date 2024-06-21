@@ -1,6 +1,6 @@
 [package]
 name = "krata-xengnt"
-description = "An implementation of xen grant interfaces for krata."
+description = "An implementation of Xen grant interfaces for krata"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true
