@@ -1,18 +1,13 @@
-pub mod boot;
-pub mod elfloader;
 pub mod error;
-pub mod mem;
-pub mod sys;
 
-use crate::boot::{BootDomain, BootSetup};
-use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
-use boot::BootSetupPlatform;
 use indexmap::IndexMap;
 use log::{debug, trace, warn};
 use pci::{PciBdf, XenPciBackend};
-use sys::XEN_PAGE_SHIFT;
 use tokio::time::timeout;
+use xenplatform::boot::{BootDomain, BootSetup, BootSetupPlatform};
+use xenplatform::elfloader::ElfImageLoader;
+use xenplatform::sys::XEN_PAGE_SHIFT;
 
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -27,10 +22,6 @@ use xenstore::{
 };
 
 pub mod pci;
-
-pub mod unsupported;
-#[cfg(target_arch = "x86_64")]
-pub mod x86pv;
 
 #[derive(Clone)]
 pub struct XenClient<P: BootSetupPlatform> {

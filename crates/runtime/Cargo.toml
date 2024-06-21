@@ -23,6 +23,7 @@ uuid = { workspace = true }
 krata-xenclient = { path = "../xen/xenclient", version = "^0.0.10" }
 krata-xenevtchn = { path = "../xen/xenevtchn", version = "^0.0.10" }
 krata-xengnt = { path = "../xen/xengnt", version = "^0.0.10" }
+krata-xenplatform = { path = "../xen/xenplatform", version = "^0.0.10" }
 krata-xenstore = { path = "../xen/xenstore", version = "^0.0.10" }
 walkdir = { workspace = true }
 

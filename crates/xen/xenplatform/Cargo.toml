@@ -1,6 +1,6 @@
 [package]
-name = "krata-xenclient"
-description = "An implementation of Xen userspace for krata"
+name = "krata-xenplatform"
+description = "An implementation of Xen platforms for krata"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true
@@ -10,28 +10,25 @@ resolver = "2"
 
 [dependencies]
 async-trait = { workspace = true }
+c2rust-bitfields = { workspace = true }
+elf = { workspace = true }
+flate2 = { workspace = true }
 indexmap = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 krata-xencall = { path = "../xencall", version = "^0.0.10" }
-krata-xenplatform = { path = "../xenplatform", version = "^0.0.10" }
-krata-xenstore = { path = "../xenstore", version = "^0.0.10" }
+memchr = { workspace = true }
+nix = { workspace = true }
 regex = { workspace = true }
+slice-copy = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }
+xz2 = { workspace = true }
 
 [dev-dependencies]
 env_logger = { workspace = true }
 tokio = { workspace = true }
 
 [lib]
-name = "xenclient"
-
-[[example]]
-name = "xenclient-boot"
-path = "examples/boot.rs"
-
-[[example]]
-name = "xenclient-pci"
-path = "examples/pci.rs"
+name = "xenplatform"

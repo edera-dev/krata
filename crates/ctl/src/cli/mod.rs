@@ -31,10 +31,7 @@ use self::{
 };
 
 #[derive(Parser)]
-#[command(
-    version,
-    about = "Control the krata isolation engine"
-)]
+#[command(version, about = "Control the krata isolation engine")]
 pub struct ControlCommand {
     #[arg(
         short,

@@ -22,10 +22,10 @@ pub mod ip;
 pub mod launch;
 
 #[cfg(target_arch = "x86_64")]
-type RuntimePlatform = xenclient::x86pv::X86PvPlatform;
+type RuntimePlatform = xenplatform::x86pv::X86PvPlatform;
 
 #[cfg(not(target_arch = "x86_64"))]
-type RuntimePlatform = xenclient::unsupported::UnsupportedPlatform;
+type RuntimePlatform = xenplatform::unsupported::UnsupportedPlatform;
 
 pub struct GuestLoopInfo {
     pub device: String,

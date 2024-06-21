@@ -4,10 +4,10 @@ use xenclient::error::Result;
 use xenclient::{DomainConfig, XenClient};
 
 #[cfg(target_arch = "x86_64")]
-type RuntimePlatform = xenclient::x86pv::X86PvPlatform;
+type RuntimePlatform = xenplatform::x86pv::X86PvPlatform;
 
 #[cfg(not(target_arch = "x86_64"))]
-type RuntimePlatform = xenclient::unsupported::UnsupportedPlatform;
+type RuntimePlatform = xenplatform::unsupported::UnsupportedPlatform;
 
 #[tokio::main]
 async fn main() -> Result<()> {

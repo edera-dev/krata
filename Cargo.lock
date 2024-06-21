@@ -1584,6 +1584,7 @@ dependencies = [
  "krata-xenclient",
  "krata-xenevtchn",
  "krata-xengnt",
+ "krata-xenplatform",
  "krata-xenstore",
  "log",
  "loopdev-3",
@@ -1626,23 +1627,17 @@ name = "krata-xenclient"
 version = "0.0.10"
 dependencies = [
  "async-trait",
- "c2rust-bitfields",
- "elf",
  "env_logger",
- "flate2",
  "indexmap 2.2.6",
  "krata-xencall",
+ "krata-xenplatform",
  "krata-xenstore",
  "libc",
  "log",
- "memchr",
- "nix 0.28.0",
  "regex",
- "slice-copy",
  "thiserror",
  "tokio",
  "uuid",
- "xz2",
 ]
 
 [[package]]
@@ -1663,6 +1658,29 @@ dependencies = [
  "libc",
  "nix 0.28.0",
  "thiserror",
+]
+
+[[package]]
+name = "krata-xenplatform"
+version = "0.0.10"
+dependencies = [
+ "async-trait",
+ "c2rust-bitfields",
+ "elf",
+ "env_logger",
+ "flate2",
+ "indexmap 2.2.6",
+ "krata-xencall",
+ "libc",
+ "log",
+ "memchr",
+ "nix 0.28.0",
+ "regex",
+ "slice-copy",
+ "thiserror",
+ "tokio",
+ "uuid",
+ "xz2",
 ]
 
 [[package]]

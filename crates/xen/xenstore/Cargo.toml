@@ -1,6 +1,6 @@
 [package]
 name = "krata-xenstore"
-description = "A client that interacts with xenstore for krata."
+description = "A client that interacts with xenstore for krata"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true

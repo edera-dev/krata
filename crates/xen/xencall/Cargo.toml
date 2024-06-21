@@ -1,6 +1,6 @@
 [package]
 name = "krata-xencall"
-description = "An implementation of direct interfacing to xen privcmd for krata."
+description = "An implementation of direct interfacing to Xen privcmd for krata"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true

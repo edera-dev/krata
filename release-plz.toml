@@ -37,5 +37,9 @@ name = "krata-xengnt"
 semver_check = false
 
 [[package]]
+name = "krata-xenplatform"
+semver_check = false
+
+[[package]]
 name = "krata-xenstore"
 semver_check = false
