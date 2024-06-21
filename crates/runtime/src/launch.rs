@@ -247,7 +247,6 @@ impl GuestLauncher {
             }],
             pcis: request.pcis.clone(),
             filesystems: vec![],
-            event_channels: vec![],
             extra_keys,
             extra_rw_paths: vec!["krata/guest".to_string()],
         };

@@ -44,7 +44,6 @@ async fn main() -> Result<()> {
         filesystems: vec![],
         extra_keys: vec![],
         extra_rw_paths: vec![],
-        event_channels: vec![],
     };
     let created = client.create(&config).await?;
     println!("created domain {}", created.domid);

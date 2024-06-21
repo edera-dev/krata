@@ -1,26 +1,22 @@
 pub mod error;
 
 use crate::error::{Error, Result};
-use indexmap::IndexMap;
 use log::{debug, trace};
-use pci::{PciBdf, XenPciBackend};
+use pci::PciBdf;
 use tokio::time::timeout;
+use tx::ClientTransaction;
 use xenplatform::boot::BootSetupPlatform;
 use xenplatform::domain::{BaseDomainConfig, BaseDomainManager, CreatedDomain};
-use xenplatform::sys::XEN_PAGE_SHIFT;
 
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use xencall::sys::DOMCTL_DEV_RDM_RELAXED;
 use xencall::XenCall;
-use xenstore::{
-    XsPermission, XsdClient, XsdInterface, XsdTransaction, XS_PERM_NONE, XS_PERM_READ,
-    XS_PERM_READ_WRITE,
-};
+use xenstore::{XsdClient, XsdInterface};
 
 pub mod pci;
+pub mod tx;
 
 #[derive(Clone)]
 pub struct XenClient<P: BootSetupPlatform> {
@@ -105,7 +101,6 @@ pub struct DomainConfig {
     pub channels: Vec<DomainChannel>,
     pub vifs: Vec<DomainNetworkInterface>,
     pub filesystems: Vec<DomainFilesystem>,
-    pub event_channels: Vec<DomainEventChannel>,
     pub pcis: Vec<DomainPciDevice>,
     pub extra_keys: Vec<(String, String)>,
     pub extra_rw_paths: Vec<String>,
@@ -132,7 +127,7 @@ impl<P: BootSetupPlatform> XenClient<P> {
 
     pub async fn create(&self, config: &DomainConfig) -> Result<CreatedDomain> {
         let created = self.domain_manager.create(config.base.clone()).await?;
-        match self.init(created.domid, &created, config).await {
+        match self.init(created.domid, config, &created).await {
             Ok(_) => Ok(created),
             Err(err) => {
                 // ignore since destroying a domain is best
@@ -143,155 +138,17 @@ impl<P: BootSetupPlatform> XenClient<P> {
         }
     }
 
-    async fn init(&self, domid: u32, created: &CreatedDomain, config: &DomainConfig) -> Result<()> {
-        trace!("XenClient init domid={} domain={:?}", domid, created);
-        let backend_dom_path = self.store.get_domain_path(0).await?;
-        let dom_path = self.store.get_domain_path(domid).await?;
-        let uuid_string = config.base.uuid.to_string();
-        let vm_path = format!("/vm/{}", uuid_string);
+    pub async fn transaction(&self, domid: u32, backend_domid: u32) -> Result<ClientTransaction> {
+        ClientTransaction::new(&self.store, domid, backend_domid).await
+    }
 
-        let ro_perm = &[
-            XsPermission {
-                id: 0,
-                perms: XS_PERM_NONE,
-            },
-            XsPermission {
-                id: domid,
-                perms: XS_PERM_READ,
-            },
-        ];
-
-        let rw_perm = &[XsPermission {
-            id: domid,
-            perms: XS_PERM_READ_WRITE,
-        }];
-
-        let no_perm = &[XsPermission {
-            id: 0,
-            perms: XS_PERM_NONE,
-        }];
-
-        {
-            let tx = self.store.transaction().await?;
-
-            tx.rm(dom_path.as_str()).await?;
-            tx.mknod(dom_path.as_str(), ro_perm).await?;
-
-            tx.rm(vm_path.as_str()).await?;
-            tx.mknod(vm_path.as_str(), ro_perm).await?;
-
-            tx.mknod(vm_path.as_str(), no_perm).await?;
-            tx.mknod(format!("{}/device", vm_path).as_str(), no_perm)
-                .await?;
-
-            tx.write_string(format!("{}/vm", dom_path).as_str(), &vm_path)
-                .await?;
-
-            tx.mknod(format!("{}/cpu", dom_path).as_str(), ro_perm)
-                .await?;
-            tx.mknod(format!("{}/memory", dom_path).as_str(), ro_perm)
-                .await?;
-
-            tx.mknod(format!("{}/control", dom_path).as_str(), ro_perm)
-                .await?;
-
-            tx.mknod(format!("{}/control/shutdown", dom_path).as_str(), rw_perm)
-                .await?;
-            tx.mknod(
-                format!("{}/control/feature-poweroff", dom_path).as_str(),
-                rw_perm,
-            )
+    async fn init(&self, domid: u32, config: &DomainConfig, created: &CreatedDomain) -> Result<()> {
+        trace!("xenclient init domid={} domain={:?}", domid, created);
+        let transaction = self.transaction(domid, config.backend_domid).await?;
+        transaction
+            .add_domain_declaration(&config.name, &config.base, created)
             .await?;
-            tx.mknod(
-                format!("{}/control/feature-reboot", dom_path).as_str(),
-                rw_perm,
-            )
-            .await?;
-            tx.mknod(
-                format!("{}/control/feature-suspend", dom_path).as_str(),
-                rw_perm,
-            )
-            .await?;
-            tx.mknod(format!("{}/control/sysrq", dom_path).as_str(), rw_perm)
-                .await?;
-
-            tx.mknod(format!("{}/data", dom_path).as_str(), rw_perm)
-                .await?;
-            tx.mknod(format!("{}/drivers", dom_path).as_str(), rw_perm)
-                .await?;
-            tx.mknod(format!("{}/feature", dom_path).as_str(), rw_perm)
-                .await?;
-            tx.mknod(format!("{}/attr", dom_path).as_str(), rw_perm)
-                .await?;
-            tx.mknod(format!("{}/error", dom_path).as_str(), rw_perm)
-                .await?;
-
-            tx.write_string(format!("{}/uuid", vm_path).as_str(), &uuid_string)
-                .await?;
-            tx.write_string(format!("{}/name", dom_path).as_str(), &config.name)
-                .await?;
-            tx.write_string(format!("{}/name", vm_path).as_str(), &config.name)
-                .await?;
-
-            for (key, value) in &config.extra_keys {
-                tx.write_string(format!("{}/{}", dom_path, key).as_str(), value)
-                    .await?;
-            }
-
-            for path in &config.extra_rw_paths {
-                tx.mknod(format!("{}/{}", dom_path, path).as_str(), rw_perm)
-                    .await?;
-            }
-
-            tx.commit().await?;
-        }
-
-        {
-            let tx = self.store.transaction().await?;
-            tx.write_string(format!("{}/image/os_type", vm_path).as_str(), "linux")
-                .await?;
-            tx.write_string(
-                format!("{}/image/cmdline", vm_path).as_str(),
-                &config.base.cmdline,
-            )
-            .await?;
-
-            tx.write_string(
-                format!("{}/memory/static-max", dom_path).as_str(),
-                &(config.base.mem_mb * 1024).to_string(),
-            )
-            .await?;
-            tx.write_string(
-                format!("{}/memory/target", dom_path).as_str(),
-                &(config.base.mem_mb * 1024).to_string(),
-            )
-            .await?;
-            tx.write_string(format!("{}/memory/videoram", dom_path).as_str(), "0")
-                .await?;
-            tx.write_string(format!("{}/domid", dom_path).as_str(), &domid.to_string())
-                .await?;
-            tx.write_string(format!("{}/type", dom_path).as_str(), "PV")
-                .await?;
-            tx.write_string(
-                format!("{}/store/port", dom_path).as_str(),
-                &created.store_evtchn.to_string(),
-            )
-            .await?;
-            tx.write_string(
-                format!("{}/store/ring-ref", dom_path).as_str(),
-                &created.store_mfn.to_string(),
-            )
-            .await?;
-            for i in 0..config.base.max_vcpus {
-                let path = format!("{}/cpu/{}", dom_path, i);
-                tx.mkdir(&path).await?;
-                tx.set_perms(&path, ro_perm).await?;
-                let path = format!("{}/cpu/{}/availability", dom_path, i);
-                tx.write_string(&path, "online").await?;
-                tx.set_perms(&path, ro_perm).await?;
-            }
-            tx.commit().await?;
-        }
+        transaction.commit().await?;
         if !self
             .store
             .introduce_domain(domid, created.store_mfn, created.store_evtchn)
@@ -299,517 +156,56 @@ impl<P: BootSetupPlatform> XenClient<P> {
         {
             return Err(Error::IntroduceDomainFailed);
         }
-
-        let tx = self.store.transaction().await?;
-        self.console_device_add(
-            &tx,
-            created,
-            &DomainChannel {
-                typ: config
-                    .swap_console_backend
-                    .clone()
-                    .unwrap_or("xenconsoled".to_string())
-                    .to_string(),
-                initialized: true,
-            },
-            &dom_path,
-            &backend_dom_path,
-            config.backend_domid,
-            domid,
-            0,
-        )
-        .await?;
-
-        for (index, channel) in config.channels.iter().enumerate() {
-            self.console_device_add(
-                &tx,
+        let transaction = self.transaction(domid, config.backend_domid).await?;
+        transaction
+            .add_channel_device(
                 created,
-                channel,
-                &dom_path,
-                &backend_dom_path,
-                config.backend_domid,
-                domid,
-                index + 1,
-            )
-            .await?;
-        }
-
-        for (index, disk) in config.disks.iter().enumerate() {
-            self.disk_device_add(
-                &tx,
-                &dom_path,
-                &backend_dom_path,
-                config.backend_domid,
-                domid,
-                index,
-                disk,
-            )
-            .await?;
-        }
-
-        for (index, filesystem) in config.filesystems.iter().enumerate() {
-            self.fs_9p_device_add(
-                &tx,
-                &dom_path,
-                &backend_dom_path,
-                config.backend_domid,
-                domid,
-                index,
-                filesystem,
-            )
-            .await?;
-        }
-
-        for (index, vif) in config.vifs.iter().enumerate() {
-            self.vif_device_add(
-                &tx,
-                &dom_path,
-                &backend_dom_path,
-                config.backend_domid,
-                domid,
-                index,
-                vif,
-            )
-            .await?;
-        }
-
-        for (index, pci) in config.pcis.iter().enumerate() {
-            self.pci_device_add(
-                &tx,
-                &dom_path,
-                &backend_dom_path,
-                config.backend_domid,
-                domid,
-                index,
-                config.pcis.len(),
-                pci,
-            )
-            .await?;
-        }
-
-        for channel in &config.event_channels {
-            let id = self
-                .call
-                .evtchn_alloc_unbound(domid, config.backend_domid)
-                .await?;
-            let channel_path = format!("{}/evtchn/{}", dom_path, channel.name);
-            tx.write_string(&format!("{}/name", channel_path), &channel.name)
-                .await?;
-            tx.write_string(&format!("{}/channel", channel_path), &id.to_string())
-                .await?;
-        }
-
-        tx.commit().await?;
-
-        self.call.unpause_domain(domid).await?;
-        Ok(())
-    }
-
-    async fn disk_device_add(
-        &self,
-        tx: &XsdTransaction,
-        dom_path: &str,
-        backend_dom_path: &str,
-        backend_domid: u32,
-        domid: u32,
-        index: usize,
-        disk: &DomainDisk,
-    ) -> Result<()> {
-        let id = (202 << 8) | (index << 4) as u64;
-        let backend_items: Vec<(&str, String)> = vec![
-            ("frontend-id", domid.to_string()),
-            ("online", "1".to_string()),
-            ("removable", "0".to_string()),
-            ("bootable", "1".to_string()),
-            ("state", "1".to_string()),
-            ("dev", disk.vdev.to_string()),
-            ("type", "phy".to_string()),
-            ("mode", if disk.writable { "w" } else { "r" }.to_string()),
-            ("device-type", "disk".to_string()),
-            ("discard-enable", "0".to_string()),
-            ("specification", "xen".to_string()),
-            ("physical-device-path", disk.block.path.to_string()),
-            (
-                "physical-device",
-                format!("{:02x}:{:02x}", disk.block.major, disk.block.minor),
-            ),
-        ];
-
-        let frontend_items: Vec<(&str, String)> = vec![
-            ("backend-id", backend_domid.to_string()),
-            ("state", "1".to_string()),
-            ("virtual-device", id.to_string()),
-            ("device-type", "disk".to_string()),
-            ("trusted", "1".to_string()),
-            ("protocol", "x86_64-abi".to_string()),
-        ];
-
-        self.device_add(
-            tx,
-            "vbd",
-            id,
-            dom_path,
-            backend_dom_path,
-            backend_domid,
-            domid,
-            frontend_items,
-            backend_items,
-        )
-        .await?;
-        Ok(())
-    }
-
-    #[allow(clippy::unnecessary_unwrap)]
-    async fn console_device_add(
-        &self,
-        tx: &XsdTransaction,
-        domain: &CreatedDomain,
-        channel: &DomainChannel,
-        dom_path: &str,
-        backend_dom_path: &str,
-        backend_domid: u32,
-        domid: u32,
-        index: usize,
-    ) -> Result<Option<(u32, u64)>> {
-        let port = domain.console_evtchn;
-        let ring = domain.console_mfn;
-
-        let mut backend_entries = vec![
-            ("frontend-id", domid.to_string()),
-            ("online", "1".to_string()),
-            ("protocol", "vt100".to_string()),
-        ];
-
-        let mut frontend_entries = vec![
-            ("backend-id", backend_domid.to_string()),
-            ("limit", "1048576".to_string()),
-            ("output", "pty".to_string()),
-            ("tty", "".to_string()),
-        ];
-
-        frontend_entries.push(("type", channel.typ.clone()));
-        backend_entries.push(("type", channel.typ.clone()));
-
-        if index == 0 {
-            if channel.typ != "xenconsoled" {
-                frontend_entries.push(("state", "1".to_string()));
-            }
-
-            frontend_entries
-                .extend_from_slice(&[("port", port.to_string()), ("ring-ref", ring.to_string())]);
-        } else {
-            frontend_entries.extend_from_slice(&[
-                ("state", "1".to_string()),
-                ("protocol", "vt100".to_string()),
-            ]);
-        }
-
-        if channel.initialized {
-            backend_entries.push(("state", "4".to_string()));
-        } else {
-            backend_entries.push(("state", "1".to_string()));
-        }
-
-        self.device_add(
-            tx,
-            "console",
-            index as u64,
-            dom_path,
-            backend_dom_path,
-            backend_domid,
-            domid,
-            frontend_entries,
-            backend_entries,
-        )
-        .await?;
-        Ok(Some((port, ring)))
-    }
-
-    async fn fs_9p_device_add(
-        &self,
-        tx: &XsdTransaction,
-        dom_path: &str,
-        backend_dom_path: &str,
-        backend_domid: u32,
-        domid: u32,
-        index: usize,
-        filesystem: &DomainFilesystem,
-    ) -> Result<()> {
-        let id = 90 + index as u64;
-        let backend_items: Vec<(&str, String)> = vec![
-            ("frontend-id", domid.to_string()),
-            ("online", "1".to_string()),
-            ("state", "1".to_string()),
-            ("path", filesystem.path.to_string()),
-            ("security-model", "none".to_string()),
-        ];
-
-        let frontend_items: Vec<(&str, String)> = vec![
-            ("backend-id", backend_domid.to_string()),
-            ("state", "1".to_string()),
-            ("tag", filesystem.tag.to_string()),
-        ];
-
-        self.device_add(
-            tx,
-            "9pfs",
-            id,
-            dom_path,
-            backend_dom_path,
-            backend_domid,
-            domid,
-            frontend_items,
-            backend_items,
-        )
-        .await?;
-        Ok(())
-    }
-
-    async fn vif_device_add(
-        &self,
-        tx: &XsdTransaction,
-        dom_path: &str,
-        backend_dom_path: &str,
-        backend_domid: u32,
-        domid: u32,
-        index: usize,
-        vif: &DomainNetworkInterface,
-    ) -> Result<()> {
-        let id = 20 + index as u64;
-        let mut backend_items: Vec<(&str, String)> = vec![
-            ("frontend-id", domid.to_string()),
-            ("online", "1".to_string()),
-            ("state", "1".to_string()),
-            ("mac", vif.mac.to_string()),
-            ("mtu", vif.mtu.to_string()),
-            ("type", "vif".to_string()),
-            ("handle", id.to_string()),
-        ];
-
-        if vif.bridge.is_some() {
-            backend_items.extend_from_slice(&[("bridge", vif.bridge.clone().unwrap())]);
-        }
-
-        if vif.script.is_some() {
-            backend_items.extend_from_slice(&[
-                ("script", vif.script.clone().unwrap()),
-                ("hotplug-status", "".to_string()),
-            ]);
-        } else {
-            backend_items.extend_from_slice(&[
-                ("script", "".to_string()),
-                ("hotplug-status", "connected".to_string()),
-            ]);
-        }
-
-        let frontend_items: Vec<(&str, String)> = vec![
-            ("backend-id", backend_domid.to_string()),
-            ("state", "1".to_string()),
-            ("mac", vif.mac.to_string()),
-            ("trusted", "1".to_string()),
-            ("mtu", vif.mtu.to_string()),
-        ];
-
-        self.device_add(
-            tx,
-            "vif",
-            id,
-            dom_path,
-            backend_dom_path,
-            backend_domid,
-            domid,
-            frontend_items,
-            backend_items,
-        )
-        .await?;
-        Ok(())
-    }
-
-    async fn pci_device_add(
-        &self,
-        tx: &XsdTransaction,
-        dom_path: &str,
-        backend_dom_path: &str,
-        backend_domid: u32,
-        domid: u32,
-        index: usize,
-        device_count: usize,
-        device: &DomainPciDevice,
-    ) -> Result<()> {
-        let backend = XenPciBackend::new();
-        if !backend.is_assigned(&device.bdf).await? {
-            return Err(Error::PciDeviceNotAssignable(device.bdf));
-        }
-        let resources = backend.read_resources(&device.bdf).await?;
-        for resource in resources {
-            if resource.is_bar_io() {
-                self.call
-                    .ioport_permission(domid, resource.start as u32, resource.size() as u32, true)
-                    .await?;
-            } else {
-                self.call
-                    .iomem_permission(
-                        domid,
-                        resource.start >> XEN_PAGE_SHIFT,
-                        (resource.size() + (XEN_PAGE_SHIFT - 1)) >> XEN_PAGE_SHIFT,
-                        true,
-                    )
-                    .await?;
-            }
-        }
-
-        if let Some(irq) = backend.read_irq(&device.bdf).await? {
-            let irq = self.call.map_pirq(domid, irq as isize, None).await?;
-            self.call.irq_permission(domid, irq, true).await?;
-        }
-
-        backend.reset(&device.bdf).await?;
-
-        self.call
-            .assign_device(
-                domid,
-                device.bdf.encode(),
-                if device.rdm_reserve_policy == DomainPciRdmReservePolicy::Relaxed {
-                    DOMCTL_DEV_RDM_RELAXED
-                } else {
-                    0
+                0,
+                &DomainChannel {
+                    typ: config
+                        .swap_console_backend
+                        .clone()
+                        .unwrap_or("xenconsoled".to_string())
+                        .to_string(),
+                    initialized: true,
                 },
             )
             .await?;
 
-        if device.permissive {
-            backend.enable_permissive(&device.bdf).await?;
+        for (index, channel) in config.channels.iter().enumerate() {
+            transaction
+                .add_channel_device(created, index + 1, channel)
+                .await?;
         }
 
-        let id = 60;
-
-        if index == 0 {
-            let backend_items: Vec<(&str, String)> = vec![
-                ("frontend-id", domid.to_string()),
-                ("online", "1".to_string()),
-                ("state", "1".to_string()),
-                ("num_devs", device_count.to_string()),
-            ];
-
-            let frontend_items: Vec<(&str, String)> = vec![
-                ("backend-id", backend_domid.to_string()),
-                ("state", "1".to_string()),
-            ];
-
-            self.device_add(
-                tx,
-                "pci",
-                id,
-                dom_path,
-                backend_dom_path,
-                backend_domid,
-                domid,
-                frontend_items,
-                backend_items,
-            )
-            .await?;
+        for (index, disk) in config.disks.iter().enumerate() {
+            transaction.add_vbd_device(index, disk).await?;
         }
 
-        let backend_path = format!("{}/backend/{}/{}/{}", backend_dom_path, "pci", domid, id);
-
-        tx.write_string(
-            format!("{}/key-{}", backend_path, index),
-            &device.bdf.to_string(),
-        )
-        .await?;
-        tx.write_string(
-            format!("{}/dev-{}", backend_path, index),
-            &device.bdf.to_string(),
-        )
-        .await?;
-
-        if let Some(vdefn) = device.bdf.vdefn {
-            tx.write_string(
-                format!("{}/vdefn-{}", backend_path, index),
-                &format!("{:#x}", vdefn),
-            )
-            .await?;
+        for (index, filesystem) in config.filesystems.iter().enumerate() {
+            transaction.add_9pfs_device(index, filesystem).await?;
         }
 
-        let mut options = IndexMap::new();
-        options.insert("permissive", if device.permissive { "1" } else { "0" });
-        options.insert("rdm_policy", device.rdm_reserve_policy.to_option_str());
-        options.insert("msitranslate", if device.msi_translate { "1" } else { "0" });
-        options.insert(
-            "power_mgmt",
-            if device.power_management { "1" } else { "0" },
-        );
-        let options = options
-            .into_iter()
-            .map(|(key, value)| format!("{}={}", key, value))
-            .collect::<Vec<_>>()
-            .join(",");
-
-        tx.write_string(format!("{}/opts-{}", backend_path, index), &options)
-            .await?;
-        Ok(())
-    }
-
-    async fn device_add(
-        &self,
-        tx: &XsdTransaction,
-        typ: &str,
-        id: u64,
-        dom_path: &str,
-        backend_dom_path: &str,
-        backend_domid: u32,
-        domid: u32,
-        frontend_items: Vec<(&str, String)>,
-        backend_items: Vec<(&str, String)>,
-    ) -> Result<()> {
-        let console_zero = typ == "console" && id == 0;
-
-        let frontend_path = if console_zero {
-            format!("{}/console", dom_path)
-        } else {
-            format!("{}/device/{}/{}", dom_path, typ, id)
-        };
-        let backend_path = format!("{}/backend/{}/{}/{}", backend_dom_path, typ, domid, id);
-
-        let mut backend_items: Vec<(&str, String)> = backend_items.clone();
-        let mut frontend_items: Vec<(&str, String)> = frontend_items.clone();
-        backend_items.push(("frontend", frontend_path.clone()));
-        frontend_items.push(("backend", backend_path.clone()));
-        let frontend_perms = &[
-            XsPermission {
-                id: domid,
-                perms: XS_PERM_NONE,
-            },
-            XsPermission {
-                id: backend_domid,
-                perms: XS_PERM_READ,
-            },
-        ];
-
-        let backend_perms = &[
-            XsPermission {
-                id: backend_domid,
-                perms: XS_PERM_NONE,
-            },
-            XsPermission {
-                id: domid,
-                perms: XS_PERM_READ,
-            },
-        ];
-
-        tx.mknod(&frontend_path, frontend_perms).await?;
-        for (p, value) in &frontend_items {
-            let path = format!("{}/{}", frontend_path, *p);
-            tx.write_string(&path, value).await?;
-            if !console_zero {
-                tx.set_perms(&path, frontend_perms).await?;
-            }
+        for (index, vif) in config.vifs.iter().enumerate() {
+            transaction.add_vif_device(index, vif).await?;
         }
-        tx.mknod(&backend_path, backend_perms).await?;
-        for (p, value) in &backend_items {
-            let path = format!("{}/{}", backend_path, *p);
-            tx.write_string(&path, value).await?;
+
+        for (index, pci) in config.pcis.iter().enumerate() {
+            transaction
+                .add_pci_device(&self.call, index, config.pcis.len(), pci)
+                .await?;
         }
+
+        for (key, value) in &config.extra_keys {
+            transaction.write_key(key, value).await?;
+        }
+
+        for key in &config.extra_rw_paths {
+            transaction.add_rw_path(key).await?;
+        }
+
+        transaction.commit().await?;
+        self.call.unpause_domain(domid).await?;
         Ok(())
     }
 
