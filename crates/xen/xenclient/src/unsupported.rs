@@ -16,7 +16,7 @@ impl UnsupportedPlatform {
 
 #[async_trait::async_trait]
 impl BootSetupPlatform for UnsupportedPlatform {
-    fn create_domain(&self) -> CreateDomain {
+    fn create_domain(&self, _: bool) -> CreateDomain {
         panic!("unsupported platform")
     }
 

@@ -434,9 +434,13 @@ impl X86PvPlatform {
 
 #[async_trait::async_trait]
 impl BootSetupPlatform for X86PvPlatform {
-    fn create_domain(&self) -> CreateDomain {
+    fn create_domain(&self, needs_passthrough: bool) -> CreateDomain {
         CreateDomain {
-            flags: XEN_DOMCTL_CDF_IOMMU,
+            flags: if needs_passthrough {
+                XEN_DOMCTL_CDF_IOMMU
+            } else {
+                0
+            },
             ..Default::default()
         }
     }

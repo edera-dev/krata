@@ -261,7 +261,7 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
 
 #[async_trait::async_trait]
 pub trait BootSetupPlatform: Clone {
-    fn create_domain(&self) -> CreateDomain;
+    fn create_domain(&self, needs_passthrough: bool) -> CreateDomain;
     fn page_size(&self) -> u64;
     fn page_shift(&self) -> u64;
     fn needs_early_kernel(&self) -> bool;

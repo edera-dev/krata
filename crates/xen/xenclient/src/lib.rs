@@ -150,7 +150,7 @@ impl<P: BootSetupPlatform> XenClient<P> {
     }
 
     pub async fn create(&self, config: &DomainConfig) -> Result<CreatedDomain> {
-        let mut domain = self.platform.create_domain();
+        let mut domain = self.platform.create_domain(!config.pcis.is_empty());
         domain.max_vcpus = config.max_vcpus;
         let domid = self.call.create_domain(domain).await?;
         match self.init(domid, &domain, config).await {
