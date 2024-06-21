@@ -27,6 +27,9 @@ use xenstore::{
 };
 
 pub mod pci;
+
+pub mod unsupported;
+#[cfg(target_arch = "x86_64")]
 pub mod x86pv;
 
 #[derive(Clone)]

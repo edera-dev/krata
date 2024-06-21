@@ -7,7 +7,7 @@ use log::error;
 use loopdev::LoopControl;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
-use xenclient::{x86pv::X86PvPlatform, XenClient};
+use xenclient::XenClient;
 use xenstore::{XsdClient, XsdInterface};
 
 use self::{
@@ -21,7 +21,11 @@ pub mod channel;
 pub mod ip;
 pub mod launch;
 
-type RuntimePlatform = X86PvPlatform;
+#[cfg(target_arch = "x86_64")]
+type RuntimePlatform = xenclient::x86pv::X86PvPlatform;
+
+#[cfg(not(target_arch = "x86_64"))]
+type RuntimePlatform = xenclient::unsupported::UnsupportedPlatform;
 
 pub struct GuestLoopInfo {
     pub device: String,

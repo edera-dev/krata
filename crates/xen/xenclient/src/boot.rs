@@ -71,7 +71,6 @@ impl BootDomain {
             pfn: self.pfn_alloc_end,
             addr: 0,
             size,
-            #[cfg(target_arch = "x86_64")]
             pages,
         };
 

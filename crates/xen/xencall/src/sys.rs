@@ -270,7 +270,6 @@ impl Default for CreateDomain {
         CreateDomain {
             ssidref: SECINITSID_DOMU,
             handle: Uuid::new_v4().into_bytes(),
-            #[cfg(target_arch = "x86_64")]
             flags: 0,
             iommu_opts: 0,
             max_vcpus: 1,
@@ -453,8 +452,8 @@ impl Default for VcpuGuestContextFpuCtx {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
-#[cfg(target_arch = "x86_64")]
-pub struct CpuUserRegs {
+#[allow(non_camel_case_types)]
+pub struct x8664CpuUserRegs {
     pub r15: u64,
     pub r14: u64,
     pub r13: u64,
@@ -493,7 +492,6 @@ pub struct CpuUserRegs {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
-#[cfg(target_arch = "x86_64")]
 pub struct TrapInfo {
     pub vector: u8,
     pub flags: u8,
@@ -507,7 +505,7 @@ pub struct TrapInfo {
 pub struct x8664VcpuGuestContext {
     pub fpu_ctx: VcpuGuestContextFpuCtx,
     pub flags: u64,
-    pub user_regs: CpuUserRegs,
+    pub user_regs: x8664CpuUserRegs,
     pub trap_ctx: [TrapInfo; 256],
     pub ldt_base: u64,
     pub ldt_ents: u64,
@@ -602,7 +600,7 @@ pub struct Arm64CpuUserRegs {
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Arm64VcpuGuestContext {
     pub flags: u32,
-    pub user_regs: CpuUserRegs,
+    pub user_regs: x8664CpuUserRegs,
     pub sctlr: u64,
     pub ttbcr: u64,
     pub ttbr0: u64,
