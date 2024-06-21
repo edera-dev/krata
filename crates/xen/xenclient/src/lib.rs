@@ -4,22 +4,10 @@ pub mod error;
 pub mod mem;
 pub mod sys;
 
-#[cfg(target_arch = "x86_64")]
-pub mod x86;
-
-#[cfg(target_arch = "x86_64")]
-use crate::x86::X86BootSetup;
-
-#[cfg(target_arch = "aarch64")]
-pub mod arm64;
-
-#[cfg(target_arch = "aarch64")]
-use crate::arm64::Arm64BootSetup;
-
-use crate::boot::{ArchBootSetup, BootSetup};
+use crate::boot::{BootDomain, BootSetup};
 use crate::elfloader::ElfImageLoader;
 use crate::error::{Error, Result};
-use boot::BootState;
+use boot::BootSetupPlatform;
 use indexmap::IndexMap;
 use log::{debug, trace, warn};
 use pci::{PciBdf, XenPciBackend};
@@ -28,12 +16,10 @@ use tokio::time::timeout;
 
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
-use xencall::sys::{
-    CreateDomain, DOMCTL_DEV_RDM_RELAXED, XEN_DOMCTL_CDF_HAP, XEN_DOMCTL_CDF_HVM_GUEST,
-    XEN_DOMCTL_CDF_IOMMU,
-};
+use xencall::sys::{CreateDomain, DOMCTL_DEV_RDM_RELAXED};
 use xencall::XenCall;
 use xenstore::{
     XsPermission, XsdClient, XsdInterface, XsdTransaction, XS_PERM_NONE, XS_PERM_READ,
@@ -42,10 +28,15 @@ use xenstore::{
 
 pub mod pci;
 
+pub mod unsupported;
+#[cfg(target_arch = "x86_64")]
+pub mod x86pv;
+
 #[derive(Clone)]
-pub struct XenClient {
+pub struct XenClient<P: BootSetupPlatform> {
     pub store: XsdClient,
     call: XenCall,
+    platform: Arc<P>,
 }
 
 #[derive(Clone, Debug)]
@@ -124,7 +115,7 @@ pub struct DomainConfig {
     pub initrd: Vec<u8>,
     pub cmdline: String,
     pub disks: Vec<DomainDisk>,
-    pub use_console_backend: Option<String>,
+    pub swap_console_backend: Option<String>,
     pub channels: Vec<DomainChannel>,
     pub vifs: Vec<DomainNetworkInterface>,
     pub filesystems: Vec<DomainFilesystem>,
@@ -147,25 +138,20 @@ pub struct CreatedDomain {
 }
 
 #[allow(clippy::too_many_arguments)]
-impl XenClient {
-    pub async fn open(current_domid: u32) -> Result<XenClient> {
+impl<P: BootSetupPlatform> XenClient<P> {
+    pub async fn new(current_domid: u32, platform: P) -> Result<XenClient<P>> {
         let store = XsdClient::open().await?;
         let call = XenCall::open(current_domid)?;
-        Ok(XenClient { store, call })
+        Ok(XenClient {
+            store,
+            call,
+            platform: Arc::new(platform),
+        })
     }
 
     pub async fn create(&self, config: &DomainConfig) -> Result<CreatedDomain> {
-        let mut domain = CreateDomain {
-            ..Default::default()
-        };
+        let mut domain = self.platform.create_domain(!config.pcis.is_empty());
         domain.max_vcpus = config.max_vcpus;
-
-        if cfg!(target_arch = "aarch64") {
-            domain.flags = XEN_DOMCTL_CDF_HVM_GUEST | XEN_DOMCTL_CDF_HAP;
-        } else {
-            domain.flags = XEN_DOMCTL_CDF_IOMMU;
-        }
-
         let domid = self.call.create_domain(domain).await?;
         match self.init(domid, &domain, config).await {
             Ok(created) => Ok(created),
@@ -181,18 +167,13 @@ impl XenClient {
     async fn init(
         &self,
         domid: u32,
-        domain: &CreateDomain,
+        created: &CreateDomain,
         config: &DomainConfig,
     ) -> Result<CreatedDomain> {
-        trace!(
-            "XenClient init domid={} domain={:?} config={:?}",
-            domid,
-            domain,
-            config
-        );
+        trace!("XenClient init domid={} domain={:?}", domid, created,);
         let backend_dom_path = self.store.get_domain_path(0).await?;
         let dom_path = self.store.get_domain_path(domid).await?;
-        let uuid_string = Uuid::from_bytes(domain.handle).to_string();
+        let uuid_string = Uuid::from_bytes(created.handle).to_string();
         let vm_path = format!("/vm/{}", uuid_string);
 
         let ro_perm = &[
@@ -273,7 +254,7 @@ impl XenClient {
 
             tx.write_string(
                 format!("{}/uuid", vm_path).as_str(),
-                &Uuid::from_bytes(domain.handle).to_string(),
+                &Uuid::from_bytes(created.handle).to_string(),
             )
             .await?;
             tx.write_string(format!("{}/name", dom_path).as_str(), &config.name)
@@ -295,34 +276,23 @@ impl XenClient {
         }
 
         self.call.set_max_vcpus(domid, config.max_vcpus).await?;
-        self.call.set_max_mem(domid, config.mem_mb * 1024).await?;
-        let image_loader = ElfImageLoader::load_file_kernel(&config.kernel)?;
-
-        let xenstore_evtchn: u32;
-        let xenstore_mfn: u64;
-
-        let p2m: Vec<u64>;
-        let mut state: BootState;
+        self.call
+            .set_max_mem(domid, (config.mem_mb * 1024) + 2048)
+            .await?;
+        let mut domain: BootDomain;
         {
-            let mut boot = BootSetup::new(&self.call, domid);
-            #[cfg(target_arch = "x86_64")]
-            let mut arch = Box::new(X86BootSetup::new()) as Box<dyn ArchBootSetup + Send + Sync>;
-            #[cfg(target_arch = "aarch64")]
-            let mut arch = Box::new(Arm64BootSetup::new()) as Box<dyn ArchBootSetup + Send + Sync>;
-            state = boot
+            let loader = ElfImageLoader::load_file_kernel(&config.kernel)?;
+            let platform = (*self.platform).clone();
+            let mut boot = BootSetup::new(self.call.clone(), domid, platform, loader, None);
+            domain = boot
                 .initialize(
-                    &mut arch,
-                    &image_loader,
                     &config.initrd,
-                    config.max_vcpus,
                     config.mem_mb,
-                    1,
+                    config.max_vcpus,
+                    &config.cmdline,
                 )
                 .await?;
-            boot.boot(&mut arch, &mut state, &config.cmdline).await?;
-            xenstore_evtchn = state.store_evtchn;
-            xenstore_mfn = boot.phys.p2m[state.xenstore_segment.pfn as usize];
-            p2m = boot.phys.p2m;
+            boot.boot(&mut domain).await?;
         }
 
         {
@@ -349,14 +319,16 @@ impl XenClient {
                 .await?;
             tx.write_string(format!("{}/domid", dom_path).as_str(), &domid.to_string())
                 .await?;
+            tx.write_string(format!("{}/type", dom_path).as_str(), "PV")
+                .await?;
             tx.write_string(
                 format!("{}/store/port", dom_path).as_str(),
-                &xenstore_evtchn.to_string(),
+                &domain.store_evtchn.to_string(),
             )
             .await?;
             tx.write_string(
                 format!("{}/store/ring-ref", dom_path).as_str(),
-                &xenstore_mfn.to_string(),
+                &domain.store_mfn.to_string(),
             )
             .await?;
             for i in 0..config.max_vcpus {
@@ -371,7 +343,7 @@ impl XenClient {
         }
         if !self
             .store
-            .introduce_domain(domid, xenstore_mfn, xenstore_evtchn)
+            .introduce_domain(domid, domain.store_mfn, domain.store_evtchn)
             .await?
         {
             return Err(Error::IntroduceDomainFailed);
@@ -380,16 +352,15 @@ impl XenClient {
         let tx = self.store.transaction().await?;
         self.console_device_add(
             &tx,
+            &mut domain,
             &DomainChannel {
                 typ: config
-                    .use_console_backend
+                    .swap_console_backend
                     .clone()
                     .unwrap_or("xenconsoled".to_string())
                     .to_string(),
                 initialized: true,
             },
-            &p2m,
-            &state,
             &dom_path,
             &backend_dom_path,
             config.backend_domid,
@@ -403,9 +374,8 @@ impl XenClient {
             let (Some(ring_ref), Some(evtchn)) = self
                 .console_device_add(
                     &tx,
+                    &mut domain,
                     channel,
-                    &p2m,
-                    &state,
                     &dom_path,
                     &backend_dom_path,
                     config.backend_domid,
@@ -548,18 +518,17 @@ impl XenClient {
     async fn console_device_add(
         &self,
         tx: &XsdTransaction,
+        domain: &mut BootDomain,
         channel: &DomainChannel,
-        p2m: &[u64],
-        state: &BootState,
         dom_path: &str,
         backend_dom_path: &str,
         backend_domid: u32,
         domid: u32,
         index: usize,
     ) -> Result<(Option<u64>, Option<u32>)> {
-        let console = state.consoles.get(index);
+        let console = domain.consoles.get(index);
         let port = console.map(|x| x.0);
-        let ring = console.map(|x| p2m[x.1.pfn as usize]);
+        let ring = console.map(|x| x.1);
 
         let mut backend_entries = vec![
             ("frontend-id", domid.to_string()),

@@ -119,6 +119,8 @@ pub const XEN_PAGE_MASK: u64 = !(XEN_PAGE_SIZE - 1);
 pub const SUPERPAGE_BATCH_SIZE: u64 = 512;
 pub const SUPERPAGE_2MB_SHIFT: u64 = 9;
 pub const SUPERPAGE_2MB_NR_PFNS: u64 = 1u64 << SUPERPAGE_2MB_SHIFT;
+pub const SUPERPAGE_1GB_SHIFT: u64 = 18;
+pub const SUPERPAGE_1GB_NR_PFNS: u64 = 1u64 << SUPERPAGE_1GB_SHIFT;
 pub const VGCF_IN_KERNEL: u64 = 1 << 2;
 pub const VGCF_ONLINE: u64 = 1 << 5;
 
@@ -128,3 +130,18 @@ pub struct GrantEntry {
     pub domid: u16,
     pub frame: u32,
 }
+
+pub const XEN_HVM_START_MAGIC_VALUE: u32 = 0x336ec578;
+
+pub const HVM_PARAM_STORE_PFN: u32 = 1;
+pub const HVM_PARAM_STORE_EVTCHN: u32 = 2;
+pub const HVM_PARAM_IOREQ_PFN: u32 = 5;
+pub const HVM_PARAM_BUFIOREQ_PFN: u32 = 6;
+pub const HVM_PARAM_CONSOLE_PFN: u32 = 17;
+pub const HVM_PARAM_CONSOLE_EVTCHN: u32 = 18;
+pub const HVM_PARAM_PAGING_RING_PFN: u32 = 27;
+pub const HVM_PARAM_MONITOR_RING_PFN: u32 = 28;
+pub const HVM_PARAM_SHARING_RING_PFN: u32 = 29;
+pub const HVM_PARAM_TIMER_MODE: u32 = 10;
+pub const HVM_PARAM_ALTP2M: u32 = 35;
+pub const HVM_PARAM_IDENT_PT: u32 = 12;

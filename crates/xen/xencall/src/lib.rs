@@ -3,34 +3,38 @@ pub mod sys;
 
 use crate::error::{Error, Result};
 use crate::sys::{
-    AddressSize, AssignDevice, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
-    EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, Hypercall, HypercallInit,
-    IoMemPermission, IoPortPermission, IrqPermission, MaxMem, MaxVcpus, MemoryMap,
-    MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, PciAssignDevice,
-    VcpuGuestContext, VcpuGuestContextAny, XenCapabilitiesInfo, DOMCTL_DEV_PCI, HYPERVISOR_DOMCTL,
-    HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP, HYPERVISOR_MULTICALL,
-    HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_ASSIGN_DEVICE, XEN_DOMCTL_CREATEDOMAIN,
-    XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETPAGEFRAMEINFO3,
-    XEN_DOMCTL_GETVCPUCONTEXT, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_IOMEM_PERMISSION,
-    XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION, XEN_DOMCTL_MAX_MEM,
-    XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETVCPUCONTEXT,
-    XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP,
+    AddToPhysmap, AddressSize, AssignDevice, CreateDomain, DomCtl, DomCtlValue, DomCtlVcpuContext,
+    EvtChnAllocUnbound, GetDomainInfo, GetPageFrameInfo3, HvmContext, HvmParam, Hypercall,
+    HypercallInit, IoMemPermission, IoPortPermission, IrqPermission, MaxMem, MaxVcpus, MemoryMap,
+    MemoryReservation, MmapBatch, MmapResource, MmuExtOp, MultiCallEntry, PagingMempool,
+    PciAssignDevice, XenCapabilitiesInfo, DOMCTL_DEV_PCI, HYPERVISOR_DOMCTL,
+    HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_HVM_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP,
+    HYPERVISOR_MULTICALL, HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_ASSIGN_DEVICE,
+    XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO,
+    XEN_DOMCTL_GETHVMCONTEXT, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_HYPERCALL_INIT,
+    XEN_DOMCTL_IOMEM_PERMISSION, XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION,
+    XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETHVMCONTEXT,
+    XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_SET_PAGING_MEMPOOL_SIZE,
+    XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_ADD_TO_PHYSMAP, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP,
     XEN_MEM_POPULATE_PHYSMAP,
 };
-use libc::{c_int, mmap, usleep, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
+use libc::{c_int, mmap, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE};
 use log::trace;
 use nix::errno::Errno;
 use std::ffi::{c_long, c_uint, c_ulong, c_void};
 use std::sync::Arc;
+use std::time::Duration;
 use sys::{
-    E820Entry, ForeignMemoryMap, PhysdevMapPirq, HYPERVISOR_PHYSDEV_OP, PHYSDEVOP_MAP_PIRQ,
-    XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION, XEN_MEM_SET_MEMORY_MAP,
+    E820Entry, ForeignMemoryMap, PhysdevMapPirq, VcpuGuestContextAny, HYPERVISOR_PHYSDEV_OP,
+    PHYSDEVOP_MAP_PIRQ, XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION,
+    XEN_MEM_SET_MEMORY_MAP,
 };
 use tokio::sync::Semaphore;
+use tokio::time::sleep;
 
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
-use std::ptr::addr_of_mut;
+use std::ptr::{addr_of_mut, null_mut};
 use std::slice;
 
 #[derive(Clone)]
@@ -233,8 +237,8 @@ impl XenCall {
                 num: num as u32,
                 domid: domid as u16,
                 addr,
-                mfns: mfns.as_mut_ptr(),
-                errors: errors.as_mut_ptr(),
+                mfns: mfns.as_mut_ptr() as u64,
+                errors: errors.as_mut_ptr() as u64,
             };
 
             let result = sys::mmapbatch(self.handle.as_raw_fd(), &mut batch);
@@ -243,7 +247,7 @@ impl XenCall {
                     return Err(Error::MmapBatchFailed(errno))?;
                 }
 
-                usleep(100);
+                sleep(Duration::from_micros(100)).await;
 
                 let mut i: usize = 0;
                 let mut paged: usize = 0;
@@ -258,8 +262,8 @@ impl XenCall {
                         num: 1,
                         domid: domid as u16,
                         addr: addr + ((i as u64) << 12),
-                        mfns: mfns.as_mut_ptr().add(i),
-                        errors: errors.as_mut_ptr().add(i),
+                        mfns: mfns.as_mut_ptr().add(i) as u64,
+                        errors: errors.as_mut_ptr().add(i) as u64,
                     };
 
                     loop {
@@ -459,45 +463,19 @@ impl XenCall {
         Ok(())
     }
 
-    pub async fn get_vcpu_context(&self, domid: u32, vcpu: u32) -> Result<VcpuGuestContext> {
-        trace!(
-            "domctl fd={} get_vcpu_context domid={}",
-            self.handle.as_raw_fd(),
-            domid,
-        );
-        let mut wrapper = VcpuGuestContextAny {
-            value: VcpuGuestContext::default(),
-        };
-        let mut domctl = DomCtl {
-            cmd: XEN_DOMCTL_GETVCPUCONTEXT,
-            interface_version: self.domctl_interface_version,
-            domid,
-            value: DomCtlValue {
-                vcpu_context: DomCtlVcpuContext {
-                    vcpu,
-                    ctx: addr_of_mut!(wrapper) as c_ulong,
-                },
-            },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
-            .await?;
-        Ok(unsafe { wrapper.value })
-    }
-
     pub async fn set_vcpu_context(
         &self,
         domid: u32,
         vcpu: u32,
-        context: &VcpuGuestContext,
+        mut context: VcpuGuestContextAny,
     ) -> Result<()> {
         trace!(
             "domctl fd={} set_vcpu_context domid={} context={:?}",
             self.handle.as_raw_fd(),
             domid,
-            context,
+            unsafe { context.value }
         );
 
-        let mut value = VcpuGuestContextAny { value: *context };
         let mut domctl = DomCtl {
             cmd: XEN_DOMCTL_SETVCPUCONTEXT,
             interface_version: self.domctl_interface_version,
@@ -505,7 +483,7 @@ impl XenCall {
             value: DomCtlValue {
                 vcpu_context: DomCtlVcpuContext {
                     vcpu,
-                    ctx: addr_of_mut!(value) as c_ulong,
+                    ctx: addr_of_mut!(context) as c_ulong,
                 },
             },
         };
@@ -597,6 +575,12 @@ impl XenCall {
         domid: u32,
         entries: Vec<E820Entry>,
     ) -> Result<Vec<E820Entry>> {
+        trace!(
+            "fd={} set_memory_map domid={} entries={:?}",
+            self.handle.as_raw_fd(),
+            domid,
+            entries
+        );
         let mut memory_map = ForeignMemoryMap {
             domid: domid as u16,
             map: MemoryMap {
@@ -633,24 +617,14 @@ impl XenCall {
             domid: domid as u16,
         };
 
-        let calls = &mut [MultiCallEntry {
-            op: HYPERVISOR_MEMORY_OP,
-            result: 0,
-            args: [
+        let code = self
+            .hypercall2(
+                HYPERVISOR_MEMORY_OP,
                 XEN_MEM_POPULATE_PHYSMAP as c_ulong,
                 addr_of_mut!(reservation) as c_ulong,
-                0,
-                0,
-                0,
-                0,
-            ],
-        }];
-        self.multicall(calls).await?;
-        let code = calls[0].result;
-        if code > !0xfff {
-            return Err(Error::PopulatePhysmapFailed);
-        }
-        if code as usize > extent_starts.len() {
+            )
+            .await?;
+        if code as usize != extent_starts.len() {
             return Err(Error::PopulatePhysmapFailed);
         }
         let extents = extent_starts[0..code as usize].to_vec();
@@ -675,6 +649,31 @@ impl XenCall {
             HYPERVISOR_MEMORY_OP,
             XEN_MEM_CLAIM_PAGES as c_ulong,
             addr_of_mut!(reservation) as c_ulong,
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn add_to_physmap(&self, domid: u32, space: u32, idx: u64, pfn: u64) -> Result<()> {
+        trace!(
+            "memory fd={} add_to_physmap domid={} space={} idx={} pfn={}",
+            self.handle.as_raw_fd(),
+            domid,
+            space,
+            idx,
+            pfn,
+        );
+        let mut add = AddToPhysmap {
+            domid: domid as u16,
+            size: 0,
+            space,
+            idx,
+            gpfn: pfn,
+        };
+        self.hypercall2(
+            HYPERVISOR_MEMORY_OP,
+            XEN_MEM_ADD_TO_PHYSMAP as c_ulong,
+            addr_of_mut!(add) as c_ulong,
         )
         .await?;
         Ok(())
@@ -783,6 +782,7 @@ impl XenCall {
         Ok(())
     }
 
+    #[allow(clippy::field_reassign_with_default)]
     pub async fn map_pirq(&self, domid: u32, index: isize, pirq: Option<u32>) -> Result<u32> {
         trace!(
             "physdev fd={} map_pirq domid={} index={} pirq={:?}",
@@ -829,6 +829,88 @@ impl XenCall {
                     flags,
                     pci_assign_device: PciAssignDevice { sbdf, padding: 0 },
                 },
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(())
+    }
+
+    #[allow(clippy::field_reassign_with_default)]
+    pub async fn set_hvm_param(&self, domid: u32, index: u32, value: u64) -> Result<()> {
+        trace!(
+            "set_hvm_param fd={} domid={} index={} value={:?}",
+            self.handle.as_raw_fd(),
+            domid,
+            index,
+            value,
+        );
+        let mut param = HvmParam::default();
+        param.domid = domid as u16;
+        param.index = index;
+        param.value = value;
+        self.hypercall2(HYPERVISOR_HVM_OP, 0, addr_of_mut!(param) as c_ulong)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_hvm_context(&self, domid: u32, buffer: Option<&mut [u8]>) -> Result<u32> {
+        trace!(
+            "domctl fd={} get_hvm_context domid={}",
+            self.handle.as_raw_fd(),
+            domid,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_GETHVMCONTEXT,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                hvm_context: HvmContext {
+                    size: buffer.as_ref().map(|x| x.len()).unwrap_or(0) as u32,
+                    buffer: buffer.map(|x| x.as_mut_ptr()).unwrap_or(null_mut()) as u64,
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(unsafe { domctl.value.hvm_context.size })
+    }
+
+    pub async fn set_hvm_context(&self, domid: u32, buffer: &mut [u8]) -> Result<u32> {
+        trace!(
+            "domctl fd={} set_hvm_context domid={}",
+            self.handle.as_raw_fd(),
+            domid,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_SETHVMCONTEXT,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                hvm_context: HvmContext {
+                    size: buffer.len() as u32,
+                    buffer: buffer.as_ptr() as u64,
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(unsafe { domctl.value.hvm_context.size })
+    }
+
+    pub async fn set_paging_mempool_size(&self, domid: u32, size: u64) -> Result<()> {
+        trace!(
+            "domctl fd={} set_paging_mempool_size domid={} size={}",
+            self.handle.as_raw_fd(),
+            domid,
+            size,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_SET_PAGING_MEMPOOL_SIZE,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                paging_mempool: PagingMempool { size },
             },
         };
         self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)

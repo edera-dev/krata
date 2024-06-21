@@ -138,10 +138,10 @@ impl GuestLauncher {
         } else {
             None
         };
-        let cmdline_options = [
-            if request.debug { "debug" } else { "quiet" },
-            "elevator=noop",
-        ];
+        let mut cmdline_options = ["console=hvc0"].to_vec();
+        if !request.debug {
+            cmdline_options.push("quiet");
+        }
         let cmdline = cmdline_options.join(" ");
 
         let guest_mac_string = container_mac.to_string().replace('-', ":");
@@ -227,7 +227,7 @@ impl GuestLauncher {
             kernel: request.kernel,
             initrd: request.initrd,
             cmdline,
-            use_console_backend: Some("krata-console".to_string()),
+            swap_console_backend: Some("krata-console".to_string()),
             disks,
             channels: vec![DomainChannel {
                 typ: "krata-channel".to_string(),

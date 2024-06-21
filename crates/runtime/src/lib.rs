@@ -21,6 +21,12 @@ pub mod channel;
 pub mod ip;
 pub mod launch;
 
+#[cfg(target_arch = "x86_64")]
+type RuntimePlatform = xenclient::x86pv::X86PvPlatform;
+
+#[cfg(not(target_arch = "x86_64"))]
+type RuntimePlatform = xenclient::unsupported::UnsupportedPlatform;
+
 pub struct GuestLoopInfo {
     pub device: String,
     pub file: String,
@@ -49,13 +55,13 @@ pub struct GuestInfo {
 #[derive(Clone)]
 pub struct RuntimeContext {
     pub autoloop: AutoLoop,
-    pub xen: XenClient,
+    pub xen: XenClient<RuntimePlatform>,
     pub ipvendor: IpVendor,
 }
 
 impl RuntimeContext {
     pub async fn new(host_uuid: Uuid) -> Result<Self> {
-        let xen = XenClient::open(0).await?;
+        let xen = XenClient::new(0, RuntimePlatform::new()).await?;
         let ipv4_network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
         let ipv6_network = Ipv6Network::from_str("fdd4:1476:6c7e::/48")?;
         let ipvend =

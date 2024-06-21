@@ -1,36 +1,34 @@
 use crate::error::Result;
-use crate::sys::{XEN_PAGE_SHIFT, XEN_PAGE_SIZE};
+use crate::sys::XEN_PAGE_SHIFT;
 use crate::Error;
 use libc::munmap;
 use log::debug;
 use nix::errno::Errno;
 use std::ffi::c_void;
-
-#[cfg(target_arch = "aarch64")]
-pub(crate) use crate::arm64::ARM_PAGE_SHIFT as ARCH_PAGE_SHIFT;
-#[cfg(target_arch = "x86_64")]
-pub(crate) use crate::x86::X86_PAGE_SHIFT as ARCH_PAGE_SHIFT;
+use std::slice;
 
 use xencall::sys::MmapEntry;
 use xencall::XenCall;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PhysicalPage {
     pfn: u64,
-    ptr: u64,
+    pub ptr: u64,
     count: u64,
 }
 
-pub struct PhysicalPages<'a> {
+pub struct PhysicalPages {
+    page_shift: u64,
     domid: u32,
-    pub(crate) p2m: Vec<u64>,
-    call: &'a XenCall,
+    pub p2m: Vec<u64>,
+    call: XenCall,
     pages: Vec<PhysicalPage>,
 }
 
-impl PhysicalPages<'_> {
-    pub fn new(call: &XenCall, domid: u32) -> PhysicalPages {
+impl PhysicalPages {
+    pub fn new(call: XenCall, domid: u32, page_shift: u64) -> PhysicalPages {
         PhysicalPages {
+            page_shift,
             domid,
             p2m: Vec::new(),
             call,
@@ -70,7 +68,7 @@ impl PhysicalPages<'_> {
                 }
             }
 
-            return Ok(page.ptr + ((pfn - page.pfn) << ARCH_PAGE_SHIFT));
+            return Ok(page.ptr + ((pfn - page.pfn) << self.page_shift));
         }
 
         if count == 0 {
@@ -83,7 +81,11 @@ impl PhysicalPages<'_> {
     async fn pfn_alloc(&mut self, pfn: u64, count: u64) -> Result<u64> {
         let mut entries = vec![MmapEntry::default(); count as usize];
         for (i, entry) in entries.iter_mut().enumerate() {
-            entry.mfn = self.p2m[pfn as usize + i];
+            if !self.p2m.is_empty() {
+                entry.mfn = self.p2m[pfn as usize + i];
+            } else {
+                entry.mfn = pfn + i as u64;
+            }
         }
         let chunk_size = 1 << XEN_PAGE_SHIFT;
         let num_per_entry = chunk_size >> XEN_PAGE_SHIFT;
@@ -123,10 +125,19 @@ impl PhysicalPages<'_> {
     }
 
     pub async fn map_foreign_pages(&mut self, mfn: u64, size: u64) -> Result<u64> {
-        let num = ((size + XEN_PAGE_SIZE - 1) >> XEN_PAGE_SHIFT) as usize;
+        let count = (size >> XEN_PAGE_SHIFT) as usize;
+        let mut entries = vec![MmapEntry::default(); count];
+        for (i, entry) in entries.iter_mut().enumerate() {
+            entry.mfn = mfn + i as u64;
+        }
+        let chunk_size = 1 << XEN_PAGE_SHIFT;
+        let num_per_entry = chunk_size >> XEN_PAGE_SHIFT;
+        let num = num_per_entry * count;
         let mut pfns = vec![u64::MAX; num];
-        for (i, item) in pfns.iter_mut().enumerate().take(num) {
-            *item = mfn + i as u64;
+        for i in 0..count {
+            for j in 0..num_per_entry {
+                pfns[i * num_per_entry + j] = entries[i].mfn + j as u64;
+            }
         }
 
         let actual_mmap_len = (num as u64) << XEN_PAGE_SHIFT;
@@ -144,9 +155,9 @@ impl PhysicalPages<'_> {
             return Err(Error::MmapFailed);
         }
         let page = PhysicalPage {
-            pfn: u64::MAX,
+            pfn: mfn,
             ptr: addr,
-            count: num as u64,
+            count: count as u64,
         };
         debug!(
             "alloc_mfn {:#x}+{:#x} at {:#x}",
@@ -156,12 +167,21 @@ impl PhysicalPages<'_> {
         Ok(addr)
     }
 
+    pub async fn clear_pages(&mut self, pfn: u64, count: u64) -> Result<()> {
+        let ptr = self.pfn_to_ptr(pfn, count).await?;
+        let slice = unsafe {
+            slice::from_raw_parts_mut(ptr as *mut u8, (count * (1 << self.page_shift)) as usize)
+        };
+        slice.fill(0);
+        Ok(())
+    }
+
     pub fn unmap_all(&mut self) -> Result<()> {
         for page in &self.pages {
             unsafe {
                 let err = munmap(
                     page.ptr as *mut c_void,
-                    (page.count << ARCH_PAGE_SHIFT) as usize,
+                    (page.count << self.page_shift) as usize,
                 );
                 if err != 0 {
                     return Err(Error::UnmapFailed(Errno::from_raw(err)));
@@ -182,11 +202,11 @@ impl PhysicalPages<'_> {
         unsafe {
             let err = munmap(
                 page.ptr as *mut c_void,
-                (page.count << ARCH_PAGE_SHIFT) as usize,
+                (page.count << self.page_shift) as usize,
             );
             debug!(
                 "unmapped {:#x} foreign bytes at {:#x}",
-                (page.count << ARCH_PAGE_SHIFT) as usize,
+                (page.count << self.page_shift) as usize,
                 page.ptr
             );
             if err != 0 {

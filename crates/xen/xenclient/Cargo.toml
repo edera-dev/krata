@@ -10,6 +10,7 @@ resolver = "2"
 
 [dependencies]
 async-trait = { workspace = true }
+c2rust-bitfields = "0.18.0"
 elf = { workspace = true }
 flate2 = { workspace = true }
 indexmap = { workspace = true }

@@ -35,8 +35,8 @@ pub struct MmapBatch {
     pub num: u32,
     pub domid: u16,
     pub addr: u64,
-    pub mfns: *mut u64,
-    pub errors: *mut c_int,
+    pub mfns: u64,
+    pub errors: u64,
 }
 
 #[repr(C)]
@@ -200,6 +200,7 @@ pub const XEN_DOMCTL_PSR_CAT_OP: u32 = 78;
 pub const XEN_DOMCTL_SOFT_RESET: u32 = 79;
 pub const XEN_DOMCTL_SET_GNTTAB_LIMITS: u32 = 80;
 pub const XEN_DOMCTL_VUART_OP: u32 = 81;
+pub const XEN_DOMCTL_SET_PAGING_MEMPOOL_SIZE: u32 = 86;
 pub const XEN_DOMCTL_GDBSX_GUESTMEMIO: u32 = 1000;
 pub const XEN_DOMCTL_GDBSX_PAUSEVCPU: u32 = 1001;
 pub const XEN_DOMCTL_GDBSX_UNPAUSEVCPU: u32 = 1002;
@@ -242,6 +243,8 @@ pub union DomCtlValue {
     pub iomem_permission: IoMemPermission,
     pub irq_permission: IrqPermission,
     pub assign_device: AssignDevice,
+    pub hvm_context: HvmContext,
+    pub paging_mempool: PagingMempool,
     pub pad: [u8; 128],
 }
 
@@ -267,10 +270,7 @@ impl Default for CreateDomain {
         CreateDomain {
             ssidref: SECINITSID_DOMU,
             handle: Uuid::new_v4().into_bytes(),
-            #[cfg(target_arch = "x86_64")]
             flags: 0,
-            #[cfg(target_arch = "aarch64")]
-            flags: 1 << XEN_DOMCTL_CDF_HVM_GUEST,
             iommu_opts: 0,
             max_vcpus: 1,
             max_evtchn_port: 1023,
@@ -346,6 +346,8 @@ pub struct ArchDomainConfig {
     pub misc_flags: u32,
 }
 
+pub const X86_EMU_LAPIC: u32 = 1 << 0;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
 #[cfg(target_arch = "aarch64")]
@@ -400,6 +402,16 @@ pub struct MemoryReservation {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
+pub struct AddToPhysmap {
+    pub domid: u16,
+    pub size: u16,
+    pub space: u32,
+    pub idx: u64,
+    pub gpfn: u64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub struct MultiCallEntry {
     pub op: c_ulong,
     pub result: c_ulong,
@@ -410,6 +422,7 @@ pub const XEN_MEM_POPULATE_PHYSMAP: u32 = 6;
 pub const XEN_MEM_MEMORY_MAP: u32 = 10;
 pub const XEN_MEM_SET_MEMORY_MAP: u32 = 13;
 pub const XEN_MEM_CLAIM_PAGES: u32 = 24;
+pub const XEN_MEM_ADD_TO_PHYSMAP: u32 = 7;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -439,8 +452,8 @@ impl Default for VcpuGuestContextFpuCtx {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
-#[cfg(target_arch = "x86_64")]
-pub struct CpuUserRegs {
+#[allow(non_camel_case_types)]
+pub struct x8664CpuUserRegs {
     pub r15: u64,
     pub r14: u64,
     pub r13: u64,
@@ -479,7 +492,6 @@ pub struct CpuUserRegs {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
-#[cfg(target_arch = "x86_64")]
 pub struct TrapInfo {
     pub vector: u8,
     pub flags: u8,
@@ -489,11 +501,11 @@ pub struct TrapInfo {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
-#[cfg(target_arch = "x86_64")]
-pub struct VcpuGuestContext {
+#[allow(non_camel_case_types)]
+pub struct x8664VcpuGuestContext {
     pub fpu_ctx: VcpuGuestContextFpuCtx,
     pub flags: u64,
-    pub user_regs: CpuUserRegs,
+    pub user_regs: x8664CpuUserRegs,
     pub trap_ctx: [TrapInfo; 256],
     pub ldt_base: u64,
     pub ldt_ents: u64,
@@ -512,10 +524,9 @@ pub struct VcpuGuestContext {
     pub gs_base_user: u64,
 }
 
-#[cfg(target_arch = "x86_64")]
-impl Default for VcpuGuestContext {
+impl Default for x8664VcpuGuestContext {
     fn default() -> Self {
-        VcpuGuestContext {
+        Self {
             fpu_ctx: Default::default(),
             flags: 0,
             user_regs: Default::default(),
@@ -541,8 +552,7 @@ impl Default for VcpuGuestContext {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
-#[cfg(target_arch = "aarch64")]
-pub struct CpuUserRegs {
+pub struct Arm64CpuUserRegs {
     pub x0: u64,
     pub x1: u64,
     pub x2: u64,
@@ -588,10 +598,9 @@ pub struct CpuUserRegs {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
-#[cfg(target_arch = "aarch64")]
-pub struct VcpuGuestContext {
+pub struct Arm64VcpuGuestContext {
     pub flags: u32,
-    pub user_regs: CpuUserRegs,
+    pub user_regs: x8664CpuUserRegs,
     pub sctlr: u64,
     pub ttbcr: u64,
     pub ttbr0: u64,
@@ -599,7 +608,10 @@ pub struct VcpuGuestContext {
 }
 
 pub union VcpuGuestContextAny {
-    pub value: VcpuGuestContext,
+    #[cfg(target_arch = "aarch64")]
+    pub value: Arm64VcpuGuestContext,
+    #[cfg(target_arch = "x86_64")]
+    pub value: x8664VcpuGuestContext,
 }
 
 #[repr(C)]
@@ -628,17 +640,11 @@ pub struct E820Entry {
     pub typ: u32,
 }
 
-#[cfg(target_arch = "x86_64")]
 pub const E820_MAX: u32 = 1024;
-#[cfg(target_arch = "x86_64")]
 pub const E820_RAM: u32 = 1;
-#[cfg(target_arch = "x86_64")]
 pub const E820_RESERVED: u32 = 2;
-#[cfg(target_arch = "x86_64")]
 pub const E820_ACPI: u32 = 3;
-#[cfg(target_arch = "x86_64")]
 pub const E820_NVS: u32 = 4;
-#[cfg(target_arch = "x86_64")]
 pub const E820_UNUSABLE: u32 = 5;
 
 pub const PHYSDEVOP_MAP_PIRQ: u64 = 13;
@@ -676,3 +682,34 @@ pub struct AssignDevice {
 }
 
 pub const DOMID_IO: u32 = 0x7FF1;
+pub const MEMFLAGS_POPULATE_ON_DEMAND: u32 = 1 << 16;
+
+pub struct PodTarget {
+    pub target_pages: u64,
+    pub total_pages: u64,
+    pub pod_cache_pages: u64,
+    pub pod_entries: u64,
+    pub domid: u16,
+}
+
+#[repr(C)]
+#[derive(Default, Clone, Copy, Debug)]
+pub struct HvmParam {
+    pub domid: u16,
+    pub pad: u8,
+    pub index: u32,
+    pub value: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct HvmContext {
+    pub size: u32,
+    pub buffer: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PagingMempool {
+    pub size: u64,
+}

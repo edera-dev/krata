@@ -16,10 +16,7 @@ done
 
 apk add xen xen-hypervisor
 
-for SERVICE in xenconsoled xenstored
-do
-  rc-update add "${SERVICE}" default
-done
+rc-update add xenstored default
 
 for MODULE in xen-netblock xen-blkback tun tap
 do
