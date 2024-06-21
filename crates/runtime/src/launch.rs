@@ -15,6 +15,7 @@ use krataoci::packer::OciPackedImage;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
+use xenplatform::domain::BaseDomainConfig;
 
 use crate::cfgblk::ConfigBlock;
 use crate::RuntimeContext;
@@ -220,13 +221,18 @@ impl GuestLauncher {
         }
 
         let config = DomainConfig {
+            base: BaseDomainConfig {
+                max_vcpus: request.vcpus,
+                mem_mb: request.mem,
+                kernel: request.kernel,
+                initrd: request.initrd,
+                cmdline,
+                uuid,
+                owner_domid: 0,
+                enable_iommu: true,
+            },
             backend_domid: 0,
             name: xen_name,
-            max_vcpus: request.vcpus,
-            mem_mb: request.mem,
-            kernel: request.kernel,
-            initrd: request.initrd,
-            cmdline,
             swap_console_backend: Some("krata-console".to_string()),
             disks,
             channels: vec![DomainChannel {
@@ -241,7 +247,6 @@ impl GuestLauncher {
             }],
             pcis: request.pcis.clone(),
             filesystems: vec![],
-            event_channels: vec![],
             extra_keys,
             extra_rw_paths: vec!["krata/guest".to_string()],
         };

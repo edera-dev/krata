@@ -1,7 +1,6 @@
 /// Handwritten hypercall bindings.
 use nix::ioctl_readwrite_bad;
 use std::ffi::{c_char, c_int, c_uint, c_ulong};
-use uuid::Uuid;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -269,7 +268,7 @@ impl Default for CreateDomain {
     fn default() -> Self {
         CreateDomain {
             ssidref: SECINITSID_DOMU,
-            handle: Uuid::new_v4().into_bytes(),
+            handle: [0; 16],
             flags: 0,
             iommu_opts: 0,
             max_vcpus: 1,
