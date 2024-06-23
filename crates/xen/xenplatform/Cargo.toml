@@ -16,7 +16,7 @@ flate2 = { workspace = true }
 indexmap = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
-krata-xencall = { path = "../xencall", version = "^0.0.10" }
+krata-xencall = { path = "../xencall", version = "^0.0.11" }
 memchr = { workspace = true }
 nix = { workspace = true }
 regex = { workspace = true }
