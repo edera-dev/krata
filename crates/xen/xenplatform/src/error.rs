@@ -38,6 +38,8 @@ pub enum Error {
     GenericError(String),
     #[error("failed to parse int: {0}")]
     ParseIntError(#[from] std::num::ParseIntError),
+    #[error("failed to join async task: {0}")]
+    AsyncJoinError(#[from] tokio::task::JoinError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
