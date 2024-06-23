@@ -4,11 +4,6 @@ set -e
 # shellcheck source-path=SCRIPTDIR source=common.sh
 . "$(dirname "${0}")/common.sh"
 
-if [ -z "${KRATA_KERNEL_BUILD_JOBS}" ]
-then
-  KRATA_KERNEL_BUILD_JOBS="2"
-fi
-
 TARGET_ARCH="$("${KRATA_DIR}/hack/build/arch.sh")"
 BUNDLE_TAR="${OUTPUT_DIR}/bundle-systemd-${TARGET_ARCH}.tgz"
 rm -f "${BUNDLE_TAR}"

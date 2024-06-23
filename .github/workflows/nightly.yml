@@ -27,16 +27,12 @@ jobs:
         targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
     - run: ./hack/ci/install-linux-deps.sh
     - run: ./hack/dist/bundle.sh
-      env:
-        KRATA_KERNEL_BUILD_JOBS: "5"
     - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: krata-bundle-systemd-${{ matrix.arch }}
         path: "target/dist/bundle-systemd-${{ matrix.arch }}.tgz"
         compression-level: 0
     - run: ./hack/dist/deb.sh
-      env:
-        KRATA_KERNEL_BUILD_SKIP: "1"
     - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: krata-debian-${{ matrix.arch }}
@@ -51,8 +47,6 @@ jobs:
         path: "target/dist/*_${{ matrix.arch }}.apk"
         compression-level: 0
     - run: ./hack/os/build.sh
-      env:
-        KRATA_KERNEL_BUILD_SKIP: "1"
     - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: krata-os-${{ matrix.arch }}

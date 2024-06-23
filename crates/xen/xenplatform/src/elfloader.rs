@@ -16,10 +16,12 @@ use slice_copy::copy;
 use std::collections::HashMap;
 use std::io::{BufReader, Read};
 use std::mem::size_of;
+use std::sync::Arc;
 use xz2::bufread::XzDecoder;
 
+#[derive(Clone)]
 pub struct ElfImageLoader {
-    data: Vec<u8>,
+    data: Arc<Vec<u8>>,
 }
 
 fn xen_note_value_as_u64(endian: AnyEndian, value: &[u8]) -> Option<u64> {
@@ -59,7 +61,9 @@ fn xen_note_value_as_u64(endian: AnyEndian, value: &[u8]) -> Option<u64> {
 
 impl ElfImageLoader {
     pub fn new(data: Vec<u8>) -> ElfImageLoader {
-        ElfImageLoader { data }
+        ElfImageLoader {
+            data: Arc::new(data),
+        }
     }
 
     pub fn load_gz(data: &[u8]) -> Result<ElfImageLoader> {
@@ -122,15 +126,8 @@ impl ElfImageLoader {
 
         Err(Error::ElfCompressionUnknown)
     }
-}
 
-struct ElfNoteValue {
-    value: u64,
-}
-
-#[async_trait::async_trait]
-impl BootImageLoader for ElfImageLoader {
-    async fn parse(&self, hvm: bool) -> Result<BootImageInfo> {
+    fn parse_sync(&self, hvm: bool) -> Result<BootImageInfo> {
         let elf = ElfBytes::<AnyEndian>::minimal_parse(self.data.as_slice())?;
         let headers = elf.section_headers().ok_or(Error::ElfInvalidImage)?;
         let mut linux_notes: HashMap<u64, Vec<u8>> = HashMap::new();
@@ -249,6 +246,18 @@ impl BootImageLoader for ElfImageLoader {
             unmapped_initrd: mod_start_pfn != 0,
         };
         Ok(image_info)
+    }
+}
+
+struct ElfNoteValue {
+    value: u64,
+}
+
+#[async_trait::async_trait]
+impl BootImageLoader for ElfImageLoader {
+    async fn parse(&self, hvm: bool) -> Result<BootImageInfo> {
+        let loader = self.clone();
+        tokio::task::spawn_blocking(move || loader.parse_sync(hvm)).await?
     }
 
     async fn load(&self, image_info: &BootImageInfo, dst: &mut [u8]) -> Result<()> {

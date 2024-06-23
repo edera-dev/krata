@@ -7,7 +7,7 @@ remove_service_if_exists() {
     UNIT_PATH="$(systemctl show -P FragmentPath "${1}")"
     if [ -f "${UNIT_PATH}" ]
     then
-      echo "[WARN] disabling removing systemd unit ${UNIT_PATH}" > /dev/stderr
+      echo "[WARN] disabling and removing systemd unit ${UNIT_PATH}" > /dev/stderr
       systemctl disable --now "${1}" || true
       rm "${UNIT_PATH}"
     fi

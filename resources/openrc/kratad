@@ -1,5 +1,5 @@
 #!/sbin/openrc-run
-description="Krata Control Daemon"
+description="Krata Isolation Engine"
 command="/usr/libexec/kratad"
 supervisor="supervise-daemon"
 output_log="/var/log/kratad.log"

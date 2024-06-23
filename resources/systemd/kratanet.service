@@ -1,5 +1,5 @@
 [Unit]
-Description=Krata Networking Daemon
+Description=Krata Networking Engine
 
 [Service]
 Wants=kratad.service
