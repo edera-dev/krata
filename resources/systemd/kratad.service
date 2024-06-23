@@ -1,5 +1,5 @@
 [Unit]
-Description=Krata Control Daemon
+Description=Krata Isolation Engine
 
 [Service]
 Restart=on-failure
