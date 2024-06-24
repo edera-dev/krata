@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.11](https://github.com/edera-dev/krata/compare/v0.0.10...v0.0.11) - 2024-06-23
+
+### Added
+- pci passthrough ([#114](https://github.com/edera-dev/krata/pull/114))
+- *(runtime)* concurrent ip allocation ([#151](https://github.com/edera-dev/krata/pull/151))
+- *(xen)* dynamic platform architecture ([#194](https://github.com/edera-dev/krata/pull/194))
+
+### Fixed
+- *(oci)* remove file size limit ([#142](https://github.com/edera-dev/krata/pull/142))
+- *(oci)* use mirror.gcr.io as a mirror to docker hub ([#141](https://github.com/edera-dev/krata/pull/141))
+
+### Other
+- first pass of krata as an isolation engine
+- *(xen)* split platform support into separate crate ([#195](https://github.com/edera-dev/krata/pull/195))
+- *(xen)* move device creation into transaction interface ([#196](https://github.com/edera-dev/krata/pull/196))
+
 ## [0.0.10](https://github.com/edera-dev/krata/compare/v0.0.9...v0.0.10) - 2024-04-22
 
 ### Added
