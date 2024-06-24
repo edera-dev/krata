@@ -1398,7 +1398,7 @@ dependencies = [
  "bytes",
  "libc",
  "log",
- "nix 0.28.0",
+ "nix 0.29.0",
  "once_cell",
  "prost",
  "prost-build",
@@ -1513,7 +1513,7 @@ dependencies = [
  "krata-xenstore",
  "libc",
  "log",
- "nix 0.28.0",
+ "nix 0.29.0",
  "oci-spec",
  "path-absolutize",
  "platform-info",
@@ -1622,7 +1622,7 @@ dependencies = [
  "env_logger",
  "libc",
  "log",
- "nix 0.28.0",
+ "nix 0.29.0",
  "thiserror",
  "tokio",
  "uuid",
@@ -1652,7 +1652,7 @@ version = "0.0.11"
 dependencies = [
  "libc",
  "log",
- "nix 0.28.0",
+ "nix 0.29.0",
  "thiserror",
  "tokio",
 ]
@@ -1662,7 +1662,7 @@ name = "krata-xengnt"
 version = "0.0.11"
 dependencies = [
  "libc",
- "nix 0.28.0",
+ "nix 0.29.0",
  "thiserror",
 ]
 
@@ -1680,7 +1680,7 @@ dependencies = [
  "libc",
  "log",
  "memchr",
- "nix 0.28.0",
+ "nix 0.29.0",
  "regex",
  "slice-copy",
  "thiserror",
