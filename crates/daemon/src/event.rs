@@ -9,7 +9,7 @@ use krata::{
     idm::{internal::event::Event as EventType, internal::Event},
     v1::common::{GuestExitInfo, GuestState, GuestStatus},
 };
-use log::{error, warn};
+use log::{error, info, warn};
 use tokio::{
     select,
     sync::{
@@ -90,6 +90,7 @@ impl DaemonEventGenerator {
         let status = state.status();
         let id = Uuid::from_str(&guest.id)?;
         let domid = state.domid;
+        info!("Guest {} on Zone {} changed - {:?}", id, domid, status);
         match status {
             GuestStatus::Started => {
                 if let Entry::Vacant(e) = self.idms.entry(domid) {
