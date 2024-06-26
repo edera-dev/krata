@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use log::debug;
-use loopdev::{LoopControl, LoopDevice};
+use krataloopdev::{LoopControl, LoopDevice};
 use tokio::time::sleep;
 use xenclient::BlockDeviceRef;
 

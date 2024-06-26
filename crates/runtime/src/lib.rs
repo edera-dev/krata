@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use ip::IpVendor;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use log::error;
-use loopdev::LoopControl;
+use krataloopdev::LoopControl;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use xenclient::XenClient;
