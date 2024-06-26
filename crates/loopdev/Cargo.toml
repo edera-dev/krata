@@ -1,0 +1,15 @@
+[package]
+name = "krata-loopdev"
+description = "Loop device handling library for krata"
+license.workspace = true
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition = "2021"
+resolver = "2"
+
+[lib]
+name = "krataloopdev"
+
+[dependencies]
+libc.workspace = true
