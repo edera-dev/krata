@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
+use krataloopdev::{LoopControl, LoopDevice};
 use log::debug;
-use loopdev::{LoopControl, LoopDevice};
 use tokio::time::sleep;
 use xenclient::BlockDeviceRef;
 
