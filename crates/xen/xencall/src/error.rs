@@ -14,6 +14,8 @@ pub enum Error {
     PopulatePhysmapFailed,
     #[error("mmap batch failed: {0}")]
     MmapBatchFailed(nix::errno::Errno),
+    #[error("specified value is too long")]
+    ValueTooLong,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

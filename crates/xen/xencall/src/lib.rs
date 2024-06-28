@@ -25,9 +25,13 @@ use std::ffi::{c_long, c_uint, c_ulong, c_void};
 use std::sync::Arc;
 use std::time::Duration;
 use sys::{
-    E820Entry, ForeignMemoryMap, PhysdevMapPirq, VcpuGuestContextAny, HYPERVISOR_PHYSDEV_OP,
-    PHYSDEVOP_MAP_PIRQ, XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION,
-    XEN_MEM_SET_MEMORY_MAP,
+    CpuId, E820Entry, ForeignMemoryMap, PhysdevMapPirq, Sysctl, SysctlCputopo, SysctlCputopoinfo,
+    SysctlPhysinfo, SysctlPmOp, SysctlPmOpValue, SysctlSetCpuFreqGov, SysctlValue,
+    VcpuGuestContextAny, HYPERVISOR_PHYSDEV_OP, HYPERVISOR_SYSCTL, PHYSDEVOP_MAP_PIRQ,
+    XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION, XEN_MEM_SET_MEMORY_MAP,
+    XEN_SYSCTL_CPUTOPOINFO, XEN_SYSCTL_MAX_INTERFACE_VERSION, XEN_SYSCTL_MIN_INTERFACE_VERSION,
+    XEN_SYSCTL_PHYSINFO, XEN_SYSCTL_PM_OP, XEN_SYSCTL_PM_OP_DISABLE_TURBO,
+    XEN_SYSCTL_PM_OP_ENABLE_TURBO,
 };
 use tokio::sync::Semaphore;
 use tokio::time::sleep;
@@ -42,6 +46,7 @@ pub struct XenCall {
     pub handle: Arc<File>,
     semaphore: Arc<Semaphore>,
     domctl_interface_version: u32,
+    sysctl_interface_version: u32,
 }
 
 impl XenCall {
@@ -52,10 +57,12 @@ impl XenCall {
             .open("/dev/xen/privcmd")?;
         let domctl_interface_version =
             XenCall::detect_domctl_interface_version(&handle, current_domid)?;
+        let sysctl_interface_version = XenCall::detect_sysctl_interface_version(&handle)?;
         Ok(XenCall {
             handle: Arc::new(handle),
             semaphore: Arc::new(Semaphore::new(1)),
             domctl_interface_version,
+            sysctl_interface_version,
         })
     }
 
@@ -73,6 +80,32 @@ impl XenCall {
                 let mut call = Hypercall {
                     op: HYPERVISOR_DOMCTL,
                     arg: [addr_of_mut!(domctl) as u64, 0, 0, 0, 0],
+                };
+                let result = sys::hypercall(handle.as_raw_fd(), &mut call).unwrap_or(-1);
+                if result == 0 {
+                    return Ok(version);
+                }
+            }
+        }
+        Err(Error::XenVersionUnsupported)
+    }
+
+    fn detect_sysctl_interface_version(handle: &File) -> Result<u32> {
+        for version in XEN_SYSCTL_MIN_INTERFACE_VERSION..XEN_SYSCTL_MAX_INTERFACE_VERSION + 1 {
+            let mut sysctl = Sysctl {
+                cmd: XEN_SYSCTL_CPUTOPOINFO,
+                interface_version: version,
+                value: SysctlValue {
+                    cputopoinfo: SysctlCputopoinfo {
+                        num_cpus: 0,
+                        handle: null_mut(),
+                    },
+                },
+            };
+            unsafe {
+                let mut call = Hypercall {
+                    op: HYPERVISOR_SYSCTL,
+                    arg: [addr_of_mut!(sysctl) as u64, 0, 0, 0, 0],
                 };
                 let result = sys::hypercall(handle.as_raw_fd(), &mut call).unwrap_or(-1);
                 if result == 0 {
@@ -914,6 +947,143 @@ impl XenCall {
             },
         };
         self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn cpu_topology(&self) -> Result<Vec<SysctlCputopo>> {
+        let mut sysctl = Sysctl {
+            cmd: XEN_SYSCTL_CPUTOPOINFO,
+            interface_version: self.sysctl_interface_version,
+            value: SysctlValue {
+                cputopoinfo: SysctlCputopoinfo {
+                    num_cpus: 0,
+                    handle: null_mut(),
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+            .await?;
+        let cpus = unsafe { sysctl.value.cputopoinfo.num_cpus };
+        let mut topos = vec![
+            SysctlCputopo {
+                core: 0,
+                socket: 0,
+                node: 0
+            };
+            cpus as usize
+        ];
+        let mut sysctl = Sysctl {
+            cmd: XEN_SYSCTL_CPUTOPOINFO,
+            interface_version: self.sysctl_interface_version,
+            value: SysctlValue {
+                cputopoinfo: SysctlCputopoinfo {
+                    num_cpus: cpus,
+                    handle: topos.as_mut_ptr(),
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+            .await?;
+        Ok(topos)
+    }
+
+    pub async fn phys_info(&self) -> Result<SysctlPhysinfo> {
+        let mut sysctl = Sysctl {
+            cmd: XEN_SYSCTL_PHYSINFO,
+            interface_version: self.sysctl_interface_version,
+            value: SysctlValue {
+                phys_info: SysctlPhysinfo::default(),
+            },
+        };
+        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+            .await?;
+        Ok(unsafe { sysctl.value.phys_info })
+    }
+
+    pub async fn set_cpufreq_gov(&self, cpuid: CpuId, gov: impl AsRef<str>) -> Result<()> {
+        match cpuid {
+            CpuId::All => {
+                let phys_info = self.phys_info().await?;
+                for cpuid in 0..phys_info.max_cpu_id + 1 {
+                    self.do_set_cpufreq_gov(cpuid, gov.as_ref()).await?;
+                }
+            }
+
+            CpuId::Single(id) => {
+                self.do_set_cpufreq_gov(id, gov).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn do_set_cpufreq_gov(&self, cpuid: u32, gov: impl AsRef<str>) -> Result<()> {
+        let governor = gov.as_ref().as_bytes().to_vec();
+        if governor.len() > 15 {
+            return Err(Error::ValueTooLong);
+        }
+
+        let mut scaling_governor = [0u8; 16];
+
+        // leave space for the last byte to be zero at all times.
+        for i in 0..15usize {
+            if i >= governor.len() {
+                break;
+            }
+            scaling_governor[i] = governor[i];
+        }
+
+        let mut sysctl = Sysctl {
+            cmd: XEN_SYSCTL_PM_OP,
+            interface_version: self.sysctl_interface_version,
+            value: SysctlValue {
+                pm_op: SysctlPmOp {
+                    cmd: XEN_SYSCTL_PM_OP_ENABLE_TURBO,
+                    cpuid,
+                    value: SysctlPmOpValue {
+                        set_gov: SysctlSetCpuFreqGov { scaling_governor },
+                    },
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_turbo_mode(&self, cpuid: CpuId, enable: bool) -> Result<()> {
+        match cpuid {
+            CpuId::All => {
+                let phys_info = self.phys_info().await?;
+                for cpuid in 0..phys_info.max_cpu_id + 1 {
+                    self.do_set_turbo_mode(cpuid, enable).await?;
+                }
+            }
+
+            CpuId::Single(id) => {
+                self.do_set_turbo_mode(id, enable).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn do_set_turbo_mode(&self, cpuid: u32, enable: bool) -> Result<()> {
+        let mut sysctl = Sysctl {
+            cmd: XEN_SYSCTL_PM_OP,
+            interface_version: self.sysctl_interface_version,
+            value: SysctlValue {
+                pm_op: SysctlPmOp {
+                    cmd: if enable {
+                        XEN_SYSCTL_PM_OP_ENABLE_TURBO
+                    } else {
+                        XEN_SYSCTL_PM_OP_DISABLE_TURBO
+                    },
+                    cpuid,
+                    value: SysctlPmOpValue { pad: [0u8; 128] },
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
             .await?;
         Ok(())
     }
