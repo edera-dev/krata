@@ -712,3 +712,92 @@ pub struct HvmContext {
 pub struct PagingMempool {
     pub size: u64,
 }
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct SysctlCputopo {
+    pub core: u32,
+    pub socket: u32,
+    pub node: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct SysctlSetCpuFreqGov {
+    pub scaling_governor: [u8; 16],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union SysctlPmOpValue {
+    pub set_gov: SysctlSetCpuFreqGov,
+    pub opt_smt: u32,
+    pub pad: [u8; 128],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SysctlPmOp {
+    pub cmd: u32,
+    pub cpuid: u32,
+    pub value: SysctlPmOpValue,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct SysctlCputopoinfo {
+    pub num_cpus: u32,
+    pub handle: *mut SysctlCputopo,
+}
+
+#[repr(C)]
+pub union SysctlValue {
+    pub cputopoinfo: SysctlCputopoinfo,
+    pub pm_op: SysctlPmOp,
+    pub phys_info: SysctlPhysinfo,
+    pub pad: [u8; 128],
+}
+
+#[repr(C)]
+pub struct Sysctl {
+    pub cmd: u32,
+    pub interface_version: u32,
+    pub value: SysctlValue,
+}
+
+pub const XEN_SYSCTL_PHYSINFO: u32 = 3;
+pub const XEN_SYSCTL_PM_OP: u32 = 12;
+pub const XEN_SYSCTL_CPUTOPOINFO: u32 = 16;
+
+pub const XEN_SYSCTL_MIN_INTERFACE_VERSION: u32 = 0x00000015;
+pub const XEN_SYSCTL_MAX_INTERFACE_VERSION: u32 = 0x00000020;
+pub const XEN_SYSCTL_PM_OP_SET_SCHED_OPT_STMT: u32 = 0x21;
+pub const XEN_SYSCTL_PM_OP_ENABLE_TURBO: u32 = 0x26;
+pub const XEN_SYSCTL_PM_OP_DISABLE_TURBO: u32 = 0x27;
+
+#[derive(Clone, Copy, Debug)]
+pub enum CpuId {
+    All,
+    Single(u32),
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SysctlPhysinfo {
+    pub threads_per_core: u32,
+    pub cores_per_socket: u32,
+    pub nr_cpus: u32,
+    pub max_cpu_id: u32,
+    pub nr_nodes: u32,
+    pub max_node_id: u32,
+    pub cpu_khz: u32,
+    pub capabilities: u32,
+    pub arch_capabilities: u32,
+    pub pad: u32,
+    pub total_pages: u64,
+    pub free_pages: u64,
+    pub scrub_pages: u64,
+    pub outstanding_pages: u64,
+    pub max_mfn: u64,
+    pub hw_cap: [u32; 8],
+}
