@@ -44,7 +44,7 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
             continue;
         }
         
-        if last.map(|last| item.core == last.core + 4).unwrap_or(false) { // detect if performance cores seem to be kicking in.
+        if last.map(|last| (item.core - last.core) >= 2).unwrap_or(false) { // detect if performance cores seem to be kicking in.
             if let Some(last) = last {
                 if let Some(list) = cores.get_mut(&(last.core, last.socket, last.node)) {
                     for other in list {
