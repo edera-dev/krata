@@ -111,20 +111,20 @@ impl PowerManagementContext {
     /// are treated as p-cores, while e-cores behave as standard cores.
     /// If there is a p-core/e-core split, then CPU class will be defined as
     /// `CpuClass::Performance` or `CpuClass::Efficiency`, else `CpuClass::Standard`.
-    pub async fn cpu_topology(self) -> Result<Vec<CpuTopologyInfo>> {
+    pub async fn cpu_topology(&self) -> Result<Vec<CpuTopologyInfo>> {
         let xentopo = self.context.xen.call.cpu_topology().await?;
         let logicaltopo = labelled_topo(&xentopo);
         Ok(logicaltopo)
     }
 
     /// Enable or disable SMT awareness in the scheduler.
-    pub async fn set_smt_policy(self, enable: bool) -> Result<()> {
+    pub async fn set_smt_policy(&self, enable: bool) -> Result<()> {
         self.context.xen.call.set_turbo_mode(CpuId::All, enable).await?;
         Ok(())
     }
 
     /// Set scheduler policy name.
-    pub async fn set_scheduler_policy(self, policy: impl AsRef<str>) -> Result<()> {
+    pub async fn set_scheduler_policy(&self, policy: impl AsRef<str>) -> Result<()> {
         self.context.xen.call.set_cpufreq_gov(CpuId::All, policy).await?;
         Ok(())
     }
