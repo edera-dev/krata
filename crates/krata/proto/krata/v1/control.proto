@@ -30,7 +30,6 @@ service ControlService {
 
     rpc GetHostCpuTopology(HostCpuTopologyRequest) returns (HostCpuTopologyReply);
     rpc SetHostPowerManagementPolicy(HostPowerManagementPolicy) returns (HostPowerManagementPolicy);
-    rpc GetHostPowerManagementPolicy(HostPowerManagementPolicyRequest) returns (HostPowerManagementPolicy);
 }
 
 message IdentifyHostRequest {}
