@@ -15,7 +15,8 @@ use krata::{
             ListDevicesReply, ListDevicesRequest, ListGuestsReply, ListGuestsRequest,
             PullImageReply, PullImageRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
             ResolveGuestReply, ResolveGuestRequest, SnoopIdmReply, SnoopIdmRequest,
-            WatchEventsReply, WatchEventsRequest,
+            WatchEventsReply, WatchEventsRequest, HostCpuTopologyRequest, HostCpuTopologyReply,
+            HostCpuTopologyInfo,
         },
     },
 };
@@ -551,5 +552,27 @@ impl ControlService for DaemonControlService {
             });
         }
         Ok(Response::new(ListDevicesReply { devices }))
+    }
+
+    async fn get_host_cpu_topology(
+        &self,
+        request: Request<HostCpuTopologyRequest>,
+    ) -> Result<Response<HostCpuTopologyReply>, Status> {
+        let _ = request.into_inner();
+        let power = self.runtime.power_management_context().await.map_err(ApiError::from)?;
+        let cputopo = power.cpu_topology().await.map_err(ApiError::from)?;
+        let mut cpus = vec![];
+
+        for cpu in cputopo {
+            cpus.push(HostCpuTopologyInfo {
+                core: cpu.core,
+                socket: cpu.socket,
+                node: cpu.node,
+                thread: cpu.thread,
+                class: cpu.class as i32,
+            })
+        }
+
+        Ok(Response::new(HostCpuTopologyReply { cpus }))
     }
 }
