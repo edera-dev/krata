@@ -205,24 +205,24 @@ message ListDevicesReply {
     repeated DeviceInfo devices = 1;
 }
 
-enum CpuTopologyClass {
+enum HostCpuTopologyClass {
     CPU_CLASS_STANDARD = 0;
     CPU_CLASS_PERFORMANCE = 1;
     CPU_CLASS_EFFICIENCY = 2;
 }
 
-message CpuTopologyInfo {
+message HostCpuTopologyInfo {
     uint32 core = 1;
     uint32 socket = 2;
     uint32 node = 3;
     uint32 thread = 4;
-    CpuTopologyClass class = 5;
+    HostCpuTopologyClass class = 5;
 }
 
 message HostCpuTopologyRequest {}
 
 message HostCpuTopologyReply {
-    repeated CpuTopologyInfo cpus = 1;
+    repeated HostCpuTopologyInfo cpus = 1;
 }
 
 message HostPowerManagementPolicyRequest {}
