@@ -747,7 +747,7 @@ pub struct SysctlPmOp {
 #[derive(Clone, Copy, Debug)]
 pub struct SysctlCputopoinfo {
     pub num_cpus: u32,
-    pub handle: *mut SysctlCputopo,
+    pub handle: c_ulong,
 }
 
 #[repr(C)]
