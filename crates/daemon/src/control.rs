@@ -16,7 +16,7 @@ use krata::{
             PullImageReply, PullImageRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
             ResolveGuestReply, ResolveGuestRequest, SnoopIdmReply, SnoopIdmRequest,
             WatchEventsReply, WatchEventsRequest, HostCpuTopologyRequest, HostCpuTopologyReply,
-            HostCpuTopologyInfo,
+            HostCpuTopologyInfo, HostPowerManagementPolicy,
         },
     },
 };
@@ -574,5 +574,22 @@ impl ControlService for DaemonControlService {
         }
 
         Ok(Response::new(HostCpuTopologyReply { cpus }))
+    }
+
+    async fn set_host_power_management_policy(
+        &self,
+        request: Request<HostPowerManagementPolicy>,
+    ) -> Result<Response<HostPowerManagementPolicy>, Status> {
+        let policy = request.into_inner();
+        let power = self.runtime.power_management_context().await.map_err(ApiError::from)?;
+        let scheduler = &policy.scheduler;
+
+        power.set_smt_policy(policy.smt_awareness).await.map_err(ApiError::from)?;
+        power.set_scheduler_policy(scheduler).await.map_err(ApiError::from)?;
+
+        Ok(Response::new(HostPowerManagementPolicy {
+            scheduler: scheduler.to_string(),
+            smt_awareness: policy.smt_awareness,
+        }))
     }
 }
