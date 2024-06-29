@@ -21,7 +21,7 @@ pub mod tx;
 #[derive(Clone)]
 pub struct XenClient<P: BootSetupPlatform> {
     pub store: XsdClient,
-    call: XenCall,
+    pub call: XenCall,
     domain_manager: Arc<BaseDomainManager<P>>,
 }
 

@@ -11,11 +11,12 @@ use krata::{
         control::{
             control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
             CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-            DeviceInfo, ExecGuestReply, ExecGuestRequest, IdentifyHostReply, IdentifyHostRequest,
-            ListDevicesReply, ListDevicesRequest, ListGuestsReply, ListGuestsRequest,
-            PullImageReply, PullImageRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
-            ResolveGuestReply, ResolveGuestRequest, SnoopIdmReply, SnoopIdmRequest,
-            WatchEventsReply, WatchEventsRequest,
+            DeviceInfo, ExecGuestReply, ExecGuestRequest, HostCpuTopologyInfo,
+            HostCpuTopologyReply, HostCpuTopologyRequest, HostPowerManagementPolicy,
+            IdentifyHostReply, IdentifyHostRequest, ListDevicesReply, ListDevicesRequest,
+            ListGuestsReply, ListGuestsRequest, PullImageReply, PullImageRequest,
+            ReadGuestMetricsReply, ReadGuestMetricsRequest, ResolveGuestReply, ResolveGuestRequest,
+            SnoopIdmReply, SnoopIdmRequest, WatchEventsReply, WatchEventsRequest,
         },
     },
 };
@@ -24,6 +25,7 @@ use krataoci::{
     packer::{service::OciPackerService, OciPackedFormat, OciPackedImage},
     progress::{OciProgress, OciProgressContext},
 };
+use kratart::Runtime;
 use std::{pin::Pin, str::FromStr};
 use tokio::{
     select,
@@ -68,6 +70,7 @@ pub struct DaemonControlService {
     guests: GuestStore,
     guest_reconciler_notify: Sender<Uuid>,
     packer: OciPackerService,
+    runtime: Runtime,
 }
 
 impl DaemonControlService {
@@ -81,6 +84,7 @@ impl DaemonControlService {
         guests: GuestStore,
         guest_reconciler_notify: Sender<Uuid>,
         packer: OciPackerService,
+        runtime: Runtime,
     ) -> Self {
         Self {
             glt,
@@ -91,6 +95,7 @@ impl DaemonControlService {
             guests,
             guest_reconciler_notify,
             packer,
+            runtime,
         }
     }
 }
@@ -547,5 +552,58 @@ impl ControlService for DaemonControlService {
             });
         }
         Ok(Response::new(ListDevicesReply { devices }))
+    }
+
+    async fn get_host_cpu_topology(
+        &self,
+        request: Request<HostCpuTopologyRequest>,
+    ) -> Result<Response<HostCpuTopologyReply>, Status> {
+        let _ = request.into_inner();
+        let power = self
+            .runtime
+            .power_management_context()
+            .await
+            .map_err(ApiError::from)?;
+        let cputopo = power.cpu_topology().await.map_err(ApiError::from)?;
+        let mut cpus = vec![];
+
+        for cpu in cputopo {
+            cpus.push(HostCpuTopologyInfo {
+                core: cpu.core,
+                socket: cpu.socket,
+                node: cpu.node,
+                thread: cpu.thread,
+                class: cpu.class as i32,
+            })
+        }
+
+        Ok(Response::new(HostCpuTopologyReply { cpus }))
+    }
+
+    async fn set_host_power_management_policy(
+        &self,
+        request: Request<HostPowerManagementPolicy>,
+    ) -> Result<Response<HostPowerManagementPolicy>, Status> {
+        let policy = request.into_inner();
+        let power = self
+            .runtime
+            .power_management_context()
+            .await
+            .map_err(ApiError::from)?;
+        let scheduler = &policy.scheduler;
+
+        power
+            .set_smt_policy(policy.smt_awareness)
+            .await
+            .map_err(ApiError::from)?;
+        power
+            .set_scheduler_policy(scheduler)
+            .await
+            .map_err(ApiError::from)?;
+
+        Ok(Response::new(HostPowerManagementPolicy {
+            scheduler: scheduler.to_string(),
+            smt_awareness: policy.smt_awareness,
+        }))
     }
 }

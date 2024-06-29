@@ -98,7 +98,7 @@ impl XenCall {
                 value: SysctlValue {
                     cputopoinfo: SysctlCputopoinfo {
                         num_cpus: 0,
-                        handle: null_mut(),
+                        handle: 0,
                     },
                 },
             };
@@ -958,7 +958,7 @@ impl XenCall {
             value: SysctlValue {
                 cputopoinfo: SysctlCputopoinfo {
                     num_cpus: 0,
-                    handle: null_mut(),
+                    handle: 0,
                 },
             },
         };
@@ -979,7 +979,7 @@ impl XenCall {
             value: SysctlValue {
                 cputopoinfo: SysctlCputopoinfo {
                     num_cpus: cpus,
-                    handle: topos.as_mut_ptr(),
+                    handle: topos.as_mut_ptr() as c_ulong,
                 },
             },
         };

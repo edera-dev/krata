@@ -13,6 +13,7 @@ use xenstore::{XsdClient, XsdInterface};
 use self::{
     autoloop::AutoLoop,
     launch::{GuestLaunchRequest, GuestLauncher},
+    power::PowerManagementContext,
 };
 
 pub mod autoloop;
@@ -20,6 +21,7 @@ pub mod cfgblk;
 pub mod channel;
 pub mod ip;
 pub mod launch;
+pub mod power;
 
 #[cfg(target_arch = "x86_64")]
 type RuntimePlatform = xenplatform::x86pv::X86PvPlatform;
@@ -320,5 +322,10 @@ impl Runtime {
 
     pub async fn dupe(&self) -> Result<Runtime> {
         Runtime::new(self.host_uuid).await
+    }
+
+    pub async fn power_management_context(&self) -> Result<PowerManagementContext> {
+        let context = RuntimeContext::new(self.host_uuid).await?;
+        Ok(PowerManagementContext { context })
     }
 }

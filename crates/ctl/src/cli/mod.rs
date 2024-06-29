@@ -1,4 +1,5 @@
 pub mod attach;
+pub mod cpu_topology;
 pub mod destroy;
 pub mod exec;
 pub mod identify_host;
@@ -23,9 +24,9 @@ use krata::{
 use tonic::{transport::Channel, Request};
 
 use self::{
-    attach::AttachCommand, destroy::DestroyCommand, exec::ExecCommand,
-    identify_host::IdentifyHostCommand, idm_snoop::IdmSnoopCommand, launch::LaunchCommand,
-    list::ListCommand, list_devices::ListDevicesCommand, logs::LogsCommand,
+    attach::AttachCommand, cpu_topology::CpuTopologyCommand, destroy::DestroyCommand,
+    exec::ExecCommand, identify_host::IdentifyHostCommand, idm_snoop::IdmSnoopCommand,
+    launch::LaunchCommand, list::ListCommand, list_devices::ListDevicesCommand, logs::LogsCommand,
     metrics::MetricsCommand, pull::PullCommand, resolve::ResolveCommand, top::TopCommand,
     watch::WatchCommand,
 };
@@ -61,6 +62,7 @@ pub enum Commands {
     Top(TopCommand),
     IdentifyHost(IdentifyHostCommand),
     Exec(ExecCommand),
+    CpuTopology(CpuTopologyCommand),
 }
 
 impl ControlCommand {
@@ -123,6 +125,10 @@ impl ControlCommand {
 
             Commands::ListDevices(list) => {
                 list.run(client, events).await?;
+            }
+
+            Commands::CpuTopology(cpu_topology) => {
+                cpu_topology.run(client).await?;
             }
         }
         Ok(())
