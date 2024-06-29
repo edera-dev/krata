@@ -27,6 +27,10 @@ service ControlService {
     rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
 
     rpc PullImage(PullImageRequest) returns (stream PullImageReply);
+
+    rpc GetHostCpuTopology(HostCpuTopologyRequest) returns (HostCpuTopologyReply);
+    rpc SetHostPowerManagementPolicy(HostPowerManagementPolicy) returns (HostPowerManagementPolicy);
+    rpc GetHostPowerManagementPolicy(HostPowerManagementPolicyRequest) returns (HostPowerManagementPolicy);
 }
 
 message IdentifyHostRequest {}
@@ -199,4 +203,24 @@ message ListDevicesRequest {}
 
 message ListDevicesReply {
     repeated DeviceInfo devices = 1;
+}
+
+message CpuTopologyInfo {
+    uint32 core = 1;
+    uint32 socket = 2;
+    uint32 zone = 3;
+    uint32 thread = 4;
+}
+
+message HostCpuTopologyRequest {}
+
+message HostCpuTopologyReply {
+    repeated CpuTopologyInfo cpus = 1;
+}
+
+message HostPowerManagementPolicyRequest {}
+
+message HostPowerManagementPolicy {
+    string scheduler = 1;
+    bool smt_awareness = 2;
 }
