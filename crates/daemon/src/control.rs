@@ -24,6 +24,7 @@ use krataoci::{
     packer::{service::OciPackerService, OciPackedFormat, OciPackedImage},
     progress::{OciProgress, OciProgressContext},
 };
+use kratart::Runtime;
 use std::{pin::Pin, str::FromStr};
 use tokio::{
     select,
@@ -68,6 +69,7 @@ pub struct DaemonControlService {
     guests: GuestStore,
     guest_reconciler_notify: Sender<Uuid>,
     packer: OciPackerService,
+    runtime: Runtime,
 }
 
 impl DaemonControlService {
@@ -81,6 +83,7 @@ impl DaemonControlService {
         guests: GuestStore,
         guest_reconciler_notify: Sender<Uuid>,
         packer: OciPackerService,
+        runtime: Runtime,
     ) -> Self {
         Self {
             glt,
@@ -91,6 +94,7 @@ impl DaemonControlService {
             guests,
             guest_reconciler_notify,
             packer,
+            runtime,
         }
     }
 }

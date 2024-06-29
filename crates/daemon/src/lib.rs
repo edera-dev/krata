@@ -50,6 +50,7 @@ pub struct Daemon {
     idm: DaemonIdmHandle,
     console: DaemonConsoleHandle,
     packer: OciPackerService,
+    runtime: Runtime,
 }
 
 const GUEST_RECONCILER_QUEUE_LEN: usize = 1000;
@@ -136,6 +137,7 @@ impl Daemon {
             idm,
             console,
             packer,
+            runtime,
         })
     }
 
@@ -149,6 +151,7 @@ impl Daemon {
             self.guests.clone(),
             self.guest_reconciler_notify.clone(),
             self.packer.clone(),
+            self.runtime.clone(),
         );
 
         let mut server = Server::builder();
