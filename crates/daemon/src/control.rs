@@ -11,12 +11,12 @@ use krata::{
         control::{
             control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
             CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-            DeviceInfo, ExecGuestReply, ExecGuestRequest, IdentifyHostReply, IdentifyHostRequest,
-            ListDevicesReply, ListDevicesRequest, ListGuestsReply, ListGuestsRequest,
-            PullImageReply, PullImageRequest, ReadGuestMetricsReply, ReadGuestMetricsRequest,
-            ResolveGuestReply, ResolveGuestRequest, SnoopIdmReply, SnoopIdmRequest,
-            WatchEventsReply, WatchEventsRequest, HostCpuTopologyRequest, HostCpuTopologyReply,
-            HostCpuTopologyInfo, HostPowerManagementPolicy,
+            DeviceInfo, ExecGuestReply, ExecGuestRequest, HostCpuTopologyInfo,
+            HostCpuTopologyReply, HostCpuTopologyRequest, HostPowerManagementPolicy,
+            IdentifyHostReply, IdentifyHostRequest, ListDevicesReply, ListDevicesRequest,
+            ListGuestsReply, ListGuestsRequest, PullImageReply, PullImageRequest,
+            ReadGuestMetricsReply, ReadGuestMetricsRequest, ResolveGuestReply, ResolveGuestRequest,
+            SnoopIdmReply, SnoopIdmRequest, WatchEventsReply, WatchEventsRequest,
         },
     },
 };
@@ -559,7 +559,11 @@ impl ControlService for DaemonControlService {
         request: Request<HostCpuTopologyRequest>,
     ) -> Result<Response<HostCpuTopologyReply>, Status> {
         let _ = request.into_inner();
-        let power = self.runtime.power_management_context().await.map_err(ApiError::from)?;
+        let power = self
+            .runtime
+            .power_management_context()
+            .await
+            .map_err(ApiError::from)?;
         let cputopo = power.cpu_topology().await.map_err(ApiError::from)?;
         let mut cpus = vec![];
 
@@ -581,11 +585,21 @@ impl ControlService for DaemonControlService {
         request: Request<HostPowerManagementPolicy>,
     ) -> Result<Response<HostPowerManagementPolicy>, Status> {
         let policy = request.into_inner();
-        let power = self.runtime.power_management_context().await.map_err(ApiError::from)?;
+        let power = self
+            .runtime
+            .power_management_context()
+            .await
+            .map_err(ApiError::from)?;
         let scheduler = &policy.scheduler;
 
-        power.set_smt_policy(policy.smt_awareness).await.map_err(ApiError::from)?;
-        power.set_scheduler_policy(scheduler).await.map_err(ApiError::from)?;
+        power
+            .set_smt_policy(policy.smt_awareness)
+            .await
+            .map_err(ApiError::from)?;
+        power
+            .set_scheduler_policy(scheduler)
+            .await
+            .map_err(ApiError::from)?;
 
         Ok(Response::new(HostPowerManagementPolicy {
             scheduler: scheduler.to_string(),

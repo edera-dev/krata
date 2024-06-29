@@ -32,19 +32,24 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
 
     for item in input {
         if cores.is_empty() {
-            cores.insert((item.core, item.socket, item.node), vec![
-                CpuTopologyInfo {
+            cores.insert(
+                (item.core, item.socket, item.node),
+                vec![CpuTopologyInfo {
                     core: item.core,
                     socket: item.socket,
                     thread: 0,
                     node: item.node,
                     class: CpuClass::Standard,
-                }
-            ]);
+                }],
+            );
             continue;
         }
-        
-        if last.map(|last| (item.core - last.core) >= 2).unwrap_or(false) { // detect if performance cores seem to be kicking in.
+
+        if last
+            .map(|last| (item.core - last.core) >= 2)
+            .unwrap_or(false)
+        {
+            // detect if performance cores seem to be kicking in.
             if let Some(last) = last {
                 if let Some(list) = cores.get_mut(&(last.core, last.socket, last.node)) {
                     for other in list {
@@ -52,7 +57,9 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
                     }
                 }
             }
-            let list = cores.entry((item.core, item.socket, item.node)).or_default();
+            let list = cores
+                .entry((item.core, item.socket, item.node))
+                .or_default();
             for old in &mut *list {
                 old.class = CpuClass::Performance;
             }
@@ -64,8 +71,11 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
                 class: CpuClass::Performance,
             });
             pe_cores = true;
-        } else if pe_cores && last.map(|last| item.core == last.core + 1).unwrap_or(false) { // detect efficiency cores if P/E cores are in use.
-            let list =  cores.entry((item.core, item.socket, item.node)).or_default();
+        } else if pe_cores && last.map(|last| item.core == last.core + 1).unwrap_or(false) {
+            // detect efficiency cores if P/E cores are in use.
+            let list = cores
+                .entry((item.core, item.socket, item.node))
+                .or_default();
             list.push(CpuTopologyInfo {
                 core: item.core,
                 socket: item.socket,
@@ -74,7 +84,9 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
                 class: CpuClass::Efficiency,
             });
         } else {
-            let list =  cores.entry((item.core, item.socket, item.node)).or_default();
+            let list = cores
+                .entry((item.core, item.socket, item.node))
+                .or_default();
             if list.is_empty() {
                 list.push(CpuTopologyInfo {
                     core: item.core,
@@ -89,7 +101,10 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
                     socket: item.socket,
                     thread: 0,
                     node: item.node,
-                    class: list.first().map(|first| first.class).unwrap_or(CpuClass::Standard),
+                    class: list
+                        .first()
+                        .map(|first| first.class)
+                        .unwrap_or(CpuClass::Standard),
                 });
             }
         }
@@ -101,8 +116,12 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
             thread.thread = index as u32;
         }
     }
-    
-    cores.into_values().into_iter().flatten().collect::<Vec<_>>()
+
+    cores
+        .into_values()
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
 }
 
 impl PowerManagementContext {
@@ -119,13 +138,21 @@ impl PowerManagementContext {
 
     /// Enable or disable SMT awareness in the scheduler.
     pub async fn set_smt_policy(&self, enable: bool) -> Result<()> {
-        self.context.xen.call.set_turbo_mode(CpuId::All, enable).await?;
+        self.context
+            .xen
+            .call
+            .set_turbo_mode(CpuId::All, enable)
+            .await?;
         Ok(())
     }
 
     /// Set scheduler policy name.
     pub async fn set_scheduler_policy(&self, policy: impl AsRef<str>) -> Result<()> {
-        self.context.xen.call.set_cpufreq_gov(CpuId::All, policy).await?;
+        self.context
+            .xen
+            .call
+            .set_cpufreq_gov(CpuId::All, policy)
+            .await?;
         Ok(())
     }
 }

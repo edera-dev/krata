@@ -24,9 +24,9 @@ use krata::{
 use tonic::{transport::Channel, Request};
 
 use self::{
-    attach::AttachCommand, cpu_topology::CpuTopologyCommand, destroy::DestroyCommand, exec::ExecCommand,
-    identify_host::IdentifyHostCommand, idm_snoop::IdmSnoopCommand, launch::LaunchCommand,
-    list::ListCommand, list_devices::ListDevicesCommand, logs::LogsCommand,
+    attach::AttachCommand, cpu_topology::CpuTopologyCommand, destroy::DestroyCommand,
+    exec::ExecCommand, identify_host::IdentifyHostCommand, idm_snoop::IdmSnoopCommand,
+    launch::LaunchCommand, list::ListCommand, list_devices::ListDevicesCommand, logs::LogsCommand,
     metrics::MetricsCommand, pull::PullCommand, resolve::ResolveCommand, top::TopCommand,
     watch::WatchCommand,
 };
