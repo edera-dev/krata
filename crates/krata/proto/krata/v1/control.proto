@@ -205,11 +205,18 @@ message ListDevicesReply {
     repeated DeviceInfo devices = 1;
 }
 
+enum CpuTopologyClass {
+    CPU_CLASS_STANDARD = 0;
+    CPU_CLASS_PERFORMANCE = 1;
+    CPU_CLASS_EFFICIENCY = 2;
+}
+
 message CpuTopologyInfo {
     uint32 core = 1;
     uint32 socket = 2;
-    uint32 zone = 3;
+    uint32 node = 3;
     uint32 thread = 4;
+    CpuTopologyClass class = 5;
 }
 
 message HostCpuTopologyRequest {}
