@@ -223,7 +223,6 @@ impl LoopDevice {
         self.device
             .metadata()
             .map(|m| unsafe { libc::major(m.rdev()) })
-            .map(|m| m as u32)
     }
 
     /// Return the minor device node number.
@@ -231,7 +230,6 @@ impl LoopDevice {
         self.device
             .metadata()
             .map(|m| unsafe { libc::minor(m.rdev()) })
-            .map(|m| m as u32)
     }
 }
 
@@ -327,11 +325,7 @@ impl AttachOptions<'_> {
     }
 
     pub fn direct_io(&self) -> bool {
-        if (self.info.lo_flags & LO_FLAGS_DIRECT_IO) == LO_FLAGS_DIRECT_IO {
-            true
-        } else {
-            false
-        }
+        (self.info.lo_flags & LO_FLAGS_DIRECT_IO) == LO_FLAGS_DIRECT_IO
     }
 
     pub fn attach(&self, backing_file: impl AsRef<Path>) -> io::Result<()> {

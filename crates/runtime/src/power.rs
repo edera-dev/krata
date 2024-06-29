@@ -42,6 +42,7 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
                     class: CpuClass::Standard,
                 }],
             );
+            last = Some(*item);
             continue;
         }
 
@@ -73,6 +74,13 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
             pe_cores = true;
         } else if pe_cores && last.map(|last| item.core == last.core + 1).unwrap_or(false) {
             // detect efficiency cores if P/E cores are in use.
+            if let Some(last) = last {
+                if let Some(list) = cores.get_mut(&(last.core, last.socket, last.node)) {
+                    for other in list {
+                        other.class = CpuClass::Efficiency;
+                    }
+                }
+            }
             let list = cores
                 .entry((item.core, item.socket, item.node))
                 .or_default();
@@ -108,7 +116,7 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
                 });
             }
         }
-        last = Some(item.clone());
+        last = Some(*item);
     }
 
     for threads in cores.values_mut() {
@@ -117,11 +125,7 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
         }
     }
 
-    cores
-        .into_values()
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
+    cores.into_values().flatten().collect::<Vec<_>>()
 }
 
 impl PowerManagementContext {

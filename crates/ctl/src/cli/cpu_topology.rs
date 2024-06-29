@@ -29,8 +29,7 @@ impl CpuTopologyCommand {
             .await?
             .into_inner();
 
-        let mut i = 0;
-        for cpu in response.cpus {
+        for (i, cpu) in response.cpus.iter().enumerate() {
             println!(
                 "{0:<10} {1:<10} {2:<10} {3:<10} {4:<10} {5:<10}",
                 i,
@@ -40,7 +39,6 @@ impl CpuTopologyCommand {
                 cpu.thread,
                 class_to_str(cpu.class)
             );
-            i += 1;
         }
 
         Ok(())
