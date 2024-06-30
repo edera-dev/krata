@@ -47,7 +47,12 @@ fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
         }
 
         if last
-            .map(|last| (item.core - last.core) >= 2)
+            .map(|last| {
+                item.core
+                    .checked_sub(last.core)
+                    .map(|diff| diff >= 3)
+                    .unwrap_or(false)
+            })
             .unwrap_or(false)
         {
             // detect if performance cores seem to be kicking in.
