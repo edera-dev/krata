@@ -127,7 +127,7 @@ impl GuestReconciler {
                         }
                     },
 
-                    _ = sleep(Duration::from_secs(5)) => {
+                    _ = sleep(Duration::from_secs(15)) => {
                         if let Err(error) = self.reconcile_runtime(false).await {
                             error!("runtime reconciler failed: {}", error);
                         }
