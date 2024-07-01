@@ -124,6 +124,12 @@ impl Daemon {
         let guest_reconciler_task = guest_reconciler.launch(guest_reconciler_receiver).await?;
         let generator_task = generator.launch().await?;
 
+        // TODO: Create a way of abstracting early init tasks in kratad.
+        // TODO: Make initial power management policy configurable.
+        let power = runtime.power_management_context().await?;
+        power.set_smt_policy(true).await?;
+        power.set_scheduler_policy("performance".to_string()).await?;
+
         Ok(Self {
             store,
             _config: config,
