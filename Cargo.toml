@@ -90,7 +90,7 @@ walkdir = "2"
 xz2 = "0.1"
 
 [workspace.dependencies.clap]
-version = "4.5.7"
+version = "4.5.8"
 features = ["derive"]
 
 [workspace.dependencies.prost-reflect]
