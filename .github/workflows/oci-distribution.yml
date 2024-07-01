@@ -1,4 +1,4 @@
-name: OCI distribution
+name: oci-distribution
 on:
   workflow_dispatch:
   schedule:
@@ -17,7 +17,7 @@ jobs:
         - kratactl
         - kratad
         - kratanet
-    name: OCI build ${{ matrix.component }} on ${{ matrix.platform }}
+    name: oci build ${{ matrix.component }}
     steps:
     - uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
       with:
