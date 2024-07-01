@@ -93,7 +93,8 @@ impl Daemon {
         let kernel_path = detect_guest_path(&store, "kernel")?;
         let addons_path = detect_guest_path(&store, "addons.squashfs")?;
 
-        let packer = OciPackerService::new(None, &image_cache_dir, OciPlatform::current()).await?;
+        let seed = config.oci.seed.clone().map(PathBuf::from);
+        let packer = OciPackerService::new(seed, &image_cache_dir, OciPlatform::current()).await?;
         let runtime = Runtime::new(host_uuid).await?;
         let glt = GuestLookupTable::new(0, host_uuid);
         let guests_db_path = format!("{}/guests.db", store);
@@ -128,7 +129,9 @@ impl Daemon {
         // TODO: Make initial power management policy configurable.
         let power = runtime.power_management_context().await?;
         power.set_smt_policy(true).await?;
-        power.set_scheduler_policy("performance".to_string()).await?;
+        power
+            .set_scheduler_policy("performance".to_string())
+            .await?;
 
         Ok(Self {
             store,

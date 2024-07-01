@@ -7,7 +7,15 @@ use tokio::fs;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct DaemonConfig {
     #[serde(default)]
+    pub oci: OciConfig,
+    #[serde(default)]
     pub pci: DaemonPciConfig,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct OciConfig {
+    #[serde(default)]
+    pub seed: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
