@@ -8,7 +8,7 @@ In addition, due to the desire to reduce dependence on the dom0 network, krata c
 
 ## Why utilize Xen instead of KVM?
 
-Xen is a very interesting technology, and Edera believes that type-1 hypervisors are ideal for security. Most OCI isolation techniques use KVM, which is not a type-1 hypervisor, and thus is subject to the security limitations of the OS kernel. A type-1 hypervisor on the other hand, provides a minimal attack surface upon which less-trusted guests can be launched on top of.
+Xen is a very interesting technology, and Edera believes that type-1 hypervisors are ideal for security. Most OCI isolation techniques use KVM, which is not a type-1 hypervisor, and thus is subject to the security limitations of the OS kernel. A type-1 hypervisor on the other hand provides a minimal attack surface upon which less-trusted guests can be launched on top of.
 
 ## Why not utilize pvcalls to provide access to the host network?
 
