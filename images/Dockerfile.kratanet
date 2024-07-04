@@ -7,7 +7,7 @@ COPY . .
 RUN ./hack/build/cargo.sh build --release --bin kratanet
 RUN mv ./target/$(./hack/build/target.sh)/release/kratanet /usr/sbin
 
-FROM cgr.dev/chainguard/static AS final
+FROM scratch
 ENTRYPOINT ["/usr/sbin/kratanet"]
 COPY --from=build /usr/sbin/kratanet /usr/sbin/kratanet
 COPY ./resources/systemd/kratanet.service /usr/lib/systemd/system/kratanet.service

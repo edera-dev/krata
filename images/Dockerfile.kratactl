@@ -7,6 +7,6 @@ COPY . .
 RUN ./hack/build/cargo.sh build --release --bin kratactl
 RUN mv ./target/$(./hack/build/target.sh)/release/kratactl /usr/sbin
 
-FROM cgr.dev/chainguard/static AS final
+FROM scratch
 ENTRYPOINT ["/usr/sbin/kratactl"]
 COPY --from=build /usr/sbin/kratactl /usr/sbin/kratactl
