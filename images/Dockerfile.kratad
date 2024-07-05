@@ -7,7 +7,7 @@ COPY . .
 RUN ./hack/build/cargo.sh build --release --bin kratad
 RUN mv ./target/$(./hack/build/target.sh)/release/kratad /usr/sbin
 
-FROM cgr.dev/chainguard/static AS final
+FROM scratch
 ENTRYPOINT ["/usr/sbin/kratad"]
 COPY --from=build /usr/sbin/kratad /usr/sbin/kratad
 COPY ./resources/systemd/kratad.service /usr/lib/systemd/system/kratad.service
