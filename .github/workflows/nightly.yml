@@ -27,13 +27,13 @@ jobs:
         targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
     - run: ./hack/ci/install-linux-deps.sh
     - run: ./hack/dist/bundle.sh
-    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+    - uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
       with:
         name: krata-bundle-systemd-${{ matrix.arch }}
         path: "target/dist/bundle-systemd-${{ matrix.arch }}.tgz"
         compression-level: 0
     - run: ./hack/dist/deb.sh
-    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+    - uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
       with:
         name: krata-debian-${{ matrix.arch }}
         path: "target/dist/*.deb"
@@ -41,13 +41,13 @@ jobs:
     - run: ./hack/dist/apk.sh
       env:
         KRATA_KERNEL_BUILD_SKIP: "1"
-    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+    - uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
       with:
         name: krata-alpine-${{ matrix.arch }}
         path: "target/dist/*_${{ matrix.arch }}.apk"
         compression-level: 0
     - run: ./hack/os/build.sh
-    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+    - uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
       with:
         name: krata-os-${{ matrix.arch }}
         path: "target/os/krata-${{ matrix.arch }}.qcow2"
@@ -90,12 +90,12 @@ jobs:
       if: ${{ matrix.platform.os == 'darwin' }}
     - run: ./hack/ci/install-${{ matrix.platform.deps }}-deps.sh
     - run: ./hack/build/cargo.sh build --release --bin kratactl
-    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+    - uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
       with:
         name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
         path: "target/*/release/kratactl"
       if: ${{ matrix.platform.os != 'windows' }}
-    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+    - uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
       with:
         name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
         path: "target/*/release/kratactl.exe"
