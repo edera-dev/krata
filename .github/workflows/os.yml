@@ -30,7 +30,7 @@ jobs:
         targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
     - run: ./hack/ci/install-linux-deps.sh
     - run: ./hack/os/build.sh
-    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+    - uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
       with:
         name: krata-os-${{ matrix.arch }}
         path: "target/os/krata-${{ matrix.arch }}.qcow2"
