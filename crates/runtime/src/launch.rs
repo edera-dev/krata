@@ -229,7 +229,7 @@ impl GuestLauncher {
                 cmdline,
                 uuid,
                 owner_domid: 0,
-                enable_iommu: true,
+                enable_iommu: !request.pcis.is_empty(),
             },
             backend_domid: 0,
             name: xen_name,
