@@ -6,7 +6,7 @@ Wants=kratad.service
 After=kratad.service
 Restart=on-failure
 Type=simple
-ExecStart=/usr/libexec/kratanet
+ExecStart=/usr/sbin/kratanet
 Environment=RUST_LOG=info
 User=root
 
