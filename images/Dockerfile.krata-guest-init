@@ -1,0 +1,10 @@
+FROM rust:1.79-alpine AS build
+RUN apk update && apk add protoc protobuf-dev build-base && rm -rf /var/cache/apk/*
+ENV TARGET_LIBC=musl TARGET_VENDOR=unknown
+
+WORKDIR /usr/src/app
+COPY . .
+RUN ./hack/initrd/build.sh && cp target/initrd/initrd-* target/initrd/initrd
+
+FROM scratch AS final
+COPY --from=build /usr/src/app/target/initrd/initrd /krata/initrd
