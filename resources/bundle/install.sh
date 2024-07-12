@@ -23,11 +23,11 @@ remove_service_if_exists kratanet.service
 cp kratad.service /usr/lib/systemd/system/kratad.service
 cp kratanet.service /usr/lib/systemd/system/kratanet.service
 
-cp kratad kratanet /usr/libexec
+cp kratad kratanet /usr/sbin
 cp kratactl /usr/bin
 
-chmod +x /usr/libexec/kratad
-chmod +x /usr/libexec/kratanet
+chmod +x /usr/sbin/kratad
+chmod +x /usr/sbin/kratanet
 chmod +x /usr/bin/kratactl
 
 mkdir -p /var/lib/krata /usr/share/krata/guest
