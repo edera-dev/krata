@@ -1,6 +1,6 @@
 #!/sbin/openrc-run
 description="Krata Isolation Engine"
-command="/usr/libexec/kratad"
+command="/usr/sbin/kratad"
 supervisor="supervise-daemon"
 output_log="/var/log/kratad.log"
 error_log="/var/log/kratad.err"

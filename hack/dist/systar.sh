@@ -22,9 +22,9 @@ tar xf "${OUTPUT_DIR}/bundle-systemd-${TARGET_ARCH}.tgz"
 mkdir sys
 cd sys
 
-mkdir -p usr/bin usr/libexec
+mkdir -p usr/bin usr/sbin
 mv ../krata/kratactl usr/bin
-mv ../krata/kratanet ../krata/kratad usr/libexec/
+mv ../krata/kratanet ../krata/kratad usr/sbin/
 
 if [ "${SYSTAR_VARIANT}" = "openrc" ]
 then

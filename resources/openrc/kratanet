@@ -1,6 +1,6 @@
 #!/sbin/openrc-run
 description="Krata Networking Daemon"
-command="/usr/libexec/kratanet"
+command="/usr/sbin/kratanet"
 supervisor="supervise-daemon"
 output_log="/var/log/kratanet.log"
 error_log="/var/log/kratanet.err"

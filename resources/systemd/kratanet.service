@@ -1,9 +1,9 @@
 [Unit]
 Description=Krata Networking Engine
-
-[Service]
 Wants=kratad.service
 After=kratad.service
+
+[Service]
 Restart=on-failure
 Type=simple
 ExecStart=/usr/sbin/kratanet
