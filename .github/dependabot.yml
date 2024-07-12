@@ -5,22 +5,31 @@ updates:
   schedule:
     interval: "daily"
   groups:
-    version-updates:
-      dependency-type: "all"
+    production-version-updates:
+      dependency-type: "production"
+      applies-to: "version-updates"
+    development-version-updates:
+      dependency-type: "development"
       applies-to: "version-updates"
 - package-ecosystem: "cargo"
   directory: "/"
   schedule:
     interval: "daily"
   groups:
-    version-updates:
-      dependency-type: "all"
+    production-version-updates:
+      dependency-type: "production"
+      applies-to: "version-updates"
+    development-version-updates:
+      dependency-type: "development"
       applies-to: "version-updates"
 - package-ecosystem: "docker"
   directory: "/"
   schedule:
     interval: "daily"
   groups:
-    version-updates:
-      dependency-type: "all"
+    production-version-updates:
+      dependency-type: "production"
+      applies-to: "version-updates"
+    development-version-updates:
+      dependency-type: "development"
       applies-to: "version-updates"
