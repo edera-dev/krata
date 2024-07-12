@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.12](https://github.com/edera-dev/krata/compare/v0.0.11...v0.0.12) - 2024-07-12
+
+### Added
+- *(oci)* add configuration value for oci seed file ([#220](https://github.com/edera-dev/krata/pull/220))
+- *(power-management-defaults)* set an initial power management policy ([#219](https://github.com/edera-dev/krata/pull/219))
+
+### Fixed
+- *(daemon)* decrease rate of runtime reconcile ([#224](https://github.com/edera-dev/krata/pull/224))
+- *(power)* ensure that xeon cpus with cpu gaps are not detected as p/e compatible ([#218](https://github.com/edera-dev/krata/pull/218))
+- *(runtime)* use iommu only if devices are needed ([#243](https://github.com/edera-dev/krata/pull/243))
+
+### Other
+- Power management core functionality ([#217](https://github.com/edera-dev/krata/pull/217))
+- *(powermgmt)* disable for now as a hackfix ([#242](https://github.com/edera-dev/krata/pull/242))
+- Initial fluentd support ([#205](https://github.com/edera-dev/krata/pull/205))
+- update Cargo.toml dependencies
+- Use native loopdev implementation instead of loopdev-3 ([#209](https://github.com/edera-dev/krata/pull/209))
+
 ## [0.0.11](https://github.com/edera-dev/krata/compare/v0.0.10...v0.0.11) - 2024-06-23
 
 ### Added
