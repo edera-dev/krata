@@ -16,3 +16,11 @@ updates:
     version-updates:
       dependency-type: "all"
       applies-to: "version-updates"
+- package-ecosystem: "docker"
+  directory: "/"
+  schedule:
+    interval: "daily"
+  groups:
+    version-updates:
+      dependency-type: "all"
+      applies-to: "version-updates"
