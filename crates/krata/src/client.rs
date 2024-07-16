@@ -1,14 +1,10 @@
+#[cfg(unix)]
+use crate::unix::HyperUnixConnector;
 use crate::{dial::ControlDialAddress, v1::control::control_service_client::ControlServiceClient};
 #[cfg(not(unix))]
 use anyhow::anyhow;
 use anyhow::Result;
-#[cfg(unix)]
-use tokio::net::UnixStream;
-#[cfg(unix)]
-use tonic::transport::Uri;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
-#[cfg(unix)]
-use tower::service_fn;
 
 pub struct ControlClientProvider {}
 
@@ -52,10 +48,7 @@ impl ControlClientProvider {
     async fn dial_unix_socket(path: String) -> Result<Channel> {
         // This URL is not actually used but is required to be specified.
         Ok(Endpoint::try_from(format!("unix://localhost/{}", path))?
-            .connect_with_connector(service_fn(|uri: Uri| {
-                let path = uri.path().to_string();
-                UnixStream::connect(path)
-            }))
+            .connect_with_connector(HyperUnixConnector {})
             .await?)
     }
 }
