@@ -1,7 +1,4 @@
 name: release-plz
-permissions:
-  pull-requests: write
-  contents: write
 on:
   push:
     branches:
@@ -13,6 +10,9 @@ jobs:
   release-plz:
     name: release-plz
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
     steps:
     - uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
       with:
@@ -27,7 +27,7 @@ jobs:
         submodules: recursive
         fetch-depth: 0
         token: "${{ steps.generate-token.outputs.token }}"
-    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
+    - uses: dtolnay/rust-toolchain@d0e72ca3bfdc51937a4f81431ccbed269ef9f2a2 # stable
     - run: ./hack/ci/install-linux-deps.sh
     - name: release-plz
       uses: MarcoIeni/release-plz-action@86afd21a7b114234aab55ba0005eed52f77d89e4 # v0.5.62
