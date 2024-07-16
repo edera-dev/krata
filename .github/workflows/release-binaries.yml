@@ -1,8 +1,4 @@
 name: release-binaries
-permissions:
-  contents: write
-  packages: write
-  id-token: write
 on:
   release:
     types:
@@ -25,7 +21,9 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: release-binaries server ${{ matrix.arch }}
+    name: "release-binaries server ${{ matrix.arch }}"
+    permissions:
+      contents: write
     steps:
     - uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
       with:
@@ -33,7 +31,7 @@ jobs:
     - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
+    - uses: dtolnay/rust-toolchain@d0e72ca3bfdc51937a4f81431ccbed269ef9f2a2 # stable
       with:
         targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
     - run: ./hack/ci/install-linux-deps.sh
@@ -68,6 +66,8 @@ jobs:
       run:
         shell: bash
     timeout-minutes: 60
+    permissions:
+      contents: write
     steps:
     - uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
       with:
@@ -75,7 +75,7 @@ jobs:
     - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@d388a4836fcdbde0e50e395dc79a2670ccdef13f # stable
+    - uses: dtolnay/rust-toolchain@d0e72ca3bfdc51937a4f81431ccbed269ef9f2a2 # stable
       if: ${{ matrix.platform.os != 'darwin' }}
     - uses: dtolnay/rust-toolchain@stable
       with:
@@ -103,6 +103,9 @@ jobs:
         - kratanet
         - krata-guest-init
     name: "release-binaries oci ${{ matrix.component }}"
+    permissions:
+      contents: write
+      packages: write
     steps:
     - uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
       with:
