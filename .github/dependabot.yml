@@ -23,7 +23,7 @@ updates:
       dependency-type: "development"
       applies-to: "version-updates"
 - package-ecosystem: "docker"
-  directory: "/"
+  directory: "/images"
   schedule:
     interval: "daily"
   groups:
