@@ -47,9 +47,6 @@ do
   elif [ "${FORM}" = "bundle-systemd" ]
   then
     asset "${SOURCE_FILE_PATH}" "target/assets/krata-systemd_${TAG_NAME}_${PLATFORM}.tgz"
-  elif [ "${FORM}" = "os" ]
-  then
-    asset "${SOURCE_FILE_PATH}" "target/assets/krata_${TAG_NAME}_${PLATFORM}.qcow2"
   else
     echo "ERROR: Unknown form '${FORM}'"
     exit 1
