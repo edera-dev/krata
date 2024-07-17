@@ -31,9 +31,10 @@ jobs:
     - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@d0e72ca3bfdc51937a4f81431ccbed269ef9f2a2 # stable
-      with:
-        targets: "${{ matrix.arch }}-unknown-linux-gnu,${{ matrix.arch }}-unknown-linux-musl"
+    - run: |
+        rustup update --no-self-update stable
+        rustup default stable
+        rustup target add ${{ matrix.arch }}-unknown-linux-gnu ${{ matrix.arch }}-unknown-linux-musl
     - run: ./hack/ci/install-linux-deps.sh
     - run: ./hack/dist/bundle.sh
     - run: "./hack/ci/assemble-release-assets.sh bundle-systemd ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/dist/bundle-systemd-${{ matrix.arch }}.tgz"
@@ -73,11 +74,10 @@ jobs:
     - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         submodules: recursive
-    - uses: dtolnay/rust-toolchain@d0e72ca3bfdc51937a4f81431ccbed269ef9f2a2 # stable
-      if: ${{ matrix.platform.os != 'darwin' }}
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: "${{ matrix.platform.arch }}-apple-darwin"
+    - run: |
+        rustup update --no-self-update stable
+        rustup default stable
+    - run: "rustup target add --toolchain stable ${{ matrix.platform.arch }}-apple-darwin"
       if: ${{ matrix.platform.os == 'darwin' }}
     - uses: homebrew/actions/setup-homebrew@4b34604e75af8f8b23b454f0b5ffb7c5d8ce0056 # master
       if: ${{ matrix.platform.os == 'darwin' }}
