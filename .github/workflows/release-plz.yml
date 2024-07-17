@@ -27,7 +27,7 @@ jobs:
         submodules: recursive
         fetch-depth: 0
         token: "${{ steps.generate-token.outputs.token }}"
-    - uses: dtolnay/rust-toolchain@d0e72ca3bfdc51937a4f81431ccbed269ef9f2a2 # stable
+    - uses: moonrepo/setup-rust@d8048d4fdff0633123678b093726e6d7c8ad6de5 # v1
     - run: ./hack/ci/install-linux-deps.sh
     - name: release-plz
       uses: MarcoIeni/release-plz-action@86afd21a7b114234aab55ba0005eed52f77d89e4 # v0.5.62
