@@ -41,8 +41,6 @@ jobs:
     - run: "./hack/ci/assemble-release-assets.sh debian ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/dist/*.deb"
     - run: ./hack/dist/apk.sh
     - run: "./hack/ci/assemble-release-assets.sh alpine ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/dist/*_${{ matrix.arch }}.apk"
-    - run: ./hack/os/build.sh
-    - run: "./hack/ci/assemble-release-assets.sh os ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/os/krata-${{ matrix.arch }}.qcow2"
     - run: "./hack/ci/upload-release-assets.sh ${{ github.event.release.tag_name }}"
       env:
         GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
