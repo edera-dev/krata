@@ -123,7 +123,8 @@ jobs:
         - krata-guest-init
     name: release-assets oci ${{ matrix.component }}
     permissions:
-      contents: write
+      contents: read
+      id-token: write
       packages: write
     steps:
     - name: harden runner
