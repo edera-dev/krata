@@ -7,31 +7,196 @@ on:
     branches:
     - main
 jobs:
-  fmt:
-    name: fmt
+  rustfmt:
+    name: rustfmt
     runs-on: ubuntu-latest
     steps:
-    - uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
+    - name: harden runner
+      uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
       with:
         egress-policy: audit
-    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+    - name: checkout repository
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         submodules: recursive
-    - run: |
+    - name: install stable rust toolchain with rustfmt
+      run: |
         rustup update --no-self-update stable
         rustup default stable
         rustup component add rustfmt
-    - run: ./hack/ci/install-linux-deps.sh
+    - name: install linux dependencies
+      run: ./hack/ci/install-linux-deps.sh
     # Temporarily ignored: https://github.com/edera-dev/krata/issues/206
-    - run: ./hack/build/cargo.sh fmt --all -- --check || true
+    - name: cargo fmt
+      run: ./hack/build/cargo.sh fmt --all -- --check || true
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
     steps:
-    - uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
+    - name: harden runner
+      uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
       with:
         egress-policy: audit
-    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+    - name: checkout repository
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         submodules: recursive
-    - run: ./hack/code/shellcheck.sh
+    - name: shellcheck
+      run: ./hack/code/shellcheck.sh
+  full-build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: full build linux-${{ matrix.arch }}
+    steps:
+    - name: harden runner
+      uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
+      with:
+        egress-policy: audit
+    - name: checkout repository
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      with:
+        submodules: recursive
+    - name: install stable rust toolchain
+      run: |
+        rustup update --no-self-update stable
+        rustup default stable
+    - name: install linux dependencies
+      run: ./hack/ci/install-linux-deps.sh
+    - name: cargo build
+      run: ./hack/build/cargo.sh build
+  full-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: full test linux-${{ matrix.arch }}
+    steps:
+    - name: harden runner
+      uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
+      with:
+        egress-policy: audit
+    - name: checkout repository
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      with:
+        submodules: recursive
+    - name: install stable rust toolchain
+      run: |
+        rustup update --no-self-update stable
+        rustup default stable
+    - name: install linux dependencies
+      run: ./hack/ci/install-linux-deps.sh
+    - name: cargo test
+      run: ./hack/build/cargo.sh test
+  full-clippy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: full clippy linux-${{ matrix.arch }}
+    steps:
+    - name: harden runner
+      uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
+      with:
+        egress-policy: audit
+    - name: checkout repository
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      with:
+        submodules: recursive
+    - name: install stable rust toolchain with clippy
+      run: |
+        rustup update --no-self-update stable
+        rustup default stable
+        rustup component add clippy
+    - name: install linux dependencies
+      run: ./hack/ci/install-linux-deps.sh
+    - name: cargo clippy
+      run: ./hack/build/cargo.sh clippy
+  guest-init:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+        - x86_64
+        - aarch64
+    env:
+      TARGET_ARCH: "${{ matrix.arch }}"
+    name: guest-init ${{ matrix.arch }}
+    steps:
+    - name: harden runner
+      uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
+      with:
+        egress-policy: audit
+    - name: checkout repository
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      with:
+        submodules: recursive
+    - name: install stable rust toolchain with ${{ matrix.arch }}-unknown-linux-gnu and ${{ matrix.arch }}-unknown-linux-musl rust targets
+      run: |
+        rustup update --no-self-update stable
+        rustup default stable
+        rustup target add ${{ matrix.arch }}-unknown-linux-gnu ${{ matrix.arch }}-unknown-linux-musl
+    - name: install linux dependencies
+      run: ./hack/ci/install-linux-deps.sh
+    - name: initrd build
+      run: ./hack/initrd/build.sh
+  kratactl-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { os: linux, arch: x86_64, on: ubuntu-latest, deps: linux }
+          - { os: linux, arch: aarch64, on: ubuntu-latest, deps: linux }
+          - { os: darwin, arch: x86_64, on: macos-14, deps: darwin }
+          - { os: darwin, arch: aarch64, on: macos-14, deps: darwin }
+          - { os: freebsd, arch: x86_64, on: ubuntu-latest, deps: linux }
+          - { os: windows, arch: x86_64, on: windows-latest, deps: windows }
+    env:
+      TARGET_OS: "${{ matrix.platform.os }}"
+      TARGET_ARCH: "${{ matrix.platform.arch }}"
+    runs-on: "${{ matrix.platform.on }}"
+    name: kratactl build ${{ matrix.platform.os }}-${{ matrix.platform.arch }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - name: harden runner
+      uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
+      with:
+        egress-policy: audit
+    - name: configure git line endings
+      run: git config --global core.autocrlf false && git config --global core.eol lf
+      if: ${{ matrix.platform.os == 'windows' }}
+    - name: checkout repository
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      with:
+        submodules: recursive
+    - name: install stable rust toolchain
+      run: |
+        rustup update --no-self-update stable
+        rustup default stable
+    - name: install ${{ matrix.platform.arch }}-apple-darwin rust target
+      run: "rustup target add --toolchain stable ${{ matrix.platform.arch }}-apple-darwin"
+      if: ${{ matrix.platform.os == 'darwin' }}
+    - name: setup homebrew
+      uses: homebrew/actions/setup-homebrew@4b34604e75af8f8b23b454f0b5ffb7c5d8ce0056 # master
+      if: ${{ matrix.platform.os == 'darwin' }}
+    - name: install ${{ matrix.platform.deps }} dependencies
+      run: ./hack/ci/install-${{ matrix.platform.deps }}-deps.sh
+    - name: cargo build kratactl
+      run: ./hack/build/cargo.sh build --bin kratactl
