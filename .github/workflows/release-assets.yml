@@ -21,6 +21,7 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
+      CI_NEEDS_FPM: "1"
     name: release-assets services ${{ matrix.arch }}
     permissions:
       contents: write
