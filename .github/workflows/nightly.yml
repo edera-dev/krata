@@ -126,6 +126,8 @@ jobs:
         - krata-guest-init
     name: nightly oci build ${{ matrix.component }}
     permissions:
+      contents: read
+      id-token: write
       packages: write
     steps:
     - name: harden runner
