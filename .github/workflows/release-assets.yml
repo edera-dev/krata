@@ -1,12 +1,17 @@
-name: nightly
+name: release-assets
 on:
-  workflow_dispatch:
-  schedule:
-  - cron: "0 10 * * *"
-permissions:
-  contents: read
+  release:
+    types:
+    - published
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+  CARGO_NET_RETRY: 10
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTUP_MAX_RETRIES: 10
 jobs:
-  full-build:
+  services:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -16,7 +21,9 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: nightly full build ${{ matrix.arch }}
+    name: release-assets services ${{ matrix.arch }}
+    permissions:
+      contents: write
     steps:
     - name: harden runner
       uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
@@ -35,29 +42,21 @@ jobs:
       run: ./hack/ci/install-linux-deps.sh
     - name: build systemd bundle
       run: ./hack/dist/bundle.sh
-    - name: upload systemd bundle
-      uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
-      with:
-        name: krata-bundle-systemd-${{ matrix.arch }}
-        path: "target/dist/bundle-systemd-${{ matrix.arch }}.tgz"
-        compression-level: 0
+    - name: assemble systemd bundle
+      run: "./hack/ci/assemble-release-assets.sh bundle-systemd ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/dist/bundle-systemd-${{ matrix.arch }}.tgz"
     - name: build deb package
       run: ./hack/dist/deb.sh
-    - name: upload deb package
-      uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
-      with:
-        name: krata-debian-${{ matrix.arch }}
-        path: "target/dist/*.deb"
-        compression-level: 0
+    - name: assemble deb package
+      run: "./hack/ci/assemble-release-assets.sh debian ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/dist/*.deb"
     - name: build apk package
       run: ./hack/dist/apk.sh
-    - name: upload apk package
-      uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
-      with:
-        name: krata-alpine-${{ matrix.arch }}
-        path: "target/dist/*_${{ matrix.arch }}.apk"
-        compression-level: 0
-  kratactl-build:
+    - name: assemble apk package
+      run: "./hack/ci/assemble-release-assets.sh alpine ${{ github.event.release.tag_name }} ${{ matrix.arch }} target/dist/*_${{ matrix.arch }}.apk"
+    - name: upload release artifacts
+      run: "./hack/ci/upload-release-assets.sh ${{ github.event.release.tag_name }}"
+      env:
+        GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+  kratactl:
     strategy:
       fail-fast: false
       matrix:
@@ -72,18 +71,18 @@ jobs:
       TARGET_OS: "${{ matrix.platform.os }}"
       TARGET_ARCH: "${{ matrix.platform.arch }}"
     runs-on: "${{ matrix.platform.on }}"
-    name: nightly kratactl build ${{ matrix.platform.os }}-${{ matrix.platform.arch }}
+    name: release-assets kratactl ${{ matrix.platform.os }}-${{ matrix.platform.arch }}
     defaults:
       run:
         shell: bash
+    timeout-minutes: 60
+    permissions:
+      contents: write
     steps:
     - name: harden runner
       uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
       with:
         egress-policy: audit
-    - name: configure git line endings
-      run: git config --global core.autocrlf false && git config --global core.eol lf
-      if: ${{ matrix.platform.os == 'windows' }}
     - name: checkout repository
       uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
@@ -102,19 +101,17 @@ jobs:
       run: ./hack/ci/install-${{ matrix.platform.deps }}-deps.sh
     - name: cargo build kratactl
       run: ./hack/build/cargo.sh build --release --bin kratactl
-    - name: upload kratactl
-      uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
-      with:
-        name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
-        path: "target/*/release/kratactl"
+    - name: assemble kratactl executable
+      run: "./hack/ci/assemble-release-assets.sh kratactl ${{ github.event.release.tag_name }} ${{ matrix.platform.os }}-${{ matrix.platform.arch }} target/*/release/kratactl"
       if: ${{ matrix.platform.os != 'windows' }}
-    - name: upload kratactl
-      uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
-      with:
-        name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
-        path: "target/*/release/kratactl.exe"
+    - name: assemble kratactl executable
+      run: "./hack/ci/assemble-release-assets.sh kratactl ${{ github.event.release.tag_name }} ${{ matrix.platform.os }}-${{ matrix.platform.arch }} target/*/release/kratactl.exe"
       if: ${{ matrix.platform.os == 'windows' }}
-  oci-build:
+    - name: upload release artifacts
+      run: "./hack/ci/upload-release-assets.sh ${{ github.event.release.tag_name }}"
+      env:
+        GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+  oci:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -124,8 +121,9 @@ jobs:
         - kratad
         - kratanet
         - krata-guest-init
-    name: nightly oci build ${{ matrix.component }}
+    name: release-assets oci ${{ matrix.component }}
     permissions:
+      contents: write
       packages: write
     steps:
     - name: harden runner
@@ -146,17 +144,21 @@ jobs:
         registry: ghcr.io
         username: "${{ github.actor }}"
         password: "${{ secrets.GITHUB_TOKEN }}"
+    - name: capture krata version
+      id: version
+      run: |
+        echo "KRATA_VERSION=$(./hack/dist/version.sh)" >> "${GITHUB_OUTPUT}"
     - name: docker build and push ${{ matrix.component }}
       uses: docker/build-push-action@a254f8ca60a858f3136a2f1f23a60969f2c402dd # v6.4.0
       id: push
       with:
         file: ./images/Dockerfile.${{ matrix.component }}
         platforms: linux/amd64,linux/aarch64
-        tags: "ghcr.io/edera-dev/${{ matrix.component }}:nightly"
+        tags: "ghcr.io/edera-dev/${{ matrix.component }}:${{ steps.version.outputs.KRATA_VERSION }}"
         push: true
     - name: cosign sign ${{ matrix.component }}
       run: cosign sign --yes "${TAGS}@${DIGEST}"
       env:
         DIGEST: "${{ steps.push.outputs.digest }}"
-        TAGS: "ghcr.io/edera-dev/${{ matrix.component }}:nightly"
+        TAGS: "ghcr.io/edera-dev/${{ matrix.component }}:${{ steps.version.outputs.KRATA_VERSION }}"
         COSIGN_EXPERIMENTAL: "true"
