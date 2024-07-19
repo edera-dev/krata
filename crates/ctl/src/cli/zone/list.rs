@@ -17,7 +17,7 @@ use tonic::{transport::Channel, Request};
 use crate::format::{kv2line, proto2dynamic, proto2kv, zone_simple_line, zone_status_text};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
-enum ListFormat {
+enum ZoneListFormat {
     Table,
     Json,
     JsonPretty,
@@ -29,14 +29,14 @@ enum ListFormat {
 
 #[derive(Parser)]
 #[command(about = "List the zones on the isolation engine")]
-pub struct ListCommand {
+pub struct ZoneListCommand {
     #[arg(short, long, default_value = "table", help = "Output format")]
-    format: ListFormat,
+    format: ZoneListFormat,
     #[arg(help = "Limit to a single zone, either the name or the uuid")]
     zone: Option<String>,
 }
 
-impl ListCommand {
+impl ZoneListCommand {
     pub async fn run(
         self,
         mut client: ControlServiceClient<Channel>,
@@ -69,26 +69,26 @@ impl ListCommand {
         });
 
         match self.format {
-            ListFormat::Table => {
+            ZoneListFormat::Table => {
                 self.print_zone_table(zones)?;
             }
 
-            ListFormat::Simple => {
+            ZoneListFormat::Simple => {
                 for zone in zones {
                     println!("{}", zone_simple_line(&zone));
                 }
             }
 
-            ListFormat::Json | ListFormat::JsonPretty | ListFormat::Yaml => {
+            ZoneListFormat::Json | ZoneListFormat::JsonPretty | ZoneListFormat::Yaml => {
                 let mut values = Vec::new();
                 for zone in zones {
                     let message = proto2dynamic(zone)?;
                     values.push(serde_json::to_value(message)?);
                 }
                 let value = Value::Array(values);
-                let encoded = if self.format == ListFormat::JsonPretty {
+                let encoded = if self.format == ZoneListFormat::JsonPretty {
                     serde_json::to_string_pretty(&value)?
-                } else if self.format == ListFormat::Yaml {
+                } else if self.format == ZoneListFormat::Yaml {
                     serde_yaml::to_string(&value)?
                 } else {
                     serde_json::to_string(&value)?
@@ -96,14 +96,14 @@ impl ListCommand {
                 println!("{}", encoded.trim());
             }
 
-            ListFormat::Jsonl => {
+            ZoneListFormat::Jsonl => {
                 for zone in zones {
                     let message = proto2dynamic(zone)?;
                     println!("{}", serde_json::to_string(&message)?);
                 }
             }
 
-            ListFormat::KeyValue => {
+            ZoneListFormat::KeyValue => {
                 self.print_key_value(zones)?;
             }
         }

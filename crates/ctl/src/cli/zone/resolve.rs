@@ -6,12 +6,12 @@ use tonic::{transport::Channel, Request};
 
 #[derive(Parser)]
 #[command(about = "Resolve a zone name to a uuid")]
-pub struct ResolveCommand {
+pub struct ZoneResolveCommand {
     #[arg(help = "Zone name")]
     zone: String,
 }
 
-impl ResolveCommand {
+impl ZoneResolveCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let reply = client
             .resolve_zone(Request::new(ResolveZoneRequest {

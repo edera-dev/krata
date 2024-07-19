@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::format::{kv2line, proto2dynamic, proto2kv, zone_simple_line};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
-enum WatchFormat {
+enum ZoneWatchFormat {
     Simple,
     Json,
     KeyValue,
@@ -18,12 +18,12 @@ enum WatchFormat {
 
 #[derive(Parser)]
 #[command(about = "Watch for zone changes")]
-pub struct WatchCommand {
+pub struct ZoneWatchCommand {
     #[arg(short, long, default_value = "simple", help = "Output format")]
-    format: WatchFormat,
+    format: ZoneWatchFormat,
 }
 
-impl WatchCommand {
+impl ZoneWatchCommand {
     pub async fn run(self, events: EventStream) -> Result<()> {
         let mut stream = events.subscribe();
         loop {
@@ -37,13 +37,13 @@ impl WatchCommand {
 
     fn print_event(&self, typ: &str, event: impl ReflectMessage, zone: Option<Zone>) -> Result<()> {
         match self.format {
-            WatchFormat::Simple => {
+            ZoneWatchFormat::Simple => {
                 if let Some(zone) = zone {
                     println!("{}", zone_simple_line(&zone));
                 }
             }
 
-            WatchFormat::Json => {
+            ZoneWatchFormat::Json => {
                 let message = proto2dynamic(event)?;
                 let mut value = serde_json::to_value(&message)?;
                 if let Value::Object(ref mut map) = value {
@@ -52,7 +52,7 @@ impl WatchCommand {
                 println!("{}", serde_json::to_string(&value)?);
             }
 
-            WatchFormat::KeyValue => {
+            ZoneWatchFormat::KeyValue => {
                 let mut map = proto2kv(event)?;
                 map.insert("event.type".to_string(), typ.to_string());
                 println!("{}", kv2line(map),);

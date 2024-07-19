@@ -32,11 +32,11 @@ use crate::{
 
 #[derive(Parser)]
 #[command(about = "Dashboard for running zones")]
-pub struct TopCommand {}
+pub struct ZoneTopCommand {}
 
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
-impl TopCommand {
+impl ZoneTopCommand {
     pub async fn run(
         self,
         client: ControlServiceClient<Channel>,
@@ -44,14 +44,14 @@ impl TopCommand {
     ) -> Result<()> {
         let collector = MultiMetricCollector::new(client, events, Duration::from_millis(200))?;
         let collector = collector.launch().await?;
-        let mut tui = TopCommand::init()?;
-        let mut app = TopApp {
+        let mut tui = ZoneTopCommand::init()?;
+        let mut app = ZoneTopApp {
             metrics: MultiMetricState { zones: vec![] },
             exit: false,
             table: TableState::new(),
         };
         app.run(collector, &mut tui).await?;
-        TopCommand::restore()?;
+        ZoneTopCommand::restore()?;
         Ok(())
     }
 
@@ -68,13 +68,13 @@ impl TopCommand {
     }
 }
 
-pub struct TopApp {
+pub struct ZoneTopApp {
     table: TableState,
     metrics: MultiMetricState,
     exit: bool,
 }
 
-impl TopApp {
+impl ZoneTopApp {
     pub async fn run(
         &mut self,
         mut collector: MultiMetricCollectorHandle,
@@ -136,7 +136,7 @@ impl TopApp {
     }
 }
 
-impl Widget for &mut TopApp {
+impl Widget for &mut ZoneTopApp {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Title::from(" krata isolation engine ".bold());
         let instructions = Title::from(vec![" Quit ".into(), "<Q> ".blue().bold()]);

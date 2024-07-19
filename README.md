@@ -2,6 +2,10 @@
 
 An isolation engine for securing compute workloads.
 
+```bash
+$ kratactl zone launch -a alpine:latest
+```
+
 ![license](https://img.shields.io/github/license/edera-dev/krata)
 ![discord](https://img.shields.io/discord/1207447453083766814?label=discord)
 [![check](https://github.com/edera-dev/krata/actions/workflows/check.yml/badge.svg)](https://github.com/edera-dev/krata/actions/workflows/check.yml)
@@ -22,7 +26,7 @@ krata utilizes the core of the Xen hypervisor with a fully memory-safe Rust cont
 
 ## Hardware Support
 
-| Architecture | Completion Level | Hardware Virtualization         |
-| ------------ | ---------------- | ------------------------------- |
-| x86_64       | 100% Completed   | None, Intel VT-x, AMD-V         |
-| aarch64      | 10% Completed    | AArch64 virtualization          |
+| Architecture | Completion Level | Hardware Virtualization |
+|--------------|------------------|-------------------------|
+| x86_64       | 100% Completed   | None, Intel VT-x, AMD-V |
+| aarch64      | 10% Completed    | AArch64 virtualization  |

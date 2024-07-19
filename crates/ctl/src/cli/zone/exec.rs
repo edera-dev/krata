@@ -12,11 +12,11 @@ use tonic::{transport::Channel, Request};
 
 use crate::console::StdioConsoleStream;
 
-use super::resolve_zone;
+use crate::cli::resolve_zone;
 
 #[derive(Parser)]
 #[command(about = "Execute a command inside the zone")]
-pub struct ExecCommand {
+pub struct ZoneExecCommand {
     #[arg[short, long, help = "Environment variables"]]
     env: Option<Vec<String>>,
     #[arg(short = 'w', long, help = "Working directory")]
@@ -31,7 +31,7 @@ pub struct ExecCommand {
     command: Vec<String>,
 }
 
-impl ExecCommand {
+impl ZoneExecCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let zone_id: String = resolve_zone(&mut client, &self.zone).await?;
         let initial = ExecZoneRequest {

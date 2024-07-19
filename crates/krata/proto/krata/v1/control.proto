@@ -205,9 +205,9 @@ message ListDevicesReply {
 }
 
 enum HostCpuTopologyClass {
-    CPU_CLASS_STANDARD = 0;
-    CPU_CLASS_PERFORMANCE = 1;
-    CPU_CLASS_EFFICIENCY = 2;
+    HOST_CPU_TOPOLOGY_CLASS_STANDARD = 0;
+    HOST_CPU_TOPOLOGY_CLASS_PERFORMANCE = 1;
+    HOST_CPU_TOPOLOGY_CLASS_EFFICIENCY = 2;
 }
 
 message HostCpuTopologyInfo {

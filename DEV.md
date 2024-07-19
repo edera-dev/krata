@@ -4,25 +4,25 @@
 
 krata is composed of four major executables:
 
-| Executable | Runs On | User Interaction | Dev Runner               | Code Path         |
-| ---------- | ------- | ---------------- | ------------------------ | ----------------- |
-| kratad     | host    | backend daemon   | ./hack/debug/kratad.sh   | crates/daemon     |
-| kratanet   | host    | backend daemon   | ./hack/debug/kratanet.sh | crates/network    |
-| kratactl   | host    | CLI tool         | ./hack/debug/kratactl.sh | crates/ctl        |
-| kratazone  | zone    | none, zone init  | N/A                      | crates/zone       |
+| Executable | Runs On | User Interaction | Dev Runner               | Code Path      |
+|------------|---------|------------------|--------------------------|----------------|
+| kratad     | host    | backend daemon   | ./hack/debug/kratad.sh   | crates/daemon  |
+| kratanet   | host    | backend daemon   | ./hack/debug/kratanet.sh | crates/network |
+| kratactl   | host    | CLI tool         | ./hack/debug/kratactl.sh | crates/ctl     |
+| kratazone  | zone    | none, zone init  | N/A                      | crates/zone    |
 
 You will find the code to each executable available in the bin/ and src/ directories inside
 it's corresponding code path from the above table.
 
 ## Environment
 
-| Component     | Specification | Notes                                                                             |
-| ------------- | ------------- | --------------------------------------------------------------------------------- |
-| Architecture  | x86_64        | aarch64 support is still in development                                           |
-| Memory        | At least 6GB  | dom0 will need to be configured with lower memory limit to give krata zones room  | 
-| Xen           | 4.17          | Temporary due to hardcoded interface version constants                            |
-| Debian        | stable / sid  | Debian is recommended due to the ease of Xen setup                                |
-| rustup        | any           | Install Rustup from https://rustup.rs                                             |
+| Component    | Specification | Notes                                                                            |
+|--------------|---------------|----------------------------------------------------------------------------------|
+| Architecture | x86_64        | aarch64 support is still in development                                          |
+| Memory       | At least 6GB  | dom0 will need to be configured with lower memory limit to give krata zones room | 
+| Xen          | 4.17+         |                                                                                  |
+| Debian       | stable / sid  | Debian is recommended due to the ease of Xen setup                               |
+| rustup       | any           | Install Rustup from https://rustup.rs                                            |
 
 ## Setup Guide
 
@@ -31,8 +31,7 @@ it's corresponding code path from the above table.
 2. Install required packages:
 
 ```sh
-$ apt install git xen-system-amd64 build-essential \
-      libclang-dev musl-tools flex bison libelf-dev libssl-dev bc \
+$ apt install git xen-system-amd64 build-essential musl-tools \
       protobuf-compiler libprotobuf-dev squashfs-tools erofs-utils
 ```
 
@@ -83,17 +82,17 @@ $ cp target/kernel/addons-x86_64.squashfs /var/lib/krata/zone/addons.squashfs
 10. Run `kratactl` to launch a zone:
 
 ```sh
-$ ./hack/debug/kratactl.sh launch --attach alpine:latest
+$ ./hack/debug/kratactl.sh zone launch --attach alpine:latest
 ```
 
 To detach from the zone console, use `Ctrl + ]` on your keyboard.
 
 To list the running zones, run:
 ```sh
-$ ./hack/debug/kratactl.sh list
+$ ./hack/debug/kratactl.sh zone list
 ```
 
 To destroy a running zone, copy it's UUID from either the launch command or the zone list and run:
 ```sh
-$ ./hack/debug/kratactl.sh destroy ZONE_UUID
+$ ./hack/debug/kratactl.sh zone destroy ZONE_UUID
 ```
