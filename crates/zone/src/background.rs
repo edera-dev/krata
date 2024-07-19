@@ -1,7 +1,7 @@
 use crate::{
     childwait::{ChildEvent, ChildWait},
     death,
-    exec::GuestExecTask,
+    exec::ZoneExecTask,
     metrics::MetricsCollector,
 };
 use anyhow::Result;
@@ -18,20 +18,16 @@ use log::debug;
 use nix::unistd::Pid;
 use tokio::{select, sync::broadcast};
 
-pub struct GuestBackground {
+pub struct ZoneBackground {
     idm: IdmInternalClient,
     child: Pid,
     _cgroup: Cgroup,
     wait: ChildWait,
 }
 
-impl GuestBackground {
-    pub async fn new(
-        idm: IdmInternalClient,
-        cgroup: Cgroup,
-        child: Pid,
-    ) -> Result<GuestBackground> {
-        Ok(GuestBackground {
+impl ZoneBackground {
+    pub async fn new(idm: IdmInternalClient, cgroup: Cgroup, child: Pid) -> Result<ZoneBackground> {
+        Ok(ZoneBackground {
             idm,
             child,
             _cgroup: cgroup,
@@ -134,7 +130,7 @@ impl GuestBackground {
     ) -> Result<()> {
         if let Some(RequestType::ExecStream(_)) = &handle.initial.request {
             tokio::task::spawn(async move {
-                let exec = GuestExecTask { handle };
+                let exec = ZoneExecTask { handle };
                 if let Err(error) = exec.run().await {
                     let _ = exec
                         .handle

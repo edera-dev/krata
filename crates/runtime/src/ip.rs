@@ -99,23 +99,23 @@ impl IpVendor {
                 continue;
             };
             let assigned_ipv4 = store
-                .read_string(format!("{}/krata/network/guest/ipv4", dom_path))
+                .read_string(format!("{}/krata/network/zone/ipv4", dom_path))
                 .await?
                 .and_then(|x| Ipv4Network::from_str(&x).ok());
             let assigned_ipv6 = store
-                .read_string(format!("{}/krata/network/guest/ipv6", dom_path))
+                .read_string(format!("{}/krata/network/zone/ipv6", dom_path))
                 .await?
                 .and_then(|x| Ipv6Network::from_str(&x).ok());
 
             if let Some(existing_ipv4) = assigned_ipv4 {
                 if let Some(previous) = state.ipv4.insert(existing_ipv4.ip(), uuid) {
-                    error!("ipv4 conflict detected: guest {} owned {} but {} also claimed to own it, giving it to {}", previous, existing_ipv4.ip(), uuid, uuid);
+                    error!("ipv4 conflict detected: zone {} owned {} but {} also claimed to own it, giving it to {}", previous, existing_ipv4.ip(), uuid, uuid);
                 }
             }
 
             if let Some(existing_ipv6) = assigned_ipv6 {
                 if let Some(previous) = state.ipv6.insert(existing_ipv6.ip(), uuid) {
-                    error!("ipv6 conflict detected: guest {} owned {} but {} also claimed to own it, giving it to {}", previous, existing_ipv6.ip(), uuid, uuid);
+                    error!("ipv6 conflict detected: zone {} owned {} but {} also claimed to own it, giving it to {}", previous, existing_ipv6.ip(), uuid, uuid);
                 }
             }
         }
@@ -251,13 +251,13 @@ impl IpVendor {
         intermediate.ipv6.insert(self.gateway_ipv6, self.host_uuid);
         for (ipv4, uuid) in &state.pending_ipv4 {
             if let Some(previous) = intermediate.ipv4.insert(*ipv4, *uuid) {
-                error!("ipv4 conflict detected: guest {} owned (pending) {} but {} also claimed to own it, giving it to {}", previous, ipv4, uuid, uuid);
+                error!("ipv4 conflict detected: zone {} owned (pending) {} but {} also claimed to own it, giving it to {}", previous, ipv4, uuid, uuid);
             }
             intermediate.pending_ipv4.insert(*ipv4, *uuid);
         }
         for (ipv6, uuid) in &state.pending_ipv6 {
             if let Some(previous) = intermediate.ipv6.insert(*ipv6, *uuid) {
-                error!("ipv6 conflict detected: guest {} owned (pending) {} but {} also claimed to own it, giving it to {}", previous, ipv6, uuid, uuid);
+                error!("ipv6 conflict detected: zone {} owned (pending) {} but {} also claimed to own it, giving it to {}", previous, ipv6, uuid, uuid);
             }
             intermediate.pending_ipv6.insert(*ipv6, *uuid);
         }
@@ -271,16 +271,16 @@ impl IpVendor {
         domid: u32,
     ) -> Result<Option<IpAssignment>> {
         let dom_path = format!("/local/domain/{}", domid);
-        let Some(guest_ipv4) = self
+        let Some(zone_ipv4) = self
             .store
-            .read_string(format!("{}/krata/network/guest/ipv4", dom_path))
+            .read_string(format!("{}/krata/network/zone/ipv4", dom_path))
             .await?
         else {
             return Ok(None);
         };
-        let Some(guest_ipv6) = self
+        let Some(zone_ipv6) = self
             .store
-            .read_string(format!("{}/krata/network/guest/ipv6", dom_path))
+            .read_string(format!("{}/krata/network/zone/ipv6", dom_path))
             .await?
         else {
             return Ok(None);
@@ -300,10 +300,10 @@ impl IpVendor {
             return Ok(None);
         };
 
-        let Some(guest_ipv4) = Ipv4Network::from_str(&guest_ipv4).ok() else {
+        let Some(zone_ipv4) = Ipv4Network::from_str(&zone_ipv4).ok() else {
             return Ok(None);
         };
-        let Some(guest_ipv6) = Ipv6Network::from_str(&guest_ipv6).ok() else {
+        let Some(zone_ipv6) = Ipv6Network::from_str(&zone_ipv6).ok() else {
             return Ok(None);
         };
         let Some(gateway_ipv4) = Ipv4Network::from_str(&gateway_ipv4).ok() else {
@@ -315,10 +315,10 @@ impl IpVendor {
         Ok(Some(IpAssignment {
             vendor: self.clone(),
             uuid,
-            ipv4: guest_ipv4.ip(),
-            ipv4_prefix: guest_ipv4.prefix(),
-            ipv6: guest_ipv6.ip(),
-            ipv6_prefix: guest_ipv6.prefix(),
+            ipv4: zone_ipv4.ip(),
+            ipv4_prefix: zone_ipv4.prefix(),
+            ipv6: zone_ipv6.ip(),
+            ipv6_prefix: zone_ipv6.prefix(),
             gateway_ipv4: gateway_ipv4.ip(),
             gateway_ipv6: gateway_ipv6.ip(),
             committed: true,

@@ -1394,31 +1394,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "krata-guest"
-version = "0.0.12"
-dependencies = [
- "anyhow",
- "cgroups-rs",
- "env_logger",
- "futures",
- "ipnetwork",
- "krata",
- "krata-xenstore",
- "libc",
- "log",
- "nix 0.29.0",
- "oci-spec",
- "path-absolutize",
- "platform-info",
- "rtnetlink",
- "serde",
- "serde_json",
- "sys-mount",
- "sysinfo",
- "tokio",
-]
-
-[[package]]
 name = "krata-loopdev"
 version = "0.0.12"
 dependencies = [
@@ -1600,6 +1575,31 @@ dependencies = [
  "libc",
  "log",
  "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "krata-zone"
+version = "0.0.12"
+dependencies = [
+ "anyhow",
+ "cgroups-rs",
+ "env_logger",
+ "futures",
+ "ipnetwork",
+ "krata",
+ "krata-xenstore",
+ "libc",
+ "log",
+ "nix 0.29.0",
+ "oci-spec",
+ "path-absolutize",
+ "platform-info",
+ "rtnetlink",
+ "serde",
+ "serde_json",
+ "sys-mount",
+ "sysinfo",
  "tokio",
 ]
 

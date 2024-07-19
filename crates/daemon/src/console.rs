@@ -13,7 +13,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-use crate::glt::GuestLookupTable;
+use crate::zlt::ZoneLookupTable;
 
 const CONSOLE_BUFFER_SIZE: usize = 1024 * 1024;
 type RawConsoleBuffer = CircularBuffer<CONSOLE_BUFFER_SIZE, u8>;
@@ -24,7 +24,7 @@ type BufferMap = Arc<Mutex<HashMap<u32, ConsoleBuffer>>>;
 
 #[derive(Clone)]
 pub struct DaemonConsoleHandle {
-    glt: GuestLookupTable,
+    glt: ZoneLookupTable,
     listeners: ListenerMap,
     buffers: BufferMap,
     sender: Sender<(u32, Vec<u8>)>,
@@ -84,7 +84,7 @@ impl Drop for DaemonConsoleHandle {
 }
 
 pub struct DaemonConsole {
-    glt: GuestLookupTable,
+    glt: ZoneLookupTable,
     listeners: ListenerMap,
     buffers: BufferMap,
     receiver: Receiver<(u32, Option<Vec<u8>>)>,
@@ -93,7 +93,7 @@ pub struct DaemonConsole {
 }
 
 impl DaemonConsole {
-    pub async fn new(glt: GuestLookupTable) -> Result<DaemonConsole> {
+    pub async fn new(glt: ZoneLookupTable) -> Result<DaemonConsole> {
         let (service, sender, receiver) =
             ChannelService::new("krata-console".to_string(), Some(0)).await?;
         let task = service.launch().await?;

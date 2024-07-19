@@ -3,10 +3,10 @@ use clap::Parser;
 use krata::{
     events::EventStream,
     v1::{
-        common::GuestStatus,
+        common::ZoneStatus,
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
-            DestroyGuestRequest,
+            DestroyZoneRequest,
         },
     },
 };
@@ -14,19 +14,19 @@ use krata::{
 use log::error;
 use tonic::{transport::Channel, Request};
 
-use crate::cli::resolve_guest;
+use crate::cli::resolve_zone;
 
 #[derive(Parser)]
-#[command(about = "Destroy a guest")]
+#[command(about = "Destroy a zone")]
 pub struct DestroyCommand {
     #[arg(
         short = 'W',
         long,
-        help = "Wait for the destruction of the guest to complete"
+        help = "Wait for the destruction of the zone to complete"
     )]
     wait: bool,
-    #[arg(help = "Guest to destroy, either the name or the uuid")]
-    guest: String,
+    #[arg(help = "Zone to destroy, either the name or the uuid")]
+    zone: String,
 }
 
 impl DestroyCommand {
@@ -35,46 +35,46 @@ impl DestroyCommand {
         mut client: ControlServiceClient<Channel>,
         events: EventStream,
     ) -> Result<()> {
-        let guest_id: String = resolve_guest(&mut client, &self.guest).await?;
+        let zone_id: String = resolve_zone(&mut client, &self.zone).await?;
         let _ = client
-            .destroy_guest(Request::new(DestroyGuestRequest {
-                guest_id: guest_id.clone(),
+            .destroy_zone(Request::new(DestroyZoneRequest {
+                zone_id: zone_id.clone(),
             }))
             .await?
             .into_inner();
         if self.wait {
-            wait_guest_destroyed(&guest_id, events).await?;
+            wait_zone_destroyed(&zone_id, events).await?;
         }
         Ok(())
     }
 }
 
-async fn wait_guest_destroyed(id: &str, events: EventStream) -> Result<()> {
+async fn wait_zone_destroyed(id: &str, events: EventStream) -> Result<()> {
     let mut stream = events.subscribe();
     while let Ok(event) = stream.recv().await {
-        let Event::GuestChanged(changed) = event;
-        let Some(guest) = changed.guest else {
+        let Event::ZoneChanged(changed) = event;
+        let Some(zone) = changed.zone else {
             continue;
         };
 
-        if guest.id != id {
+        if zone.id != id {
             continue;
         }
 
-        let Some(state) = guest.state else {
+        let Some(state) = zone.state else {
             continue;
         };
 
         if let Some(ref error) = state.error_info {
-            if state.status() == GuestStatus::Failed {
+            if state.status() == ZoneStatus::Failed {
                 error!("destroy failed: {}", error.message);
                 std::process::exit(1);
             } else {
-                error!("guest error: {}", error.message);
+                error!("zone error: {}", error.message);
             }
         }
 
-        if state.status() == GuestStatus::Destroyed {
+        if state.status() == ZoneStatus::Destroyed {
             std::process::exit(0);
         }
     }

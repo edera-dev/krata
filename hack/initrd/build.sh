@@ -12,9 +12,9 @@ export TARGET_LIBC="musl"
 RUST_TARGET="$(./hack/build/target.sh)"
 export RUSTFLAGS="-Ctarget-feature=+crt-static"
 
-./hack/build/cargo.sh build "${@}" --release --bin krataguest
+./hack/build/cargo.sh build "${@}" --release --bin krata-zone
 INITRD_DIR="$(mktemp -d /tmp/krata-initrd.XXXXXXXXXXXXX)"
-cp "target/${RUST_TARGET}/release/krataguest" "${INITRD_DIR}/init"
+cp "target/${RUST_TARGET}/release/krata-zone" "${INITRD_DIR}/init"
 chmod +x "${INITRD_DIR}/init"
 cd "${INITRD_DIR}"
 mkdir -p "${KRATA_DIR}/target/initrd"

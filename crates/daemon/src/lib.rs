@@ -4,16 +4,15 @@ use anyhow::{anyhow, Result};
 use config::DaemonConfig;
 use console::{DaemonConsole, DaemonConsoleHandle};
 use control::DaemonControlService;
-use db::GuestStore;
+use db::ZoneStore;
 use devices::DaemonDeviceManager;
 use event::{DaemonEventContext, DaemonEventGenerator};
-use glt::GuestLookupTable;
 use idm::{DaemonIdm, DaemonIdmHandle};
 use krata::{dial::ControlDialAddress, v1::control::control_service_server::ControlServiceServer};
 use krataoci::{packer::service::OciPackerService, registry::OciPlatform};
 use kratart::Runtime;
 use log::info;
-use reconcile::guest::GuestReconciler;
+use reconcile::zone::ZoneReconciler;
 use tokio::{
     fs,
     net::UnixListener,
@@ -23,6 +22,7 @@ use tokio::{
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 use uuid::Uuid;
+use zlt::ZoneLookupTable;
 
 pub mod command;
 pub mod config;
@@ -31,21 +31,21 @@ pub mod control;
 pub mod db;
 pub mod devices;
 pub mod event;
-pub mod glt;
 pub mod idm;
 pub mod metrics;
 pub mod oci;
 pub mod reconcile;
+pub mod zlt;
 
 pub struct Daemon {
     store: String,
     _config: Arc<DaemonConfig>,
-    glt: GuestLookupTable,
+    glt: ZoneLookupTable,
     devices: DaemonDeviceManager,
-    guests: GuestStore,
+    zones: ZoneStore,
     events: DaemonEventContext,
-    guest_reconciler_task: JoinHandle<()>,
-    guest_reconciler_notify: Sender<Uuid>,
+    zone_reconciler_task: JoinHandle<()>,
+    zone_reconciler_notify: Sender<Uuid>,
     generator_task: JoinHandle<()>,
     idm: DaemonIdmHandle,
     console: DaemonConsoleHandle,
@@ -53,7 +53,7 @@ pub struct Daemon {
     runtime: Runtime,
 }
 
-const GUEST_RECONCILER_QUEUE_LEN: usize = 1000;
+const ZONE_RECONCILER_QUEUE_LEN: usize = 1000;
 
 impl Daemon {
     pub async fn new(store: String) -> Result<Self> {
@@ -89,40 +89,40 @@ impl Daemon {
             generated
         };
 
-        let initrd_path = detect_guest_path(&store, "initrd")?;
-        let kernel_path = detect_guest_path(&store, "kernel")?;
-        let addons_path = detect_guest_path(&store, "addons.squashfs")?;
+        let initrd_path = detect_zone_path(&store, "initrd")?;
+        let kernel_path = detect_zone_path(&store, "kernel")?;
+        let addons_path = detect_zone_path(&store, "addons.squashfs")?;
 
         let seed = config.oci.seed.clone().map(PathBuf::from);
         let packer = OciPackerService::new(seed, &image_cache_dir, OciPlatform::current()).await?;
         let runtime = Runtime::new(host_uuid).await?;
-        let glt = GuestLookupTable::new(0, host_uuid);
-        let guests_db_path = format!("{}/guests.db", store);
-        let guests = GuestStore::open(&PathBuf::from(guests_db_path))?;
-        let (guest_reconciler_notify, guest_reconciler_receiver) =
-            channel::<Uuid>(GUEST_RECONCILER_QUEUE_LEN);
+        let glt = ZoneLookupTable::new(0, host_uuid);
+        let zones_db_path = format!("{}/zones.db", store);
+        let zones = ZoneStore::open(&PathBuf::from(zones_db_path))?;
+        let (zone_reconciler_notify, zone_reconciler_receiver) =
+            channel::<Uuid>(ZONE_RECONCILER_QUEUE_LEN);
         let idm = DaemonIdm::new(glt.clone()).await?;
         let idm = idm.launch().await?;
         let console = DaemonConsole::new(glt.clone()).await?;
         let console = console.launch().await?;
         let (events, generator) =
-            DaemonEventGenerator::new(guests.clone(), guest_reconciler_notify.clone(), idm.clone())
+            DaemonEventGenerator::new(zones.clone(), zone_reconciler_notify.clone(), idm.clone())
                 .await?;
         let runtime_for_reconciler = runtime.dupe().await?;
-        let guest_reconciler = GuestReconciler::new(
+        let zone_reconciler = ZoneReconciler::new(
             devices.clone(),
             glt.clone(),
-            guests.clone(),
+            zones.clone(),
             events.clone(),
             runtime_for_reconciler,
             packer.clone(),
-            guest_reconciler_notify.clone(),
+            zone_reconciler_notify.clone(),
             kernel_path,
             initrd_path,
             addons_path,
         )?;
 
-        let guest_reconciler_task = guest_reconciler.launch(guest_reconciler_receiver).await?;
+        let zone_reconciler_task = zone_reconciler.launch(zone_reconciler_receiver).await?;
         let generator_task = generator.launch().await?;
 
         // TODO: Create a way of abstracting early init tasks in kratad.
@@ -139,10 +139,10 @@ impl Daemon {
             _config: config,
             glt,
             devices,
-            guests,
+            zones,
             events,
-            guest_reconciler_task,
-            guest_reconciler_notify,
+            zone_reconciler_task,
+            zone_reconciler_notify,
             generator_task,
             idm,
             console,
@@ -158,8 +158,8 @@ impl Daemon {
             self.events.clone(),
             self.console.clone(),
             self.idm.clone(),
-            self.guests.clone(),
-            self.guest_reconciler_notify.clone(),
+            self.zones.clone(),
+            self.zone_reconciler_notify.clone(),
             self.packer.clone(),
             self.runtime.clone(),
         );
@@ -214,20 +214,20 @@ impl Daemon {
 
 impl Drop for Daemon {
     fn drop(&mut self) {
-        self.guest_reconciler_task.abort();
+        self.zone_reconciler_task.abort();
         self.generator_task.abort();
     }
 }
 
-fn detect_guest_path(store: &str, name: &str) -> Result<PathBuf> {
-    let mut path = PathBuf::from(format!("{}/guest/{}", store, name));
+fn detect_zone_path(store: &str, name: &str) -> Result<PathBuf> {
+    let mut path = PathBuf::from(format!("{}/zone/{}", store, name));
     if path.is_file() {
         return Ok(path);
     }
 
-    path = PathBuf::from(format!("/usr/share/krata/guest/{}", name));
+    path = PathBuf::from(format!("/usr/share/krata/zone/{}", name));
     if path.is_file() {
         return Ok(path);
     }
-    Err(anyhow!("unable to find required guest file: {}", name))
+    Err(anyhow!("unable to find required zone file: {}", name))
 }

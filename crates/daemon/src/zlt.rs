@@ -3,18 +3,18 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-struct GuestLookupTableState {
+struct ZoneLookupTableState {
     domid_to_uuid: HashMap<u32, Uuid>,
     uuid_to_domid: HashMap<Uuid, u32>,
 }
 
-impl GuestLookupTableState {
+impl ZoneLookupTableState {
     pub fn new(host_uuid: Uuid) -> Self {
         let mut domid_to_uuid = HashMap::new();
         let mut uuid_to_domid = HashMap::new();
         domid_to_uuid.insert(0, host_uuid);
         uuid_to_domid.insert(host_uuid, 0);
-        GuestLookupTableState {
+        ZoneLookupTableState {
             domid_to_uuid,
             uuid_to_domid,
         }
@@ -22,18 +22,18 @@ impl GuestLookupTableState {
 }
 
 #[derive(Clone)]
-pub struct GuestLookupTable {
+pub struct ZoneLookupTable {
     host_domid: u32,
     host_uuid: Uuid,
-    state: Arc<RwLock<GuestLookupTableState>>,
+    state: Arc<RwLock<ZoneLookupTableState>>,
 }
 
-impl GuestLookupTable {
+impl ZoneLookupTable {
     pub fn new(host_domid: u32, host_uuid: Uuid) -> Self {
-        GuestLookupTable {
+        ZoneLookupTable {
             host_domid,
             host_uuid,
-            state: Arc::new(RwLock::new(GuestLookupTableState::new(host_uuid))),
+            state: Arc::new(RwLock::new(ZoneLookupTableState::new(host_uuid))),
         }
     }
 

@@ -1,6 +1,6 @@
 [package]
-name = "krata-guest"
-description = "Guest services for the krata isolation engine"
+name = "krata-zone"
+description = "zone services for the krata isolation engine"
 license.workspace = true
 version.workspace = true
 homepage.workspace = true
@@ -30,8 +30,8 @@ sysinfo = { workspace = true }
 tokio = { workspace = true }
 
 [lib]
-name = "krataguest"
+name = "kratazone"
 
 [[bin]]
-name = "krataguest"
+name = "krata-zone"
 path = "bin/init.rs"

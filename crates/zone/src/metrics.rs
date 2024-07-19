@@ -14,7 +14,7 @@ impl MetricsCollector {
     pub fn collect(&self) -> Result<MetricNode> {
         let mut sysinfo = sysinfo::System::new();
         Ok(MetricNode::structural(
-            "guest",
+            "zone",
             vec![
                 self.collect_system(&mut sysinfo)?,
                 self.collect_processes(&mut sysinfo)?,

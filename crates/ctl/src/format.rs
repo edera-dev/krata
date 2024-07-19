@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::Result;
 use fancy_duration::FancyDuration;
 use human_bytes::human_bytes;
-use krata::v1::common::{Guest, GuestMetricFormat, GuestMetricNode, GuestStatus};
+use krata::v1::common::{Zone, ZoneMetricFormat, ZoneMetricNode, ZoneStatus};
 use prost_reflect::{DynamicMessage, ReflectMessage};
 use prost_types::Value;
 use termtree::Tree;
@@ -75,32 +75,31 @@ pub fn kv2line(map: HashMap<String, String>) -> String {
         .join(" ")
 }
 
-pub fn guest_status_text(status: GuestStatus) -> String {
+pub fn zone_status_text(status: ZoneStatus) -> String {
     match status {
-        GuestStatus::Starting => "starting",
-        GuestStatus::Started => "started",
-        GuestStatus::Destroying => "destroying",
-        GuestStatus::Destroyed => "destroyed",
-        GuestStatus::Exited => "exited",
-        GuestStatus::Failed => "failed",
+        ZoneStatus::Starting => "starting",
+        ZoneStatus::Started => "started",
+        ZoneStatus::Destroying => "destroying",
+        ZoneStatus::Destroyed => "destroyed",
+        ZoneStatus::Exited => "exited",
+        ZoneStatus::Failed => "failed",
         _ => "unknown",
     }
     .to_string()
 }
 
-pub fn guest_simple_line(guest: &Guest) -> String {
-    let state = guest_status_text(
-        guest
-            .state
+pub fn zone_simple_line(zone: &Zone) -> String {
+    let state = zone_status_text(
+        zone.state
             .as_ref()
             .map(|x| x.status())
-            .unwrap_or(GuestStatus::Unknown),
+            .unwrap_or(ZoneStatus::Unknown),
     );
-    let name = guest.spec.as_ref().map(|x| x.name.as_str()).unwrap_or("");
-    let network = guest.state.as_ref().and_then(|x| x.network.as_ref());
-    let ipv4 = network.map(|x| x.guest_ipv4.as_str()).unwrap_or("");
-    let ipv6 = network.map(|x| x.guest_ipv6.as_str()).unwrap_or("");
-    format!("{}\t{}\t{}\t{}\t{}", guest.id, state, name, ipv4, ipv6)
+    let name = zone.spec.as_ref().map(|x| x.name.as_str()).unwrap_or("");
+    let network = zone.state.as_ref().and_then(|x| x.network.as_ref());
+    let ipv4 = network.map(|x| x.zone_ipv4.as_str()).unwrap_or("");
+    let ipv6 = network.map(|x| x.zone_ipv6.as_str()).unwrap_or("");
+    format!("{}\t{}\t{}\t{}\t{}", zone.id, state, name, ipv4, ipv6)
 }
 
 fn metrics_value_string(value: Value) -> String {
@@ -116,18 +115,18 @@ fn metrics_value_numeric(value: Value) -> f64 {
     string.parse::<f64>().ok().unwrap_or(f64::NAN)
 }
 
-pub fn metrics_value_pretty(value: Value, format: GuestMetricFormat) -> String {
+pub fn metrics_value_pretty(value: Value, format: ZoneMetricFormat) -> String {
     match format {
-        GuestMetricFormat::Bytes => human_bytes(metrics_value_numeric(value)),
-        GuestMetricFormat::Integer => (metrics_value_numeric(value) as u64).to_string(),
-        GuestMetricFormat::DurationSeconds => {
+        ZoneMetricFormat::Bytes => human_bytes(metrics_value_numeric(value)),
+        ZoneMetricFormat::Integer => (metrics_value_numeric(value) as u64).to_string(),
+        ZoneMetricFormat::DurationSeconds => {
             FancyDuration(Duration::from_secs_f64(metrics_value_numeric(value))).to_string()
         }
         _ => metrics_value_string(value),
     }
 }
 
-fn metrics_flat_internal(prefix: &str, node: GuestMetricNode, map: &mut HashMap<String, String>) {
+fn metrics_flat_internal(prefix: &str, node: ZoneMetricNode, map: &mut HashMap<String, String>) {
     if let Some(value) = node.value {
         map.insert(prefix.to_string(), metrics_value_string(value));
     }
@@ -142,13 +141,13 @@ fn metrics_flat_internal(prefix: &str, node: GuestMetricNode, map: &mut HashMap<
     }
 }
 
-pub fn metrics_flat(root: GuestMetricNode) -> HashMap<String, String> {
+pub fn metrics_flat(root: ZoneMetricNode) -> HashMap<String, String> {
     let mut map = HashMap::new();
     metrics_flat_internal("", root, &mut map);
     map
 }
 
-pub fn metrics_tree(node: GuestMetricNode) -> Tree<String> {
+pub fn metrics_tree(node: ZoneMetricNode) -> Tree<String> {
     let mut name = node.name.to_string();
     let format = node.format();
     if let Some(value) = node.value {

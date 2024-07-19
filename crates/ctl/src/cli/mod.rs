@@ -19,7 +19,7 @@ use clap::{Parser, Subcommand};
 use krata::{
     client::ControlClientProvider,
     events::EventStream,
-    v1::control::{control_service_client::ControlServiceClient, ResolveGuestRequest},
+    v1::control::{control_service_client::ControlServiceClient, ResolveZoneRequest},
 };
 use tonic::{transport::Channel, Request};
 
@@ -135,20 +135,20 @@ impl ControlCommand {
     }
 }
 
-pub async fn resolve_guest(
+pub async fn resolve_zone(
     client: &mut ControlServiceClient<Channel>,
     name: &str,
 ) -> Result<String> {
     let reply = client
-        .resolve_guest(Request::new(ResolveGuestRequest {
+        .resolve_zone(Request::new(ResolveZoneRequest {
             name: name.to_string(),
         }))
         .await?
         .into_inner();
 
-    if let Some(guest) = reply.guest {
-        Ok(guest.id)
+    if let Some(zone) = reply.zone {
+        Ok(zone.id)
     } else {
-        Err(anyhow!("unable to resolve guest '{}'", name))
+        Err(anyhow!("unable to resolve zone '{}'", name))
     }
 }

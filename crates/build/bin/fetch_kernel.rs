@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
     );
 
     let image = ImageName::parse(&args().nth(1).unwrap())?;
-    let mut cache_dir = std::env::temp_dir().clone();
+    let mut cache_dir = env::temp_dir().clone();
     cache_dir.push(format!("krata-cache-{}", Uuid::new_v4()));
     fs::create_dir_all(&cache_dir).await?;
 

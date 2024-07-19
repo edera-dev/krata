@@ -2,12 +2,12 @@ use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use krata::{
     events::EventStream,
-    v1::{common::Guest, control::watch_events_reply::Event},
+    v1::{common::Zone, control::watch_events_reply::Event},
 };
 use prost_reflect::ReflectMessage;
 use serde_json::Value;
 
-use crate::format::{guest_simple_line, kv2line, proto2dynamic, proto2kv};
+use crate::format::{kv2line, proto2dynamic, proto2kv, zone_simple_line};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum WatchFormat {
@@ -17,7 +17,7 @@ enum WatchFormat {
 }
 
 #[derive(Parser)]
-#[command(about = "Watch for guest changes")]
+#[command(about = "Watch for zone changes")]
 pub struct WatchCommand {
     #[arg(short, long, default_value = "simple", help = "Output format")]
     format: WatchFormat,
@@ -29,22 +29,17 @@ impl WatchCommand {
         loop {
             let event = stream.recv().await?;
 
-            let Event::GuestChanged(changed) = event;
-            let guest = changed.guest.clone();
-            self.print_event("guest.changed", changed, guest)?;
+            let Event::ZoneChanged(changed) = event;
+            let zone = changed.zone.clone();
+            self.print_event("zone.changed", changed, zone)?;
         }
     }
 
-    fn print_event(
-        &self,
-        typ: &str,
-        event: impl ReflectMessage,
-        guest: Option<Guest>,
-    ) -> Result<()> {
+    fn print_event(&self, typ: &str, event: impl ReflectMessage, zone: Option<Zone>) -> Result<()> {
         match self.format {
             WatchFormat::Simple => {
-                if let Some(guest) = guest {
-                    println!("{}", guest_simple_line(&guest));
+                if let Some(zone) = zone {
+                    println!("{}", zone_simple_line(&zone));
                 }
             }
 

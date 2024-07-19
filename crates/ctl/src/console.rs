@@ -7,10 +7,10 @@ use crossterm::{
 use krata::{
     events::EventStream,
     v1::{
-        common::GuestStatus,
+        common::ZoneStatus,
         control::{
-            watch_events_reply::Event, ConsoleDataReply, ConsoleDataRequest, ExecGuestReply,
-            ExecGuestRequest,
+            watch_events_reply::Event, ExecZoneReply, ExecZoneRequest, ZoneConsoleReply,
+            ZoneConsoleRequest,
         },
     },
 };
@@ -25,10 +25,10 @@ use tonic::Streaming;
 pub struct StdioConsoleStream;
 
 impl StdioConsoleStream {
-    pub async fn stdin_stream(guest: String) -> impl Stream<Item = ConsoleDataRequest> {
+    pub async fn stdin_stream(zone: String) -> impl Stream<Item = ZoneConsoleRequest> {
         let mut stdin = stdin();
         stream! {
-            yield ConsoleDataRequest { guest_id: guest, data: vec![] };
+            yield ZoneConsoleRequest { zone_id: zone, data: vec![] };
 
             let mut buffer = vec![0u8; 60];
             loop {
@@ -43,14 +43,14 @@ impl StdioConsoleStream {
                 if size == 1 && buffer[0] == 0x1d {
                     break;
                 }
-                yield ConsoleDataRequest { guest_id: String::default(), data };
+                yield ZoneConsoleRequest { zone_id: String::default(), data };
             }
         }
     }
 
     pub async fn stdin_stream_exec(
-        initial: ExecGuestRequest,
-    ) -> impl Stream<Item = ExecGuestRequest> {
+        initial: ExecZoneRequest,
+    ) -> impl Stream<Item = ExecZoneRequest> {
         let mut stdin = stdin();
         stream! {
             yield initial;
@@ -68,12 +68,12 @@ impl StdioConsoleStream {
                 if size == 1 && buffer[0] == 0x1d {
                     break;
                 }
-                yield ExecGuestRequest { guest_id: String::default(), task: None, data };
+                yield ExecZoneRequest { zone_id: String::default(), task: None, data };
             }
         }
     }
 
-    pub async fn stdout(mut stream: Streaming<ConsoleDataReply>) -> Result<()> {
+    pub async fn stdout(mut stream: Streaming<ZoneConsoleReply>) -> Result<()> {
         if stdin().is_tty() {
             enable_raw_mode()?;
             StdioConsoleStream::register_terminal_restore_hook()?;
@@ -90,7 +90,7 @@ impl StdioConsoleStream {
         Ok(())
     }
 
-    pub async fn exec_output(mut stream: Streaming<ExecGuestReply>) -> Result<i32> {
+    pub async fn exec_output(mut stream: Streaming<ExecZoneReply>) -> Result<i32> {
         let mut stdout = stdout();
         let mut stderr = stderr();
         while let Some(reply) = stream.next().await {
@@ -106,33 +106,33 @@ impl StdioConsoleStream {
             }
 
             if reply.exited {
-                if reply.error.is_empty() {
-                    return Ok(reply.exit_code);
+                return if reply.error.is_empty() {
+                    Ok(reply.exit_code)
                 } else {
-                    return Err(anyhow!("exec failed: {}", reply.error));
-                }
+                    Err(anyhow!("exec failed: {}", reply.error))
+                };
             }
         }
         Ok(-1)
     }
 
-    pub async fn guest_exit_hook(
+    pub async fn zone_exit_hook(
         id: String,
         events: EventStream,
     ) -> Result<JoinHandle<Option<i32>>> {
         Ok(tokio::task::spawn(async move {
             let mut stream = events.subscribe();
             while let Ok(event) = stream.recv().await {
-                let Event::GuestChanged(changed) = event;
-                let Some(guest) = changed.guest else {
+                let Event::ZoneChanged(changed) = event;
+                let Some(zone) = changed.zone else {
                     continue;
                 };
 
-                let Some(state) = guest.state else {
+                let Some(state) = zone.state else {
                     continue;
                 };
 
-                if guest.id != id {
+                if zone.id != id {
                     continue;
                 }
 
@@ -141,7 +141,7 @@ impl StdioConsoleStream {
                 }
 
                 let status = state.status();
-                if status == GuestStatus::Destroying || status == GuestStatus::Destroyed {
+                if status == ZoneStatus::Destroying || status == ZoneStatus::Destroyed {
                     return Some(10);
                 }
             }
