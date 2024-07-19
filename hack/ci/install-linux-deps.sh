@@ -1,10 +1,28 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
-sudo apt-get update
-sudo apt-get install -y \
-    build-essential libssl-dev libelf-dev musl-dev \
-    flex bison bc protobuf-compiler musl-tools qemu-utils gcc-aarch64-linux-gnu
+CROSS_RS_REV="7b79041c9278769eca57fae10c74741f5aa5c14b"
+FPM_VERSION="1.15.1"
 
-sudo gem install --no-document fpm
-cargo install cross --git https://github.com/cross-rs/cross
+PACKAGES=(build-essential musl-dev protobuf-compiler musl-tools)
+
+sudo apt-get update
+
+if [ "${TARGET_ARCH}" = "aarch64" ]
+then
+  PACKAGES+=(gcc-aarch64-linux-gnu)
+fi
+
+sudo apt-get install -y "${PACKAGES[@]}"
+
+CROSS_COMPILE="$(./hack/build/cross-compile.sh)"
+
+if [ "${CROSS_COMPILE}" = "1" ]
+then
+  cargo install cross --git "https://github.com/cross-rs/cross.git" --rev "${CROSS_RS_REV}"
+fi
+
+if [ "${CI_NEEDS_FPM}" = "1" ]
+then
+  sudo gem install --no-document fpm -v "${FPM_VERSION}"
+fi
