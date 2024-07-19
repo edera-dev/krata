@@ -26,7 +26,7 @@ use std::str::FromStr;
 use sys_mount::{FilesystemType, Mount, MountFlags};
 use tokio::fs;
 
-use crate::background::GuestBackground;
+use crate::background::ZoneBackground;
 
 const IMAGE_BLOCK_DEVICE_PATH: &str = "/dev/xvda";
 const CONFIG_BLOCK_DEVICE_PATH: &str = "/dev/xvdb";
@@ -57,17 +57,17 @@ const ADDONS_MODULES_PATH: &str = "/addons/modules";
 
 ioctl_write_int_bad!(set_controlling_terminal, TIOCSCTTY);
 
-pub struct GuestInit {}
+pub struct ZoneInit {}
 
-impl Default for GuestInit {
+impl Default for ZoneInit {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GuestInit {
-    pub fn new() -> GuestInit {
-        GuestInit {}
+impl ZoneInit {
+    pub fn new() -> ZoneInit {
+        ZoneInit {}
     }
 
     pub async fn init(&mut self) -> Result<()> {
@@ -127,7 +127,7 @@ impl GuestInit {
         }
 
         if let Some(cfg) = config.config() {
-            trace!("running guest task");
+            trace!("running zone task");
             self.run(cfg, &launch, idm).await?;
         } else {
             return Err(anyhow!(
@@ -521,7 +521,7 @@ impl GuestInit {
 
         let mut env = HashMap::new();
         if let Some(config_env) = config.env() {
-            env.extend(GuestInit::env_map(config_env));
+            env.extend(ZoneInit::env_map(config_env));
         }
         env.extend(launch.env.clone());
         env.insert("KRATA_CONTAINER".to_string(), "1".to_string());
@@ -540,13 +540,13 @@ impl GuestInit {
             return Err(anyhow!("cannot get file name of command path as str"));
         };
         cmd.insert(0, file_name.to_string());
-        let env = GuestInit::env_list(env);
+        let env = ZoneInit::env_list(env);
 
-        trace!("running guest command: {}", cmd.join(" "));
+        trace!("running zone command: {}", cmd.join(" "));
 
         let path = CString::new(path.as_os_str().as_bytes())?;
-        let cmd = GuestInit::strings_as_cstrings(cmd)?;
-        let env = GuestInit::strings_as_cstrings(env)?;
+        let cmd = ZoneInit::strings_as_cstrings(cmd)?;
+        let env = ZoneInit::strings_as_cstrings(env)?;
         let mut working_dir = config
             .working_dir()
             .as_ref()
@@ -566,7 +566,7 @@ impl GuestInit {
     async fn init_cgroup(&self) -> Result<Cgroup> {
         trace!("initializing cgroup");
         let hierarchy = cgroups_rs::hierarchies::auto();
-        let cgroup = Cgroup::new(hierarchy, "krata-guest-task")?;
+        let cgroup = Cgroup::new(hierarchy, "krata-zone-task")?;
         cgroup.set_cgroup_type("threaded")?;
         trace!("initialized cgroup");
         Ok(cgroup)
@@ -619,7 +619,7 @@ impl GuestInit {
         cmd: Vec<CString>,
         env: Vec<CString>,
     ) -> Result<()> {
-        GuestInit::set_controlling_terminal()?;
+        ZoneInit::set_controlling_terminal()?;
         std::env::set_current_dir(working_dir)?;
         cgroup.add_task(CgroupPid::from(std::process::id() as u64))?;
         execve(&path, &cmd, &env)?;
@@ -640,7 +640,7 @@ impl GuestInit {
         cgroup: Cgroup,
         executed: Pid,
     ) -> Result<()> {
-        let mut background = GuestBackground::new(idm, cgroup, executed).await?;
+        let mut background = ZoneBackground::new(idm, cgroup, executed).await?;
         background.run().await?;
         Ok(())
     }

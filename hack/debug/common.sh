@@ -19,12 +19,12 @@ fi
 build_and_run() {
   EXE_TARGET="${1}"
   shift
-  sudo mkdir -p /var/lib/krata/guest
+  sudo mkdir -p /var/lib/krata/zone
   if [ "${KRATA_BUILD_INITRD}" = "1" ]
   then
     TARGET_ARCH="$(./hack/build/arch.sh)"
     ./hack/initrd/build.sh ${CARGO_BUILD_FLAGS}
-    sudo cp "target/initrd/initrd-${TARGET_ARCH}" "/var/lib/krata/guest/initrd"
+    sudo cp "target/initrd/initrd-${TARGET_ARCH}" "/var/lib/krata/zone/initrd"
   fi
   RUST_TARGET="$(./hack/build/target.sh)"
   ./hack/build/cargo.sh build ${CARGO_BUILD_FLAGS} --bin "${EXE_TARGET}"

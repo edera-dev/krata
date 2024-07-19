@@ -13,7 +13,7 @@ pub mod metrics;
 pub async fn death(code: c_int) -> Result<()> {
     let store = XsdClient::open().await?;
     store
-        .write_string("krata/guest/exit-code", &code.to_string())
+        .write_string("krata/zone/exit-code", &code.to_string())
         .await?;
     drop(store);
     loop {

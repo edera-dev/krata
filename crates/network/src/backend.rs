@@ -54,11 +54,11 @@ impl NetworkStack<'_> {
         match what {
             NetworkStackSelect::Receive(Some(packet)) => {
                 if let Err(error) = self.bridge.to_bridge_sender.try_send(packet.clone()) {
-                    trace!("failed to send guest packet to bridge: {}", error);
+                    trace!("failed to send zone packet to bridge: {}", error);
                 }
 
                 if let Err(error) = self.nat.receive_sender.try_send(packet.clone()) {
-                    trace!("failed to send guest packet to nat: {}", error);
+                    trace!("failed to send zone packet to nat: {}", error);
                 }
 
                 self.udev.rx = Some(packet);
@@ -137,7 +137,7 @@ impl NetworkBackend {
                 .expect("failed to set ip addresses");
         });
         let sockets = SocketSet::new(vec![]);
-        let handle = self.bridge.join(self.metadata.guest.mac).await?;
+        let handle = self.bridge.join(self.metadata.zone.mac).await?;
         let kdev = AsyncRawSocketChannel::new(mtu, kdev)?;
         Ok(NetworkStack {
             tx: tx_receiver,
@@ -153,12 +153,12 @@ impl NetworkBackend {
     pub async fn launch(self) -> Result<JoinHandle<()>> {
         Ok(tokio::task::spawn(async move {
             info!(
-                "launched network backend for krata guest {}",
+                "launched network backend for krata zone {}",
                 self.metadata.uuid
             );
             if let Err(error) = self.run().await {
                 warn!(
-                    "network backend for krata guest {} failed: {}",
+                    "network backend for krata zone {} failed: {}",
                     self.metadata.uuid, error
                 );
             }
@@ -169,7 +169,7 @@ impl NetworkBackend {
 impl Drop for NetworkBackend {
     fn drop(&mut self) {
         info!(
-            "destroyed network backend for krata guest {}",
+            "destroyed network backend for krata zone {}",
             self.metadata.uuid
         );
     }

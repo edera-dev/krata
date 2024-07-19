@@ -15,11 +15,11 @@ use tokio::{
     process::Command,
 };
 
-pub struct GuestExecTask {
+pub struct ZoneExecTask {
     pub handle: IdmClientStreamResponseHandle<Request>,
 }
 
-impl GuestExecTask {
+impl ZoneExecTask {
     pub async fn run(&self) -> Result<()> {
         let mut receiver = self.handle.take().await?;
 

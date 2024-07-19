@@ -2,10 +2,10 @@ use anyhow::Result;
 use krata::{
     events::EventStream,
     v1::{
-        common::{Guest, GuestMetricNode, GuestStatus},
+        common::{Zone, ZoneMetricNode, ZoneStatus},
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
-            ListGuestsRequest, ReadGuestMetricsRequest,
+            ListZonesRequest, ReadZoneMetricsRequest,
         },
     },
 };
@@ -22,12 +22,12 @@ use tonic::transport::Channel;
 use crate::format::metrics_value_pretty;
 
 pub struct MetricState {
-    pub guest: Guest,
-    pub root: Option<GuestMetricNode>,
+    pub zone: Zone,
+    pub root: Option<ZoneMetricNode>,
 }
 
 pub struct MultiMetricState {
-    pub guests: Vec<MetricState>,
+    pub zones: Vec<MetricState>,
 }
 
 pub struct MultiMetricCollector {
@@ -72,26 +72,26 @@ impl MultiMetricCollector {
 
     pub async fn process(&mut self, sender: Sender<MultiMetricState>) -> Result<()> {
         let mut events = self.events.subscribe();
-        let mut guests: Vec<Guest> = self
+        let mut zones: Vec<Zone> = self
             .client
-            .list_guests(ListGuestsRequest {})
+            .list_zones(ListZonesRequest {})
             .await?
             .into_inner()
-            .guests;
+            .zones;
         loop {
             let collect = select! {
                 x = events.recv() => match x {
                     Ok(event) => {
-                        let Event::GuestChanged(changed) = event;
-                            let Some(guest) = changed.guest else {
+                        let Event::ZoneChanged(changed) = event;
+                            let Some(zone) = changed.zone else {
                                 continue;
                             };
-                            let Some(ref state) = guest.state else {
+                            let Some(ref state) = zone.state else {
                                 continue;
                             };
-                            guests.retain(|x| x.id != guest.id);
-                            if state.status() != GuestStatus::Destroying {
-                                guests.push(guest);
+                            zones.retain(|x| x.id != zone.id);
+                            if state.status() != ZoneStatus::Destroying {
+                                zones.push(zone);
                             }
                         false
                     },
@@ -111,19 +111,19 @@ impl MultiMetricCollector {
             }
 
             let mut metrics = Vec::new();
-            for guest in &guests {
-                let Some(ref state) = guest.state else {
+            for zone in &zones {
+                let Some(ref state) = zone.state else {
                     continue;
                 };
 
-                if state.status() != GuestStatus::Started {
+                if state.status() != ZoneStatus::Started {
                     continue;
                 }
 
                 let root = timeout(
                     Duration::from_secs(5),
-                    self.client.read_guest_metrics(ReadGuestMetricsRequest {
-                        guest_id: guest.id.clone(),
+                    self.client.read_zone_metrics(ReadZoneMetricsRequest {
+                        zone_id: zone.id.clone(),
                     }),
                 )
                 .await
@@ -132,16 +132,16 @@ impl MultiMetricCollector {
                 .map(|x| x.into_inner())
                 .and_then(|x| x.root);
                 metrics.push(MetricState {
-                    guest: guest.clone(),
+                    zone: zone.clone(),
                     root,
                 });
             }
-            sender.send(MultiMetricState { guests: metrics }).await?;
+            sender.send(MultiMetricState { zones: metrics }).await?;
         }
     }
 }
 
-pub fn lookup<'a>(node: &'a GuestMetricNode, path: &str) -> Option<&'a GuestMetricNode> {
+pub fn lookup<'a>(node: &'a ZoneMetricNode, path: &str) -> Option<&'a ZoneMetricNode> {
     let Some((what, b)) = path.split_once('/') else {
         return node.children.iter().find(|x| x.name == path);
     };
@@ -149,7 +149,7 @@ pub fn lookup<'a>(node: &'a GuestMetricNode, path: &str) -> Option<&'a GuestMetr
     return lookup(next, b);
 }
 
-pub fn lookup_metric_value(node: &GuestMetricNode, path: &str) -> Option<String> {
+pub fn lookup_metric_value(node: &ZoneMetricNode, path: &str) -> Option<String> {
     lookup(node, path).and_then(|x| {
         x.value
             .as_ref()

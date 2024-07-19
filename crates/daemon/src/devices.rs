@@ -31,7 +31,7 @@ impl DaemonDeviceManager {
         let mut devices = self.devices.write().await;
         let Some(state) = devices.get_mut(device) else {
             return Err(anyhow!(
-                "unable to claim unknown device '{}' for guest {}",
+                "unable to claim unknown device '{}' for zone {}",
                 device,
                 uuid
             ));
@@ -39,7 +39,7 @@ impl DaemonDeviceManager {
 
         if let Some(owner) = state.owner {
             return Err(anyhow!(
-                "unable to claim device '{}' for guest {}: already claimed by {}",
+                "unable to claim device '{}' for zone {}: already claimed by {}",
                 device,
                 uuid,
                 owner
@@ -92,7 +92,7 @@ impl DaemonDeviceManager {
 
         for (name, uuid) in &claims {
             if !devices.contains_key(name) {
-                warn!("unknown device '{}' assigned to guest {}", name, uuid);
+                warn!("unknown device '{}' assigned to zone {}", name, uuid);
             }
         }
 

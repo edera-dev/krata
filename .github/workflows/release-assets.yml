@@ -121,7 +121,7 @@ jobs:
         - kratactl
         - kratad
         - kratanet
-        - krata-guest-init
+        - krata-zone
     name: release-assets oci ${{ matrix.component }}
     permissions:
       contents: read

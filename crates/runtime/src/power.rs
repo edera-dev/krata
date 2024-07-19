@@ -25,7 +25,7 @@ pub struct CpuTopologyInfo {
     pub class: CpuClass,
 }
 
-fn labelled_topo(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
+fn labeled_topology(input: &[SysctlCputopo]) -> Vec<CpuTopologyInfo> {
     let mut cores: IndexMap<(u32, u32, u32), Vec<CpuTopologyInfo>> = IndexMap::new();
     let mut pe_cores = false;
     let mut last: Option<SysctlCputopo> = None;
@@ -140,9 +140,9 @@ impl PowerManagementContext {
     /// If there is a p-core/e-core split, then CPU class will be defined as
     /// `CpuClass::Performance` or `CpuClass::Efficiency`, else `CpuClass::Standard`.
     pub async fn cpu_topology(&self) -> Result<Vec<CpuTopologyInfo>> {
-        let xentopo = self.context.xen.call.cpu_topology().await?;
-        let logicaltopo = labelled_topo(&xentopo);
-        Ok(logicaltopo)
+        let xen_topology = self.context.xen.call.cpu_topology().await?;
+        let logical_topology = labeled_topology(&xen_topology);
+        Ok(logical_topology)
     }
 
     /// Enable or disable SMT awareness in the scheduler.

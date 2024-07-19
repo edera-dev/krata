@@ -7,11 +7,11 @@ use std::{
 
 use anyhow::Result;
 use krata::v1::{
-    common::{Guest, GuestErrorInfo, GuestExitInfo, GuestNetworkState, GuestState, GuestStatus},
-    control::GuestChangedEvent,
+    common::{Zone, ZoneErrorInfo, ZoneExitInfo, ZoneNetworkState, ZoneState, ZoneStatus},
+    control::ZoneChangedEvent,
 };
 use krataoci::packer::service::OciPackerService;
-use kratart::{GuestInfo, Runtime};
+use kratart::{Runtime, ZoneInfo};
 use log::{error, info, trace, warn};
 use tokio::{
     select,
@@ -25,69 +25,69 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    db::GuestStore,
+    db::ZoneStore,
     devices::DaemonDeviceManager,
     event::{DaemonEvent, DaemonEventContext},
-    glt::GuestLookupTable,
+    zlt::ZoneLookupTable,
 };
 
-use self::start::GuestStarter;
+use self::start::ZoneStarter;
 
 mod start;
 
 const PARALLEL_LIMIT: u32 = 5;
 
 #[derive(Debug)]
-enum GuestReconcilerResult {
+enum ZoneReconcilerResult {
     Unchanged,
     Changed { rerun: bool },
 }
 
-struct GuestReconcilerEntry {
+struct ZoneReconcilerEntry {
     task: JoinHandle<()>,
     sender: Sender<()>,
 }
 
-impl Drop for GuestReconcilerEntry {
+impl Drop for ZoneReconcilerEntry {
     fn drop(&mut self) {
         self.task.abort();
     }
 }
 
 #[derive(Clone)]
-pub struct GuestReconciler {
+pub struct ZoneReconciler {
     devices: DaemonDeviceManager,
-    glt: GuestLookupTable,
-    guests: GuestStore,
+    zlt: ZoneLookupTable,
+    zones: ZoneStore,
     events: DaemonEventContext,
     runtime: Runtime,
     packer: OciPackerService,
     kernel_path: PathBuf,
     initrd_path: PathBuf,
     addons_path: PathBuf,
-    tasks: Arc<Mutex<HashMap<Uuid, GuestReconcilerEntry>>>,
-    guest_reconciler_notify: Sender<Uuid>,
-    reconcile_lock: Arc<RwLock<()>>,
+    tasks: Arc<Mutex<HashMap<Uuid, ZoneReconcilerEntry>>>,
+    zone_reconciler_notify: Sender<Uuid>,
+    zone_reconcile_lock: Arc<RwLock<()>>,
 }
 
-impl GuestReconciler {
+impl ZoneReconciler {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         devices: DaemonDeviceManager,
-        glt: GuestLookupTable,
-        guests: GuestStore,
+        zlt: ZoneLookupTable,
+        zones: ZoneStore,
         events: DaemonEventContext,
         runtime: Runtime,
         packer: OciPackerService,
-        guest_reconciler_notify: Sender<Uuid>,
+        zone_reconciler_notify: Sender<Uuid>,
         kernel_path: PathBuf,
         initrd_path: PathBuf,
         modules_path: PathBuf,
     ) -> Result<Self> {
         Ok(Self {
             devices,
-            glt,
-            guests,
+            zlt,
+            zones,
             events,
             runtime,
             packer,
@@ -95,8 +95,8 @@ impl GuestReconciler {
             initrd_path,
             addons_path: modules_path,
             tasks: Arc::new(Mutex::new(HashMap::new())),
-            guest_reconciler_notify,
-            reconcile_lock: Arc::new(RwLock::with_max_readers((), PARALLEL_LIMIT)),
+            zone_reconciler_notify,
+            zone_reconcile_lock: Arc::new(RwLock::with_max_readers((), PARALLEL_LIMIT)),
         })
     }
 
@@ -115,13 +115,13 @@ impl GuestReconciler {
 
                         Some(uuid) => {
                             if let Err(error) = self.launch_task_if_needed(uuid).await {
-                                error!("failed to start guest reconciler task {}: {}", uuid, error);
+                                error!("failed to start zone reconciler task {}: {}", uuid, error);
                             }
 
                             let map = self.tasks.lock().await;
                             if let Some(entry) = map.get(&uuid) {
                                 if let Err(error) = entry.sender.send(()).await {
-                                    error!("failed to notify guest reconciler task {}: {}", uuid, error);
+                                    error!("failed to notify zone reconciler task {}: {}", uuid, error);
                                 }
                             }
                         }
@@ -138,52 +138,52 @@ impl GuestReconciler {
     }
 
     pub async fn reconcile_runtime(&self, initial: bool) -> Result<()> {
-        let _permit = self.reconcile_lock.write().await;
+        let _permit = self.zone_reconcile_lock.write().await;
         trace!("reconciling runtime");
-        let runtime_guests = self.runtime.list().await?;
-        let stored_guests = self.guests.list().await?;
+        let runtime_zones = self.runtime.list().await?;
+        let stored_zones = self.zones.list().await?;
 
-        let non_existent_guests = runtime_guests
+        let non_existent_zones = runtime_zones
             .iter()
-            .filter(|x| !stored_guests.iter().any(|g| *g.0 == x.uuid))
+            .filter(|x| !stored_zones.iter().any(|g| *g.0 == x.uuid))
             .collect::<Vec<_>>();
 
-        for guest in non_existent_guests {
-            warn!("destroying unknown runtime guest {}", guest.uuid);
-            if let Err(error) = self.runtime.destroy(guest.uuid).await {
+        for zone in non_existent_zones {
+            warn!("destroying unknown runtime zone {}", zone.uuid);
+            if let Err(error) = self.runtime.destroy(zone.uuid).await {
                 error!(
-                    "failed to destroy unknown runtime guest {}: {}",
-                    guest.uuid, error
+                    "failed to destroy unknown runtime zone {}: {}",
+                    zone.uuid, error
                 );
             }
-            self.guests.remove(guest.uuid).await?;
+            self.zones.remove(zone.uuid).await?;
         }
 
         let mut device_claims = HashMap::new();
 
-        for (uuid, mut stored_guest) in stored_guests {
-            let previous_guest = stored_guest.clone();
-            let runtime_guest = runtime_guests.iter().find(|x| x.uuid == uuid);
-            match runtime_guest {
+        for (uuid, mut stored_zone) in stored_zones {
+            let previous_zone = stored_zone.clone();
+            let runtime_zone = runtime_zones.iter().find(|x| x.uuid == uuid);
+            match runtime_zone {
                 None => {
-                    let mut state = stored_guest.state.as_mut().cloned().unwrap_or_default();
-                    if state.status() == GuestStatus::Started {
-                        state.status = GuestStatus::Starting.into();
+                    let mut state = stored_zone.state.as_mut().cloned().unwrap_or_default();
+                    if state.status() == ZoneStatus::Started {
+                        state.status = ZoneStatus::Starting.into();
                     }
-                    stored_guest.state = Some(state);
+                    stored_zone.state = Some(state);
                 }
 
                 Some(runtime) => {
-                    self.glt.associate(uuid, runtime.domid).await;
-                    let mut state = stored_guest.state.as_mut().cloned().unwrap_or_default();
+                    self.zlt.associate(uuid, runtime.domid).await;
+                    let mut state = stored_zone.state.as_mut().cloned().unwrap_or_default();
                     if let Some(code) = runtime.state.exit_code {
-                        state.status = GuestStatus::Exited.into();
-                        state.exit_info = Some(GuestExitInfo { code });
+                        state.status = ZoneStatus::Exited.into();
+                        state.exit_info = Some(ZoneExitInfo { code });
                     } else {
-                        state.status = GuestStatus::Started.into();
+                        state.status = ZoneStatus::Started.into();
                     }
 
-                    for device in &stored_guest
+                    for device in &stored_zone
                         .spec
                         .as_ref()
                         .cloned()
@@ -193,16 +193,16 @@ impl GuestReconciler {
                         device_claims.insert(device.name.clone(), uuid);
                     }
 
-                    state.network = Some(guestinfo_to_networkstate(runtime));
-                    stored_guest.state = Some(state);
+                    state.network = Some(zoneinfo_to_networkstate(runtime));
+                    stored_zone.state = Some(state);
                 }
             }
 
-            let changed = stored_guest != previous_guest;
+            let changed = stored_zone != previous_zone;
 
             if changed || initial {
-                self.guests.update(uuid, stored_guest).await?;
-                let _ = self.guest_reconciler_notify.try_send(uuid);
+                self.zones.update(uuid, stored_zone).await?;
+                let _ = self.zone_reconciler_notify.try_send(uuid);
             }
         }
 
@@ -212,59 +212,59 @@ impl GuestReconciler {
     }
 
     pub async fn reconcile(&self, uuid: Uuid) -> Result<bool> {
-        let _runtime_reconcile_permit = self.reconcile_lock.read().await;
-        let Some(mut guest) = self.guests.read(uuid).await? else {
+        let _runtime_reconcile_permit = self.zone_reconcile_lock.read().await;
+        let Some(mut zone) = self.zones.read(uuid).await? else {
             warn!(
-                "notified of reconcile for guest {} but it didn't exist",
+                "notified of reconcile for zone {} but it didn't exist",
                 uuid
             );
             return Ok(false);
         };
 
-        info!("reconciling guest {}", uuid);
+        info!("reconciling zone {}", uuid);
 
         self.events
-            .send(DaemonEvent::GuestChanged(GuestChangedEvent {
-                guest: Some(guest.clone()),
+            .send(DaemonEvent::ZoneChanged(ZoneChangedEvent {
+                zone: Some(zone.clone()),
             }))?;
 
-        let start_status = guest.state.as_ref().map(|x| x.status()).unwrap_or_default();
+        let start_status = zone.state.as_ref().map(|x| x.status()).unwrap_or_default();
         let result = match start_status {
-            GuestStatus::Starting => self.start(uuid, &mut guest).await,
-            GuestStatus::Exited => self.exited(&mut guest).await,
-            GuestStatus::Destroying => self.destroy(uuid, &mut guest).await,
-            _ => Ok(GuestReconcilerResult::Unchanged),
+            ZoneStatus::Starting => self.start(uuid, &mut zone).await,
+            ZoneStatus::Exited => self.exited(&mut zone).await,
+            ZoneStatus::Destroying => self.destroy(uuid, &mut zone).await,
+            _ => Ok(ZoneReconcilerResult::Unchanged),
         };
 
         let result = match result {
             Ok(result) => result,
             Err(error) => {
-                guest.state = Some(guest.state.as_mut().cloned().unwrap_or_default());
-                guest.state.as_mut().unwrap().status = GuestStatus::Failed.into();
-                guest.state.as_mut().unwrap().error_info = Some(GuestErrorInfo {
+                zone.state = Some(zone.state.as_mut().cloned().unwrap_or_default());
+                zone.state.as_mut().unwrap().status = ZoneStatus::Failed.into();
+                zone.state.as_mut().unwrap().error_info = Some(ZoneErrorInfo {
                     message: error.to_string(),
                 });
-                warn!("failed to start guest {}: {}", guest.id, error);
-                GuestReconcilerResult::Changed { rerun: false }
+                warn!("failed to start zone {}: {}", zone.id, error);
+                ZoneReconcilerResult::Changed { rerun: false }
             }
         };
 
-        info!("reconciled guest {}", uuid);
+        info!("reconciled zone {}", uuid);
 
-        let status = guest.state.as_ref().map(|x| x.status()).unwrap_or_default();
-        let destroyed = status == GuestStatus::Destroyed;
+        let status = zone.state.as_ref().map(|x| x.status()).unwrap_or_default();
+        let destroyed = status == ZoneStatus::Destroyed;
 
-        let rerun = if let GuestReconcilerResult::Changed { rerun } = result {
-            let event = DaemonEvent::GuestChanged(GuestChangedEvent {
-                guest: Some(guest.clone()),
+        let rerun = if let ZoneReconcilerResult::Changed { rerun } = result {
+            let event = DaemonEvent::ZoneChanged(ZoneChangedEvent {
+                zone: Some(zone.clone()),
             });
 
             if destroyed {
-                self.guests.remove(uuid).await?;
+                self.zones.remove(uuid).await?;
                 let mut map = self.tasks.lock().await;
                 map.remove(&uuid);
             } else {
-                self.guests.update(uuid, guest.clone()).await?;
+                self.zones.update(uuid, zone.clone()).await?;
             }
 
             self.events.send(event)?;
@@ -276,50 +276,50 @@ impl GuestReconciler {
         Ok(rerun)
     }
 
-    async fn start(&self, uuid: Uuid, guest: &mut Guest) -> Result<GuestReconcilerResult> {
-        let starter = GuestStarter {
+    async fn start(&self, uuid: Uuid, zone: &mut Zone) -> Result<ZoneReconcilerResult> {
+        let starter = ZoneStarter {
             devices: &self.devices,
             kernel_path: &self.kernel_path,
             initrd_path: &self.initrd_path,
             addons_path: &self.addons_path,
             packer: &self.packer,
-            glt: &self.glt,
+            glt: &self.zlt,
             runtime: &self.runtime,
         };
-        starter.start(uuid, guest).await
+        starter.start(uuid, zone).await
     }
 
-    async fn exited(&self, guest: &mut Guest) -> Result<GuestReconcilerResult> {
-        if let Some(ref mut state) = guest.state {
-            state.set_status(GuestStatus::Destroying);
-            Ok(GuestReconcilerResult::Changed { rerun: true })
+    async fn exited(&self, zone: &mut Zone) -> Result<ZoneReconcilerResult> {
+        if let Some(ref mut state) = zone.state {
+            state.set_status(ZoneStatus::Destroying);
+            Ok(ZoneReconcilerResult::Changed { rerun: true })
         } else {
-            Ok(GuestReconcilerResult::Unchanged)
+            Ok(ZoneReconcilerResult::Unchanged)
         }
     }
 
-    async fn destroy(&self, uuid: Uuid, guest: &mut Guest) -> Result<GuestReconcilerResult> {
+    async fn destroy(&self, uuid: Uuid, zone: &mut Zone) -> Result<ZoneReconcilerResult> {
         if let Err(error) = self.runtime.destroy(uuid).await {
-            trace!("failed to destroy runtime guest {}: {}", uuid, error);
+            trace!("failed to destroy runtime zone {}: {}", uuid, error);
         }
 
-        let domid = guest.state.as_ref().map(|x| x.domid);
+        let domid = zone.state.as_ref().map(|x| x.domid);
 
         if let Some(domid) = domid {
-            self.glt.remove(uuid, domid).await;
+            self.zlt.remove(uuid, domid).await;
         }
 
-        info!("destroyed guest {}", uuid);
-        guest.state = Some(GuestState {
-            status: GuestStatus::Destroyed.into(),
+        info!("destroyed zone {}", uuid);
+        zone.state = Some(ZoneState {
+            status: ZoneStatus::Destroyed.into(),
             network: None,
             exit_info: None,
             error_info: None,
-            host: self.glt.host_uuid().to_string(),
+            host: self.zlt.host_uuid().to_string(),
             domid: domid.unwrap_or(u32::MAX),
         });
         self.devices.release_all(uuid).await?;
-        Ok(GuestReconcilerResult::Changed { rerun: false })
+        Ok(ZoneReconcilerResult::Changed { rerun: false })
     }
 
     async fn launch_task_if_needed(&self, uuid: Uuid) -> Result<()> {
@@ -333,7 +333,7 @@ impl GuestReconciler {
         Ok(())
     }
 
-    async fn launch_task(&self, uuid: Uuid) -> Result<GuestReconcilerEntry> {
+    async fn launch_task(&self, uuid: Uuid) -> Result<ZoneReconcilerEntry> {
         let this = self.clone();
         let (sender, mut receiver) = channel(10);
         let task = tokio::task::spawn(async move {
@@ -346,7 +346,7 @@ impl GuestReconciler {
                     let rerun = match this.reconcile(uuid).await {
                         Ok(rerun) => rerun,
                         Err(error) => {
-                            error!("failed to reconcile guest {}: {}", uuid, error);
+                            error!("failed to reconcile zone {}: {}", uuid, error);
                             false
                         }
                     };
@@ -358,15 +358,15 @@ impl GuestReconciler {
                 }
             }
         });
-        Ok(GuestReconcilerEntry { task, sender })
+        Ok(ZoneReconcilerEntry { task, sender })
     }
 }
 
-pub fn guestinfo_to_networkstate(info: &GuestInfo) -> GuestNetworkState {
-    GuestNetworkState {
-        guest_ipv4: info.guest_ipv4.map(|x| x.to_string()).unwrap_or_default(),
-        guest_ipv6: info.guest_ipv6.map(|x| x.to_string()).unwrap_or_default(),
-        guest_mac: info.guest_mac.as_ref().cloned().unwrap_or_default(),
+pub fn zoneinfo_to_networkstate(info: &ZoneInfo) -> ZoneNetworkState {
+    ZoneNetworkState {
+        zone_ipv4: info.zone_ipv4.map(|x| x.to_string()).unwrap_or_default(),
+        zone_ipv6: info.zone_ipv6.map(|x| x.to_string()).unwrap_or_default(),
+        zone_mac: info.zone_mac.as_ref().cloned().unwrap_or_default(),
         gateway_ipv4: info.gateway_ipv4.map(|x| x.to_string()).unwrap_or_default(),
         gateway_ipv6: info.gateway_ipv6.map(|x| x.to_string()).unwrap_or_default(),
         gateway_mac: info.gateway_mac.as_ref().cloned().unwrap_or_default(),

@@ -3,7 +3,7 @@ members = [
     "crates/build",
     "crates/krata",
     "crates/oci",
-    "crates/guest",
+    "crates/zone",
     "crates/runtime",
     "crates/daemon",
     "crates/network",

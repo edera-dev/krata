@@ -127,7 +127,7 @@ jobs:
       run: ./hack/ci/install-linux-deps.sh
     - name: cargo clippy
       run: ./hack/build/cargo.sh clippy
-  guest-init:
+  zone-initrd:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -136,7 +136,7 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: guest-init ${{ matrix.arch }}
+    name: zone initrd ${{ matrix.arch }}
     steps:
     - name: harden runner
       uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1

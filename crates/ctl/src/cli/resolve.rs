@@ -1,26 +1,26 @@
 use anyhow::Result;
 use clap::Parser;
-use krata::v1::control::{control_service_client::ControlServiceClient, ResolveGuestRequest};
+use krata::v1::control::{control_service_client::ControlServiceClient, ResolveZoneRequest};
 
 use tonic::{transport::Channel, Request};
 
 #[derive(Parser)]
-#[command(about = "Resolve a guest name to a uuid")]
+#[command(about = "Resolve a zone name to a uuid")]
 pub struct ResolveCommand {
-    #[arg(help = "Guest name")]
-    guest: String,
+    #[arg(help = "Zone name")]
+    zone: String,
 }
 
 impl ResolveCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let reply = client
-            .resolve_guest(Request::new(ResolveGuestRequest {
-                name: self.guest.clone(),
+            .resolve_zone(Request::new(ResolveZoneRequest {
+                name: self.zone.clone(),
             }))
             .await?
             .into_inner();
-        if let Some(guest) = reply.guest {
-            println!("{}", guest.id);
+        if let Some(zone) = reply.zone {
+            println!("{}", zone.id);
         } else {
             std::process::exit(1);
         }

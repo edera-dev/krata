@@ -8,29 +8,29 @@ option java_outer_classname = "CommonProto";
 
 import "google/protobuf/struct.proto";
 
-message Guest {
+message Zone {
     string id = 1;
-    GuestSpec spec = 2;
-    GuestState state = 3;
+    ZoneSpec spec = 2;
+    ZoneState state = 3;
 }
 
-message GuestSpec {
+message ZoneSpec {
     string name = 1;
-    GuestImageSpec image = 2;
+    ZoneImageSpec image = 2;
     // If not specified, defaults to the daemon default kernel.
-    GuestImageSpec kernel = 3;
+    ZoneImageSpec kernel = 3;
     // If not specified, defaults to the daemon default initrd.
-    GuestImageSpec initrd = 4;
+    ZoneImageSpec initrd = 4;
     uint32 vcpus = 5;
     uint64 mem = 6;
-    GuestTaskSpec task = 7;
-    repeated GuestSpecAnnotation annotations = 8;
-    repeated GuestSpecDevice devices = 9;
+    ZoneTaskSpec task = 7;
+    repeated ZoneSpecAnnotation annotations = 8;
+    repeated ZoneSpecDevice devices = 9;
 }
 
-message GuestImageSpec {
+message ZoneImageSpec {
     oneof image {
-        GuestOciImageSpec oci = 1;
+        ZoneOciImageSpec oci = 1;
     }
 }
 
@@ -42,77 +42,77 @@ enum OciImageFormat {
     OCI_IMAGE_FORMAT_TAR = 3;
 }
 
-message GuestOciImageSpec {
+message ZoneOciImageSpec {
     string digest = 1;
     OciImageFormat format = 2;
 }
 
-message GuestTaskSpec {
-    repeated GuestTaskSpecEnvVar environment = 1;
+message ZoneTaskSpec {
+    repeated ZoneTaskSpecEnvVar environment = 1;
     repeated string command = 2;
     string working_directory = 3;
 }
 
-message GuestTaskSpecEnvVar {
+message ZoneTaskSpecEnvVar {
     string key = 1;
     string value = 2;
 }
 
-message GuestSpecAnnotation {
+message ZoneSpecAnnotation {
     string key = 1;
     string value = 2;
 }
 
-message GuestSpecDevice {
+message ZoneSpecDevice {
     string name = 1;
 }
 
-message GuestState {
-    GuestStatus status = 1;
-    GuestNetworkState network = 2;
-    GuestExitInfo exit_info = 3;
-    GuestErrorInfo error_info = 4;
+message ZoneState {
+    ZoneStatus status = 1;
+    ZoneNetworkState network = 2;
+    ZoneExitInfo exit_info = 3;
+    ZoneErrorInfo error_info = 4;
     string host = 5;
     uint32 domid = 6;
 }
 
-enum GuestStatus {
-    GUEST_STATUS_UNKNOWN = 0;
-    GUEST_STATUS_STARTING = 1;
-    GUEST_STATUS_STARTED = 2;
-    GUEST_STATUS_EXITED = 3;
-    GUEST_STATUS_DESTROYING = 4;
-    GUEST_STATUS_DESTROYED = 5;
-    GUEST_STATUS_FAILED = 6;
+enum ZoneStatus {
+    ZONE_STATUS_UNKNOWN = 0;
+    ZONE_STATUS_STARTING = 1;
+    ZONE_STATUS_STARTED = 2;
+    ZONE_STATUS_EXITED = 3;
+    ZONE_STATUS_DESTROYING = 4;
+    ZONE_STATUS_DESTROYED = 5;
+    ZONE_STATUS_FAILED = 6;
 }
 
-message GuestNetworkState {
-    string guest_ipv4 = 1;
-    string guest_ipv6 = 2;
-    string guest_mac = 3;
+message ZoneNetworkState {
+    string zone_ipv4 = 1;
+    string zone_ipv6 = 2;
+    string zone_mac = 3;
     string gateway_ipv4 = 4;
     string gateway_ipv6 = 5;
     string gateway_mac = 6;
 }
 
-message GuestExitInfo {
+message ZoneExitInfo {
     int32 code = 1;
 }
 
-message GuestErrorInfo {
+message ZoneErrorInfo {
     string message = 1;
 }
 
-message GuestMetricNode {
+message ZoneMetricNode {
     string name = 1;
     google.protobuf.Value value = 2;
-    GuestMetricFormat format = 3;
-    repeated GuestMetricNode children = 4;
+    ZoneMetricFormat format = 3;
+    repeated ZoneMetricNode children = 4;
 }
 
-enum GuestMetricFormat {
-    GUEST_METRIC_FORMAT_UNKNOWN = 0;
-    GUEST_METRIC_FORMAT_BYTES = 1;
-    GUEST_METRIC_FORMAT_INTEGER = 2;
-    GUEST_METRIC_FORMAT_DURATION_SECONDS = 3;
+enum ZoneMetricFormat {
+    ZONE_METRIC_FORMAT_UNKNOWN = 0;
+    ZONE_METRIC_FORMAT_BYTES = 1;
+    ZONE_METRIC_FORMAT_INTEGER = 2;
+    ZONE_METRIC_FORMAT_DURATION_SECONDS = 3;
 }

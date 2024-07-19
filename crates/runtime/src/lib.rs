@@ -12,7 +12,7 @@ use xenstore::{XsdClient, XsdInterface};
 
 use self::{
     autoloop::AutoLoop,
-    launch::{GuestLaunchRequest, GuestLauncher},
+    launch::{ZoneLaunchRequest, ZoneLauncher},
     power::PowerManagementContext,
 };
 
@@ -29,29 +29,32 @@ type RuntimePlatform = xenplatform::x86pv::X86PvPlatform;
 #[cfg(not(target_arch = "x86_64"))]
 type RuntimePlatform = xenplatform::unsupported::UnsupportedPlatform;
 
-pub struct GuestLoopInfo {
+#[derive(Clone)]
+pub struct ZoneLoopInfo {
     pub device: String,
     pub file: String,
     pub delete: Option<String>,
 }
 
-pub struct GuestState {
+#[derive(Clone)]
+pub struct ZoneState {
     pub exit_code: Option<i32>,
 }
 
-pub struct GuestInfo {
+#[derive(Clone)]
+pub struct ZoneInfo {
     pub name: Option<String>,
     pub uuid: Uuid,
     pub domid: u32,
     pub image: String,
-    pub loops: Vec<GuestLoopInfo>,
-    pub guest_ipv4: Option<IpNetwork>,
-    pub guest_ipv6: Option<IpNetwork>,
-    pub guest_mac: Option<String>,
+    pub loops: Vec<ZoneLoopInfo>,
+    pub zone_ipv4: Option<IpNetwork>,
+    pub zone_ipv6: Option<IpNetwork>,
+    pub zone_mac: Option<String>,
     pub gateway_ipv4: Option<IpNetwork>,
     pub gateway_ipv6: Option<IpNetwork>,
     pub gateway_mac: Option<String>,
-    pub state: GuestState,
+    pub state: ZoneState,
 }
 
 #[derive(Clone)]
@@ -75,8 +78,8 @@ impl RuntimeContext {
         })
     }
 
-    pub async fn list(&self) -> Result<Vec<GuestInfo>> {
-        let mut guests: Vec<GuestInfo> = Vec::new();
+    pub async fn list(&self) -> Result<Vec<ZoneInfo>> {
+        let mut zones: Vec<ZoneInfo> = Vec::new();
         for domid_candidate in self.xen.store.list("/local/domain").await? {
             if domid_candidate == "0" {
                 continue;
@@ -112,20 +115,20 @@ impl RuntimeContext {
                 .store
                 .read_string(&format!("{}/krata/loops", &dom_path))
                 .await?;
-            let guest_ipv4 = self
+            let zone_ipv4 = self
                 .xen
                 .store
-                .read_string(&format!("{}/krata/network/guest/ipv4", &dom_path))
+                .read_string(&format!("{}/krata/network/zone/ipv4", &dom_path))
                 .await?;
-            let guest_ipv6 = self
+            let zone_ipv6 = self
                 .xen
                 .store
-                .read_string(&format!("{}/krata/network/guest/ipv6", &dom_path))
+                .read_string(&format!("{}/krata/network/zone/ipv6", &dom_path))
                 .await?;
-            let guest_mac = self
+            let zone_mac = self
                 .xen
                 .store
-                .read_string(&format!("{}/krata/network/guest/mac", &dom_path))
+                .read_string(&format!("{}/krata/network/zone/mac", &dom_path))
                 .await?;
             let gateway_ipv4 = self
                 .xen
@@ -143,14 +146,14 @@ impl RuntimeContext {
                 .read_string(&format!("{}/krata/network/gateway/mac", &dom_path))
                 .await?;
 
-            let guest_ipv4 = if let Some(guest_ipv4) = guest_ipv4 {
-                IpNetwork::from_str(&guest_ipv4).ok()
+            let zone_ipv4 = if let Some(zone_ipv4) = zone_ipv4 {
+                IpNetwork::from_str(&zone_ipv4).ok()
             } else {
                 None
             };
 
-            let guest_ipv6 = if let Some(guest_ipv6) = guest_ipv6 {
-                IpNetwork::from_str(&guest_ipv6).ok()
+            let zone_ipv6 = if let Some(zone_ipv6) = zone_ipv6 {
+                IpNetwork::from_str(&zone_ipv6).ok()
             } else {
                 None
             };
@@ -170,7 +173,7 @@ impl RuntimeContext {
             let exit_code = self
                 .xen
                 .store
-                .read_string(&format!("{}/krata/guest/exit-code", &dom_path))
+                .read_string(&format!("{}/krata/zone/exit-code", &dom_path))
                 .await?;
 
             let exit_code: Option<i32> = match exit_code {
@@ -178,37 +181,37 @@ impl RuntimeContext {
                 None => None,
             };
 
-            let state = GuestState { exit_code };
+            let state = ZoneState { exit_code };
 
             let loops = RuntimeContext::parse_loop_set(&loops);
-            guests.push(GuestInfo {
+            zones.push(ZoneInfo {
                 name,
                 uuid,
                 domid,
                 image,
                 loops,
-                guest_ipv4,
-                guest_ipv6,
-                guest_mac,
+                zone_ipv4,
+                zone_ipv6,
+                zone_mac,
                 gateway_ipv4,
                 gateway_ipv6,
                 gateway_mac,
                 state,
             });
         }
-        Ok(guests)
+        Ok(zones)
     }
 
-    pub async fn resolve(&self, uuid: Uuid) -> Result<Option<GuestInfo>> {
-        for guest in self.list().await? {
-            if guest.uuid == uuid {
-                return Ok(Some(guest));
+    pub async fn resolve(&self, uuid: Uuid) -> Result<Option<ZoneInfo>> {
+        for zone in self.list().await? {
+            if zone.uuid == uuid {
+                return Ok(Some(zone));
             }
         }
         Ok(None)
     }
 
-    fn parse_loop_set(input: &Option<String>) -> Vec<GuestLoopInfo> {
+    fn parse_loop_set(input: &Option<String>) -> Vec<ZoneLoopInfo> {
         let Some(input) = input else {
             return Vec::new();
         };
@@ -219,7 +222,7 @@ impl RuntimeContext {
             .map(|x| (x[0].clone(), x[1].clone(), x[2].clone()))
             .collect::<Vec<(String, String, String)>>();
         sets.iter()
-            .map(|(device, file, delete)| GuestLoopInfo {
+            .map(|(device, file, delete)| ZoneLoopInfo {
                 device: device.clone(),
                 file: file.clone(),
                 delete: if delete == "none" {
@@ -228,7 +231,7 @@ impl RuntimeContext {
                     Some(delete.clone())
                 },
             })
-            .collect::<Vec<GuestLoopInfo>>()
+            .collect::<Vec<ZoneLoopInfo>>()
     }
 }
 
@@ -249,8 +252,8 @@ impl Runtime {
         })
     }
 
-    pub async fn launch(&self, request: GuestLaunchRequest) -> Result<GuestInfo> {
-        let mut launcher = GuestLauncher::new(self.launch_semaphore.clone())?;
+    pub async fn launch(&self, request: ZoneLaunchRequest) -> Result<ZoneInfo> {
+        let mut launcher = ZoneLauncher::new(self.launch_semaphore.clone())?;
         launcher.launch(&self.context, request).await
     }
 
@@ -259,7 +262,7 @@ impl Runtime {
             .context
             .resolve(uuid)
             .await?
-            .ok_or_else(|| anyhow!("unable to resolve guest: {}", uuid))?;
+            .ok_or_else(|| anyhow!("unable to resolve zone: {}", uuid))?;
         let domid = info.domid;
         let store = XsdClient::open().await?;
         let dom_path = store.get_domain_path(domid).await?;
@@ -307,7 +310,7 @@ impl Runtime {
         if let Some(ip) = ip {
             if let Err(error) = self.context.ipvendor.recall(&ip).await {
                 error!(
-                    "failed to recall ip assignment for guest {}: {}",
+                    "failed to recall ip assignment for zone {}: {}",
                     uuid, error
                 );
             }
@@ -316,7 +319,7 @@ impl Runtime {
         Ok(uuid)
     }
 
-    pub async fn list(&self) -> Result<Vec<GuestInfo>> {
+    pub async fn list(&self) -> Result<Vec<ZoneInfo>> {
         self.context.list().await
     }
 

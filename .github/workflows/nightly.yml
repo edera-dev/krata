@@ -124,7 +124,7 @@ jobs:
         - kratactl
         - kratad
         - kratanet
-        - krata-guest-init
+        - krata-zone
     name: nightly oci build ${{ matrix.component }}
     permissions:
       contents: read

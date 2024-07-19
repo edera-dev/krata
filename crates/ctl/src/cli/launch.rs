@@ -6,12 +6,12 @@ use krata::{
     events::EventStream,
     v1::{
         common::{
-            guest_image_spec::Image, GuestImageSpec, GuestOciImageSpec, GuestSpec, GuestSpecDevice,
-            GuestStatus, GuestTaskSpec, GuestTaskSpecEnvVar, OciImageFormat,
+            zone_image_spec::Image, OciImageFormat, ZoneImageSpec, ZoneOciImageSpec, ZoneSpec,
+            ZoneSpecDevice, ZoneStatus, ZoneTaskSpec, ZoneTaskSpecEnvVar,
         },
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
-            CreateGuestRequest, PullImageRequest,
+            CreateZoneRequest, PullImageRequest,
         },
     },
 };
@@ -28,56 +28,51 @@ pub enum LaunchImageFormat {
 }
 
 #[derive(Parser)]
-#[command(about = "Launch a new guest")]
+#[command(about = "Launch a new zone")]
 pub struct LaunchCommand {
     #[arg(long, default_value = "squashfs", help = "Image format")]
     image_format: LaunchImageFormat,
     #[arg(long, help = "Overwrite image cache on pull")]
     pull_overwrite_cache: bool,
-    #[arg(short, long, help = "Name of the guest")]
+    #[arg(short, long, help = "Name of the zone")]
     name: Option<String>,
-    #[arg(
-        short,
-        long,
-        default_value_t = 1,
-        help = "vCPUs available to the guest"
-    )]
+    #[arg(short, long, default_value_t = 1, help = "vCPUs available to the zone")]
     cpus: u32,
     #[arg(
         short,
         long,
         default_value_t = 512,
-        help = "Memory available to the guest, in megabytes"
+        help = "Memory available to the zone, in megabytes"
     )]
     mem: u64,
-    #[arg[short = 'D', long = "device", help = "Devices to request for the guest"]]
+    #[arg[short = 'D', long = "device", help = "Devices to request for the zone"]]
     device: Vec<String>,
-    #[arg[short, long, help = "Environment variables set in the guest"]]
+    #[arg[short, long, help = "Environment variables set in the zone"]]
     env: Option<Vec<String>>,
     #[arg(
         short,
         long,
-        help = "Attach to the guest after guest starts, implies --wait"
+        help = "Attach to the zone after zone starts, implies --wait"
     )]
     attach: bool,
     #[arg(
         short = 'W',
         long,
-        help = "Wait for the guest to start, implied by --attach"
+        help = "Wait for the zone to start, implied by --attach"
     )]
     wait: bool,
-    #[arg(short = 'k', long, help = "OCI kernel image for guest to use")]
+    #[arg(short = 'k', long, help = "OCI kernel image for zone to use")]
     kernel: Option<String>,
-    #[arg(short = 'I', long, help = "OCI initrd image for guest to use")]
+    #[arg(short = 'I', long, help = "OCI initrd image for zone to use")]
     initrd: Option<String>,
     #[arg(short = 'w', long, help = "Working directory")]
     working_directory: Option<String>,
-    #[arg(help = "Container image for guest to use")]
+    #[arg(help = "Container image for zone to use")]
     oci: String,
     #[arg(
         allow_hyphen_values = true,
         trailing_var_arg = true,
-        help = "Command to run inside the guest"
+        help = "Command to run inside the zone"
     )]
     command: Vec<String>,
 }
@@ -117,18 +112,18 @@ impl LaunchCommand {
             None
         };
 
-        let request = CreateGuestRequest {
-            spec: Some(GuestSpec {
+        let request = CreateZoneRequest {
+            spec: Some(ZoneSpec {
                 name: self.name.unwrap_or_default(),
                 image: Some(image),
                 kernel,
                 initrd,
                 vcpus: self.cpus,
                 mem: self.mem,
-                task: Some(GuestTaskSpec {
+                task: Some(ZoneTaskSpec {
                     environment: env_map(&self.env.unwrap_or_default())
                         .iter()
-                        .map(|(key, value)| GuestTaskSpecEnvVar {
+                        .map(|(key, value)| ZoneTaskSpecEnvVar {
                             key: key.clone(),
                             value: value.clone(),
                         })
@@ -140,26 +135,26 @@ impl LaunchCommand {
                 devices: self
                     .device
                     .iter()
-                    .map(|name| GuestSpecDevice { name: name.clone() })
+                    .map(|name| ZoneSpecDevice { name: name.clone() })
                     .collect(),
             }),
         };
         let response = client
-            .create_guest(Request::new(request))
+            .create_zone(Request::new(request))
             .await?
             .into_inner();
-        let id = response.guest_id;
+        let id = response.zone_id;
 
         if self.wait || self.attach {
-            wait_guest_started(&id, events.clone()).await?;
+            wait_zone_started(&id, events.clone()).await?;
         }
 
         let code = if self.attach {
             let input = StdioConsoleStream::stdin_stream(id.clone()).await;
-            let output = client.console_data(input).await?.into_inner();
+            let output = client.attach_zone_console(input).await?.into_inner();
             let stdout_handle =
                 tokio::task::spawn(async move { StdioConsoleStream::stdout(output).await });
-            let exit_hook_task = StdioConsoleStream::guest_exit_hook(id.clone(), events).await?;
+            let exit_hook_task = StdioConsoleStream::zone_exit_hook(id.clone(), events).await?;
             select! {
                 x = stdout_handle => {
                     x??;
@@ -180,7 +175,7 @@ impl LaunchCommand {
         client: &mut ControlServiceClient<Channel>,
         image: &str,
         format: OciImageFormat,
-    ) -> Result<GuestImageSpec> {
+    ) -> Result<ZoneImageSpec> {
         let response = client
             .pull_image(PullImageRequest {
                 image: image.to_string(),
@@ -189,8 +184,8 @@ impl LaunchCommand {
             })
             .await?;
         let reply = pull_interactive_progress(response.into_inner()).await?;
-        Ok(GuestImageSpec {
-            image: Some(Image::Oci(GuestOciImageSpec {
+        Ok(ZoneImageSpec {
+            image: Some(Image::Oci(ZoneOciImageSpec {
                 digest: reply.digest,
                 format: reply.format,
             })),
@@ -198,38 +193,38 @@ impl LaunchCommand {
     }
 }
 
-async fn wait_guest_started(id: &str, events: EventStream) -> Result<()> {
+async fn wait_zone_started(id: &str, events: EventStream) -> Result<()> {
     let mut stream = events.subscribe();
     while let Ok(event) = stream.recv().await {
         match event {
-            Event::GuestChanged(changed) => {
-                let Some(guest) = changed.guest else {
+            Event::ZoneChanged(changed) => {
+                let Some(zone) = changed.zone else {
                     continue;
                 };
 
-                if guest.id != id {
+                if zone.id != id {
                     continue;
                 }
 
-                let Some(state) = guest.state else {
+                let Some(state) = zone.state else {
                     continue;
                 };
 
                 if let Some(ref error) = state.error_info {
-                    if state.status() == GuestStatus::Failed {
+                    if state.status() == ZoneStatus::Failed {
                         error!("launch failed: {}", error.message);
                         std::process::exit(1);
                     } else {
-                        error!("guest error: {}", error.message);
+                        error!("zone error: {}", error.message);
                     }
                 }
 
-                if state.status() == GuestStatus::Destroyed {
-                    error!("guest destroyed");
+                if state.status() == ZoneStatus::Destroyed {
+                    error!("zone destroyed");
                     std::process::exit(1);
                 }
 
-                if state.status() == GuestStatus::Started {
+                if state.status() == ZoneStatus::Started {
                     break;
                 }
             }

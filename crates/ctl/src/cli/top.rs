@@ -24,14 +24,14 @@ use ratatui::{
 };
 
 use crate::{
-    format::guest_status_text,
+    format::zone_status_text,
     metrics::{
         lookup_metric_value, MultiMetricCollector, MultiMetricCollectorHandle, MultiMetricState,
     },
 };
 
 #[derive(Parser)]
-#[command(about = "Dashboard for running guests")]
+#[command(about = "Dashboard for running zones")]
 pub struct TopCommand {}
 
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
@@ -46,7 +46,7 @@ impl TopCommand {
         let collector = collector.launch().await?;
         let mut tui = TopCommand::init()?;
         let mut app = TopApp {
-            metrics: MultiMetricState { guests: vec![] },
+            metrics: MultiMetricState { zones: vec![] },
             exit: false,
             table: TableState::new(),
         };
@@ -152,12 +152,12 @@ impl Widget for &mut TopApp {
 
         let mut rows = vec![];
 
-        for ms in &self.metrics.guests {
-            let Some(ref spec) = ms.guest.spec else {
+        for ms in &self.metrics.zones {
+            let Some(ref spec) = ms.zone.spec else {
                 continue;
             };
 
-            let Some(ref state) = ms.guest.state else {
+            let Some(ref state) = ms.zone.state else {
                 continue;
             };
 
@@ -176,8 +176,8 @@ impl Widget for &mut TopApp {
 
             let row = Row::new(vec![
                 spec.name.clone(),
-                ms.guest.id.clone(),
-                guest_status_text(state.status()),
+                ms.zone.id.clone(),
+                zone_status_text(state.status()),
                 memory_total.unwrap_or_default(),
                 memory_used.unwrap_or_default(),
                 memory_free.unwrap_or_default(),

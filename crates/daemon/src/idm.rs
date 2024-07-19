@@ -24,14 +24,14 @@ use tokio::{
 };
 use uuid::Uuid;
 
-use crate::glt::GuestLookupTable;
+use crate::zlt::ZoneLookupTable;
 
 type BackendFeedMap = Arc<Mutex<HashMap<u32, Sender<IdmTransportPacket>>>>;
 type ClientMap = Arc<Mutex<HashMap<u32, IdmInternalClient>>>;
 
 #[derive(Clone)]
 pub struct DaemonIdmHandle {
-    glt: GuestLookupTable,
+    glt: ZoneLookupTable,
     clients: ClientMap,
     feeds: BackendFeedMap,
     tx_sender: Sender<(u32, IdmTransportPacket)>,
@@ -72,7 +72,7 @@ pub struct DaemonIdmSnoopPacket {
 }
 
 pub struct DaemonIdm {
-    glt: GuestLookupTable,
+    glt: ZoneLookupTable,
     clients: ClientMap,
     feeds: BackendFeedMap,
     tx_sender: Sender<(u32, IdmTransportPacket)>,
@@ -84,7 +84,7 @@ pub struct DaemonIdm {
 }
 
 impl DaemonIdm {
-    pub async fn new(glt: GuestLookupTable) -> Result<DaemonIdm> {
+    pub async fn new(glt: ZoneLookupTable) -> Result<DaemonIdm> {
         let (service, tx_raw_sender, rx_receiver) =
             ChannelService::new("krata-channel".to_string(), None).await?;
         let (tx_sender, tx_receiver) = channel(100);

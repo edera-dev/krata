@@ -20,13 +20,13 @@ use xenplatform::domain::BaseDomainConfig;
 use crate::cfgblk::ConfigBlock;
 use crate::RuntimeContext;
 
-use super::{GuestInfo, GuestState};
+use super::{ZoneInfo, ZoneState};
 
 pub use xenclient::{
     pci::PciBdf, DomainPciDevice as PciDevice, DomainPciRdmReservePolicy as PciRdmReservePolicy,
 };
 
-pub struct GuestLaunchRequest {
+pub struct ZoneLaunchRequest {
     pub format: LaunchPackedFormat,
     pub kernel: Vec<u8>,
     pub initrd: Vec<u8>,
@@ -42,11 +42,11 @@ pub struct GuestLaunchRequest {
     pub addons_image: Option<PathBuf>,
 }
 
-pub struct GuestLauncher {
+pub struct ZoneLauncher {
     pub launch_semaphore: Arc<Semaphore>,
 }
 
-impl GuestLauncher {
+impl ZoneLauncher {
     pub fn new(launch_semaphore: Arc<Semaphore>) -> Result<Self> {
         Ok(Self { launch_semaphore })
     }
@@ -54,16 +54,16 @@ impl GuestLauncher {
     pub async fn launch(
         &mut self,
         context: &RuntimeContext,
-        request: GuestLaunchRequest,
-    ) -> Result<GuestInfo> {
+        request: ZoneLaunchRequest,
+    ) -> Result<ZoneInfo> {
         let uuid = request.uuid.unwrap_or_else(Uuid::new_v4);
         let xen_name = format!("krata-{uuid}");
         let mut gateway_mac = MacAddr6::random();
         gateway_mac.set_local(true);
         gateway_mac.set_multicast(false);
-        let mut container_mac = MacAddr6::random();
-        container_mac.set_local(true);
-        container_mac.set_multicast(false);
+        let mut zone_mac = MacAddr6::random();
+        zone_mac.set_local(true);
+        zone_mac.set_multicast(false);
 
         let _launch_permit = self.launch_semaphore.acquire().await?;
         let mut ip = context.ipvendor.assign(uuid).await?;
@@ -145,7 +145,7 @@ impl GuestLauncher {
         }
         let cmdline = cmdline_options.join(" ");
 
-        let guest_mac_string = container_mac.to_string().replace('-', ":");
+        let zone_mac_string = zone_mac.to_string().replace('-', ":");
         let gateway_mac_string = gateway_mac.to_string().replace('-', ":");
 
         let mut disks = vec![
@@ -191,16 +191,16 @@ impl GuestLauncher {
             ("krata/uuid".to_string(), uuid.to_string()),
             ("krata/loops".to_string(), loops.join(",")),
             (
-                "krata/network/guest/ipv4".to_string(),
+                "krata/network/zone/ipv4".to_string(),
                 format!("{}/{}", ip.ipv4, ip.ipv4_prefix),
             ),
             (
-                "krata/network/guest/ipv6".to_string(),
+                "krata/network/zone/ipv6".to_string(),
                 format!("{}/{}", ip.ipv6, ip.ipv6_prefix),
             ),
             (
-                "krata/network/guest/mac".to_string(),
-                guest_mac_string.clone(),
+                "krata/network/zone/mac".to_string(),
+                zone_mac_string.clone(),
             ),
             (
                 "krata/network/gateway/ipv4".to_string(),
@@ -240,7 +240,7 @@ impl GuestLauncher {
                 initialized: false,
             }],
             vifs: vec![DomainNetworkInterface {
-                mac: guest_mac_string.clone(),
+                mac: zone_mac_string.clone(),
                 mtu: 1500,
                 bridge: None,
                 script: None,
@@ -248,20 +248,20 @@ impl GuestLauncher {
             pcis: request.pcis.clone(),
             filesystems: vec![],
             extra_keys,
-            extra_rw_paths: vec!["krata/guest".to_string()],
+            extra_rw_paths: vec!["krata/zone".to_string()],
         };
         match context.xen.create(&config).await {
             Ok(created) => {
                 ip.commit().await?;
-                Ok(GuestInfo {
+                Ok(ZoneInfo {
                     name: request.name.as_ref().map(|x| x.to_string()),
                     uuid,
                     domid: created.domid,
                     image: request.image.digest,
                     loops: vec![],
-                    guest_ipv4: Some(IpNetwork::new(IpAddr::V4(ip.ipv4), ip.ipv4_prefix)?),
-                    guest_ipv6: Some(IpNetwork::new(IpAddr::V6(ip.ipv6), ip.ipv6_prefix)?),
-                    guest_mac: Some(guest_mac_string.clone()),
+                    zone_ipv4: Some(IpNetwork::new(IpAddr::V4(ip.ipv4), ip.ipv4_prefix)?),
+                    zone_ipv6: Some(IpNetwork::new(IpAddr::V6(ip.ipv6), ip.ipv6_prefix)?),
+                    zone_mac: Some(zone_mac_string.clone()),
                     gateway_ipv4: Some(IpNetwork::new(
                         IpAddr::V4(ip.gateway_ipv4),
                         ip.ipv4_prefix,
@@ -271,7 +271,7 @@ impl GuestLauncher {
                         ip.ipv6_prefix,
                     )?),
                     gateway_mac: Some(gateway_mac_string.clone()),
-                    state: GuestState { exit_code: None },
+                    state: ZoneState { exit_code: None },
                 })
             }
             Err(error) => {

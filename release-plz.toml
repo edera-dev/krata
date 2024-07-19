@@ -14,7 +14,7 @@ changelog_path = "./CHANGELOG.md"
 changelog_include = [
     "krata-daemon",
     "krata-ctl",
-    "krata-guest",
+    "krata-zone",
     "krata-network",
     "krata-runtime",
     "krata-oci",

@@ -7,7 +7,7 @@ use hbridge::HostBridge;
 use krata::{
     client::ControlClientProvider,
     dial::ControlDialAddress,
-    v1::{common::Guest, control::control_service_client::ControlServiceClient},
+    v1::{common::Zone, control::control_service_client::ControlServiceClient},
 };
 use log::warn;
 use tokio::{task::JoinHandle, time::sleep};
@@ -33,7 +33,7 @@ pub const EXTRA_MTU: usize = 20;
 
 pub struct NetworkService {
     pub control: ControlServiceClient<Channel>,
-    pub guests: HashMap<Uuid, Guest>,
+    pub zones: HashMap<Uuid, Zone>,
     pub backends: HashMap<Uuid, JoinHandle<()>>,
     pub bridge: VirtualBridge,
     pub hbridge: HostBridge,
@@ -47,7 +47,7 @@ impl NetworkService {
             HostBridge::new(HOST_BRIDGE_MTU + EXTRA_MTU, "krata0".to_string(), &bridge).await?;
         Ok(NetworkService {
             control,
-            guests: HashMap::new(),
+            zones: HashMap::new(),
             backends: HashMap::new(),
             bridge,
             hbridge,
@@ -99,7 +99,7 @@ impl NetworkService {
 
                 Err((metadata, error)) => {
                     warn!(
-                        "failed to launch network backend for krata guest {}: {}",
+                        "failed to launch network backend for krata zone {}: {}",
                         metadata.uuid, error
                     );
                     failed.push(metadata.uuid);

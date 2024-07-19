@@ -3,7 +3,7 @@ use async_stream::stream;
 use clap::Parser;
 use krata::{
     events::EventStream,
-    v1::control::{control_service_client::ControlServiceClient, ConsoleDataRequest},
+    v1::control::{control_service_client::ControlServiceClient, ZoneConsoleRequest},
 };
 
 use tokio::select;
@@ -12,15 +12,15 @@ use tonic::transport::Channel;
 
 use crate::console::StdioConsoleStream;
 
-use super::resolve_guest;
+use super::resolve_zone;
 
 #[derive(Parser)]
-#[command(about = "View the logs of a guest")]
+#[command(about = "View the logs of a zone")]
 pub struct LogsCommand {
-    #[arg(short, long, help = "Follow output from the guest")]
+    #[arg(short, long, help = "Follow output from the zone")]
     follow: bool,
-    #[arg(help = "Guest to show logs for, either the name or the uuid")]
-    guest: String,
+    #[arg(help = "Zone to show logs for, either the name or the uuid")]
+    zone: String,
 }
 
 impl LogsCommand {
@@ -29,22 +29,22 @@ impl LogsCommand {
         mut client: ControlServiceClient<Channel>,
         events: EventStream,
     ) -> Result<()> {
-        let guest_id: String = resolve_guest(&mut client, &self.guest).await?;
-        let guest_id_stream = guest_id.clone();
+        let zone_id: String = resolve_zone(&mut client, &self.zone).await?;
+        let zone_id_stream = zone_id.clone();
         let follow = self.follow;
         let input = stream! {
-            yield ConsoleDataRequest { guest_id: guest_id_stream, data: Vec::new() };
+            yield ZoneConsoleRequest { zone_id: zone_id_stream, data: Vec::new() };
             if follow {
-                let mut pending = pending::<ConsoleDataRequest>();
+                let mut pending = pending::<ZoneConsoleRequest>();
                 while let Some(x) = pending.next().await {
                     yield x;
                 }
             }
         };
-        let output = client.console_data(input).await?.into_inner();
+        let output = client.attach_zone_console(input).await?.into_inner();
         let stdout_handle =
             tokio::task::spawn(async move { StdioConsoleStream::stdout(output).await });
-        let exit_hook_task = StdioConsoleStream::guest_exit_hook(guest_id.clone(), events).await?;
+        let exit_hook_task = StdioConsoleStream::zone_exit_hook(zone_id.clone(), events).await?;
         let code = select! {
             x = stdout_handle => {
                 x??;

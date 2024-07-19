@@ -2,10 +2,10 @@ use anyhow::Result;
 use krata::{
     events::EventStream,
     v1::{
-        common::Guest,
+        common::Zone,
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
-            ListGuestsRequest,
+            ListZonesRequest,
         },
     },
 };
@@ -33,7 +33,7 @@ pub struct NetworkSide {
 pub struct NetworkMetadata {
     pub domid: u32,
     pub uuid: Uuid,
-    pub guest: NetworkSide,
+    pub zone: NetworkSide,
     pub gateway: NetworkSide,
 }
 
@@ -60,23 +60,23 @@ impl AutoNetworkWatcher {
     }
 
     pub async fn read(&mut self) -> Result<Vec<NetworkMetadata>> {
-        let mut all_guests: HashMap<Uuid, Guest> = HashMap::new();
-        for guest in self
+        let mut all_zones: HashMap<Uuid, Zone> = HashMap::new();
+        for zone in self
             .control
-            .list_guests(ListGuestsRequest {})
+            .list_zones(ListZonesRequest {})
             .await?
             .into_inner()
-            .guests
+            .zones
         {
-            let Ok(uuid) = Uuid::from_str(&guest.id) else {
+            let Ok(uuid) = Uuid::from_str(&zone.id) else {
                 continue;
             };
-            all_guests.insert(uuid, guest);
+            all_zones.insert(uuid, zone);
         }
 
         let mut networks: Vec<NetworkMetadata> = Vec::new();
-        for (uuid, guest) in &all_guests {
-            let Some(ref state) = guest.state else {
+        for (uuid, zone) in &all_zones {
+            let Some(ref state) = zone.state else {
                 continue;
             };
 
@@ -88,15 +88,15 @@ impl AutoNetworkWatcher {
                 continue;
             };
 
-            let Ok(guest_ipv4_cidr) = Ipv4Cidr::from_str(&network.guest_ipv4) else {
+            let Ok(zone_ipv4_cidr) = Ipv4Cidr::from_str(&network.zone_ipv4) else {
                 continue;
             };
 
-            let Ok(guest_ipv6_cidr) = Ipv6Cidr::from_str(&network.guest_ipv6) else {
+            let Ok(zone_ipv6_cidr) = Ipv6Cidr::from_str(&network.zone_ipv6) else {
                 continue;
             };
 
-            let Ok(guest_mac) = EthernetAddress::from_str(&network.guest_mac) else {
+            let Ok(zone_mac) = EthernetAddress::from_str(&network.zone_mac) else {
                 continue;
             };
 
@@ -115,10 +115,10 @@ impl AutoNetworkWatcher {
             networks.push(NetworkMetadata {
                 domid: state.domid,
                 uuid: *uuid,
-                guest: NetworkSide {
-                    ipv4: guest_ipv4_cidr,
-                    ipv6: guest_ipv6_cidr,
-                    mac: guest_mac,
+                zone: NetworkSide {
+                    ipv4: zone_ipv4_cidr,
+                    ipv6: zone_ipv6_cidr,
+                    mac: zone_mac,
                 },
                 gateway: NetworkSide {
                     ipv4: gateway_ipv4_cidr,
@@ -175,7 +175,7 @@ impl AutoNetworkWatcher {
         loop {
             select! {
                 x = receiver.recv() => match x {
-                    Ok(Event::GuestChanged(_)) => {
+                    Ok(Event::ZoneChanged(_)) => {
                         break;
                     },
 

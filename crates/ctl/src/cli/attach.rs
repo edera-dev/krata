@@ -7,13 +7,13 @@ use tonic::transport::Channel;
 
 use crate::console::StdioConsoleStream;
 
-use super::resolve_guest;
+use super::resolve_zone;
 
 #[derive(Parser)]
-#[command(about = "Attach to the guest console")]
+#[command(about = "Attach to the zone console")]
 pub struct AttachCommand {
-    #[arg(help = "Guest to attach to, either the name or the uuid")]
-    guest: String,
+    #[arg(help = "Zone to attach to, either the name or the uuid")]
+    zone: String,
 }
 
 impl AttachCommand {
@@ -22,12 +22,12 @@ impl AttachCommand {
         mut client: ControlServiceClient<Channel>,
         events: EventStream,
     ) -> Result<()> {
-        let guest_id: String = resolve_guest(&mut client, &self.guest).await?;
-        let input = StdioConsoleStream::stdin_stream(guest_id.clone()).await;
-        let output = client.console_data(input).await?.into_inner();
+        let zone_id: String = resolve_zone(&mut client, &self.zone).await?;
+        let input = StdioConsoleStream::stdin_stream(zone_id.clone()).await;
+        let output = client.attach_zone_console(input).await?.into_inner();
         let stdout_handle =
             tokio::task::spawn(async move { StdioConsoleStream::stdout(output).await });
-        let exit_hook_task = StdioConsoleStream::guest_exit_hook(guest_id.clone(), events).await?;
+        let exit_hook_task = StdioConsoleStream::zone_exit_hook(zone_id.clone(), events).await?;
         let code = select! {
             x = stdout_handle => {
                 x??;

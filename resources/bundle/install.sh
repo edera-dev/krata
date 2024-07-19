@@ -30,9 +30,9 @@ chmod +x /usr/sbin/kratad
 chmod +x /usr/sbin/kratanet
 chmod +x /usr/bin/kratactl
 
-mkdir -p /var/lib/krata /usr/share/krata/guest
-cp kernel /usr/share/krata/guest/kernel
-cp initrd /usr/share/krata/guest/initrd
+mkdir -p /var/lib/krata /usr/share/krata/zone
+cp kernel /usr/share/krata/zone/kernel
+cp initrd /usr/share/krata/zone/initrd
 
 systemctl daemon-reload
 systemctl enable kratad.service kratanet.service

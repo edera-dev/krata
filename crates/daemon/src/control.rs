@@ -7,16 +7,16 @@ use krata::{
         ExecStreamRequestStdin, ExecStreamRequestUpdate, MetricsRequest, Request as IdmRequest,
     },
     v1::{
-        common::{Guest, GuestState, GuestStatus, OciImageFormat},
+        common::{OciImageFormat, Zone, ZoneState, ZoneStatus},
         control::{
-            control_service_server::ControlService, ConsoleDataReply, ConsoleDataRequest,
-            CreateGuestReply, CreateGuestRequest, DestroyGuestReply, DestroyGuestRequest,
-            DeviceInfo, ExecGuestReply, ExecGuestRequest, HostCpuTopologyInfo,
-            HostCpuTopologyReply, HostCpuTopologyRequest, HostPowerManagementPolicy,
-            IdentifyHostReply, IdentifyHostRequest, ListDevicesReply, ListDevicesRequest,
-            ListGuestsReply, ListGuestsRequest, PullImageReply, PullImageRequest,
-            ReadGuestMetricsReply, ReadGuestMetricsRequest, ResolveGuestReply, ResolveGuestRequest,
-            SnoopIdmReply, SnoopIdmRequest, WatchEventsReply, WatchEventsRequest,
+            control_service_server::ControlService, CreateZoneReply, CreateZoneRequest,
+            DestroyZoneReply, DestroyZoneRequest, DeviceInfo, ExecZoneReply, ExecZoneRequest,
+            HostCpuTopologyInfo, HostCpuTopologyReply, HostCpuTopologyRequest,
+            HostPowerManagementPolicy, IdentifyHostReply, IdentifyHostRequest, ListDevicesReply,
+            ListDevicesRequest, ListZonesReply, ListZonesRequest, PullImageReply, PullImageRequest,
+            ReadZoneMetricsReply, ReadZoneMetricsRequest, ResolveZoneReply, ResolveZoneRequest,
+            SnoopIdmReply, SnoopIdmRequest, WatchEventsReply, WatchEventsRequest, ZoneConsoleReply,
+            ZoneConsoleRequest,
         },
     },
 };
@@ -37,9 +37,9 @@ use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
 use crate::{
-    command::DaemonCommand, console::DaemonConsoleHandle, db::GuestStore,
-    devices::DaemonDeviceManager, event::DaemonEventContext, glt::GuestLookupTable,
-    idm::DaemonIdmHandle, metrics::idm_metric_to_api, oci::convert_oci_progress,
+    command::DaemonCommand, console::DaemonConsoleHandle, db::ZoneStore,
+    devices::DaemonDeviceManager, event::DaemonEventContext, idm::DaemonIdmHandle,
+    metrics::idm_metric_to_api, oci::convert_oci_progress, zlt::ZoneLookupTable,
 };
 
 pub struct ApiError {
@@ -62,13 +62,13 @@ impl From<ApiError> for Status {
 
 #[derive(Clone)]
 pub struct DaemonControlService {
-    glt: GuestLookupTable,
+    glt: ZoneLookupTable,
     devices: DaemonDeviceManager,
     events: DaemonEventContext,
     console: DaemonConsoleHandle,
     idm: DaemonIdmHandle,
-    guests: GuestStore,
-    guest_reconciler_notify: Sender<Uuid>,
+    zones: ZoneStore,
+    zone_reconciler_notify: Sender<Uuid>,
     packer: OciPackerService,
     runtime: Runtime,
 }
@@ -76,13 +76,13 @@ pub struct DaemonControlService {
 impl DaemonControlService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        glt: GuestLookupTable,
+        glt: ZoneLookupTable,
         devices: DaemonDeviceManager,
         events: DaemonEventContext,
         console: DaemonConsoleHandle,
         idm: DaemonIdmHandle,
-        guests: GuestStore,
-        guest_reconciler_notify: Sender<Uuid>,
+        zones: ZoneStore,
+        zone_reconciler_notify: Sender<Uuid>,
         packer: OciPackerService,
         runtime: Runtime,
     ) -> Self {
@@ -92,8 +92,8 @@ impl DaemonControlService {
             events,
             console,
             idm,
-            guests,
-            guest_reconciler_notify,
+            zones,
+            zone_reconciler_notify,
             packer,
             runtime,
         }
@@ -102,7 +102,7 @@ impl DaemonControlService {
 
 enum ConsoleDataSelect {
     Read(Option<Vec<u8>>),
-    Write(Option<Result<ConsoleDataRequest, tonic::Status>>),
+    Write(Option<Result<ZoneConsoleRequest, Status>>),
 }
 
 enum PullImageSelect {
@@ -112,11 +112,11 @@ enum PullImageSelect {
 
 #[tonic::async_trait]
 impl ControlService for DaemonControlService {
-    type ExecGuestStream =
-        Pin<Box<dyn Stream<Item = Result<ExecGuestReply, Status>> + Send + 'static>>;
+    type ExecZoneStream =
+        Pin<Box<dyn Stream<Item = Result<ExecZoneReply, Status>> + Send + 'static>>;
 
-    type ConsoleDataStream =
-        Pin<Box<dyn Stream<Item = Result<ConsoleDataReply, Status>> + Send + 'static>>;
+    type AttachZoneConsoleStream =
+        Pin<Box<dyn Stream<Item = Result<ZoneConsoleReply, Status>> + Send + 'static>>;
 
     type PullImageStream =
         Pin<Box<dyn Stream<Item = Result<PullImageReply, Status>> + Send + 'static>>;
@@ -139,25 +139,25 @@ impl ControlService for DaemonControlService {
         }))
     }
 
-    async fn create_guest(
+    async fn create_zone(
         &self,
-        request: Request<CreateGuestRequest>,
-    ) -> Result<Response<CreateGuestReply>, Status> {
+        request: Request<CreateZoneRequest>,
+    ) -> Result<Response<CreateZoneReply>, Status> {
         let request = request.into_inner();
         let Some(spec) = request.spec else {
             return Err(ApiError {
-                message: "guest spec not provided".to_string(),
+                message: "zone spec not provided".to_string(),
             }
             .into());
         };
         let uuid = Uuid::new_v4();
-        self.guests
+        self.zones
             .update(
                 uuid,
-                Guest {
+                Zone {
                     id: uuid.to_string(),
-                    state: Some(GuestState {
-                        status: GuestStatus::Starting.into(),
+                    state: Some(ZoneState {
+                        status: ZoneStatus::Starting.into(),
                         network: None,
                         exit_info: None,
                         error_info: None,
@@ -169,21 +169,21 @@ impl ControlService for DaemonControlService {
             )
             .await
             .map_err(ApiError::from)?;
-        self.guest_reconciler_notify
+        self.zone_reconciler_notify
             .send(uuid)
             .await
             .map_err(|x| ApiError {
                 message: x.to_string(),
             })?;
-        Ok(Response::new(CreateGuestReply {
-            guest_id: uuid.to_string(),
+        Ok(Response::new(CreateZoneReply {
+            zone_id: uuid.to_string(),
         }))
     }
 
-    async fn exec_guest(
+    async fn exec_zone(
         &self,
-        request: Request<Streaming<ExecGuestRequest>>,
-    ) -> Result<Response<Self::ExecGuestStream>, Status> {
+        request: Request<Streaming<ExecZoneRequest>>,
+    ) -> Result<Response<Self::ExecZoneStream>, Status> {
         let mut input = request.into_inner();
         let Some(request) = input.next().await else {
             return Err(ApiError {
@@ -200,7 +200,7 @@ impl ControlService for DaemonControlService {
             .into());
         };
 
-        let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
+        let uuid = Uuid::from_str(&request.zone_id).map_err(|error| ApiError {
             message: error.to_string(),
         })?;
         let idm = self.idm.client(uuid).await.map_err(|error| ApiError {
@@ -232,7 +232,7 @@ impl ControlService for DaemonControlService {
             loop {
                 select! {
                     x = input.next() => if let Some(update) = x {
-                        let update: Result<ExecGuestRequest, Status> = update.map_err(|error| ApiError {
+                        let update: Result<ExecZoneRequest, Status> = update.map_err(|error| ApiError {
                             message: error.to_string()
                         }.into());
 
@@ -252,7 +252,7 @@ impl ControlService for DaemonControlService {
                             let Some(IdmResponseType::ExecStream(update)) = response.response else {
                                 break;
                             };
-                            let reply = ExecGuestReply {
+                            let reply = ExecZoneReply {
                                 exited: update.exited,
                                 error: update.error,
                                 exit_code: update.exit_code,
@@ -269,80 +269,80 @@ impl ControlService for DaemonControlService {
             }
         };
 
-        Ok(Response::new(Box::pin(output) as Self::ExecGuestStream))
+        Ok(Response::new(Box::pin(output) as Self::ExecZoneStream))
     }
 
-    async fn destroy_guest(
+    async fn destroy_zone(
         &self,
-        request: Request<DestroyGuestRequest>,
-    ) -> Result<Response<DestroyGuestReply>, Status> {
+        request: Request<DestroyZoneRequest>,
+    ) -> Result<Response<DestroyZoneReply>, Status> {
         let request = request.into_inner();
-        let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
+        let uuid = Uuid::from_str(&request.zone_id).map_err(|error| ApiError {
             message: error.to_string(),
         })?;
-        let Some(mut guest) = self.guests.read(uuid).await.map_err(ApiError::from)? else {
+        let Some(mut zone) = self.zones.read(uuid).await.map_err(ApiError::from)? else {
             return Err(ApiError {
-                message: "guest not found".to_string(),
+                message: "zone not found".to_string(),
             }
             .into());
         };
 
-        guest.state = Some(guest.state.as_mut().cloned().unwrap_or_default());
+        zone.state = Some(zone.state.as_mut().cloned().unwrap_or_default());
 
-        if guest.state.as_ref().unwrap().status() == GuestStatus::Destroyed {
+        if zone.state.as_ref().unwrap().status() == ZoneStatus::Destroyed {
             return Err(ApiError {
-                message: "guest already destroyed".to_string(),
+                message: "zone already destroyed".to_string(),
             }
             .into());
         }
 
-        guest.state.as_mut().unwrap().status = GuestStatus::Destroying.into();
-        self.guests
-            .update(uuid, guest)
+        zone.state.as_mut().unwrap().status = ZoneStatus::Destroying.into();
+        self.zones
+            .update(uuid, zone)
             .await
             .map_err(ApiError::from)?;
-        self.guest_reconciler_notify
+        self.zone_reconciler_notify
             .send(uuid)
             .await
             .map_err(|x| ApiError {
                 message: x.to_string(),
             })?;
-        Ok(Response::new(DestroyGuestReply {}))
+        Ok(Response::new(DestroyZoneReply {}))
     }
 
-    async fn list_guests(
+    async fn list_zones(
         &self,
-        request: Request<ListGuestsRequest>,
-    ) -> Result<Response<ListGuestsReply>, Status> {
+        request: Request<ListZonesRequest>,
+    ) -> Result<Response<ListZonesReply>, Status> {
         let _ = request.into_inner();
-        let guests = self.guests.list().await.map_err(ApiError::from)?;
-        let guests = guests.into_values().collect::<Vec<Guest>>();
-        Ok(Response::new(ListGuestsReply { guests }))
+        let zones = self.zones.list().await.map_err(ApiError::from)?;
+        let zones = zones.into_values().collect::<Vec<Zone>>();
+        Ok(Response::new(ListZonesReply { zones }))
     }
 
-    async fn resolve_guest(
+    async fn resolve_zone(
         &self,
-        request: Request<ResolveGuestRequest>,
-    ) -> Result<Response<ResolveGuestReply>, Status> {
+        request: Request<ResolveZoneRequest>,
+    ) -> Result<Response<ResolveZoneReply>, Status> {
         let request = request.into_inner();
-        let guests = self.guests.list().await.map_err(ApiError::from)?;
-        let guests = guests
+        let zones = self.zones.list().await.map_err(ApiError::from)?;
+        let zones = zones
             .into_values()
             .filter(|x| {
                 let comparison_spec = x.spec.as_ref().cloned().unwrap_or_default();
                 (!request.name.is_empty() && comparison_spec.name == request.name)
                     || x.id == request.name
             })
-            .collect::<Vec<Guest>>();
-        Ok(Response::new(ResolveGuestReply {
-            guest: guests.first().cloned(),
+            .collect::<Vec<Zone>>();
+        Ok(Response::new(ResolveZoneReply {
+            zone: zones.first().cloned(),
         }))
     }
 
-    async fn console_data(
+    async fn attach_zone_console(
         &self,
-        request: Request<Streaming<ConsoleDataRequest>>,
-    ) -> Result<Response<Self::ConsoleDataStream>, Status> {
+        request: Request<Streaming<ZoneConsoleRequest>>,
+    ) -> Result<Response<Self::AttachZoneConsoleStream>, Status> {
         let mut input = request.into_inner();
         let Some(request) = input.next().await else {
             return Err(ApiError {
@@ -351,7 +351,7 @@ impl ControlService for DaemonControlService {
             .into());
         };
         let request = request?;
-        let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
+        let uuid = Uuid::from_str(&request.zone_id).map_err(|error| ApiError {
             message: error.to_string(),
         })?;
         let (sender, mut receiver) = channel(100);
@@ -364,7 +364,7 @@ impl ControlService for DaemonControlService {
             })?;
 
         let output = try_stream! {
-            yield ConsoleDataReply { data: console.initial.clone(), };
+            yield ZoneConsoleReply { data: console.initial.clone(), };
             loop {
                 let what = select! {
                     x = receiver.recv() => ConsoleDataSelect::Read(x),
@@ -373,7 +373,7 @@ impl ControlService for DaemonControlService {
 
                 match what {
                     ConsoleDataSelect::Read(Some(data)) => {
-                        yield ConsoleDataReply { data, };
+                        yield ZoneConsoleReply { data, };
                     },
 
                     ConsoleDataSelect::Read(None) => {
@@ -396,15 +396,17 @@ impl ControlService for DaemonControlService {
             }
         };
 
-        Ok(Response::new(Box::pin(output) as Self::ConsoleDataStream))
+        Ok(Response::new(
+            Box::pin(output) as Self::AttachZoneConsoleStream
+        ))
     }
 
-    async fn read_guest_metrics(
+    async fn read_zone_metrics(
         &self,
-        request: Request<ReadGuestMetricsRequest>,
-    ) -> Result<Response<ReadGuestMetricsReply>, Status> {
+        request: Request<ReadZoneMetricsRequest>,
+    ) -> Result<Response<ReadZoneMetricsReply>, Status> {
         let request = request.into_inner();
-        let uuid = Uuid::from_str(&request.guest_id).map_err(|error| ApiError {
+        let uuid = Uuid::from_str(&request.zone_id).map_err(|error| ApiError {
             message: error.to_string(),
         })?;
         let client = self.idm.client(uuid).await.map_err(|error| ApiError {
@@ -420,7 +422,7 @@ impl ControlService for DaemonControlService {
                 message: error.to_string(),
             })?;
 
-        let mut reply = ReadGuestMetricsReply::default();
+        let mut reply = ReadZoneMetricsReply::default();
         if let Some(IdmResponseType::Metrics(metrics)) = response.response {
             reply.root = metrics.root.map(idm_metric_to_api);
         }

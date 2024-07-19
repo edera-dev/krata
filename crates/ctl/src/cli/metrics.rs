@@ -3,8 +3,8 @@ use clap::{Parser, ValueEnum};
 use krata::{
     events::EventStream,
     v1::{
-        common::GuestMetricNode,
-        control::{control_service_client::ControlServiceClient, ReadGuestMetricsRequest},
+        common::ZoneMetricNode,
+        control::{control_service_client::ControlServiceClient, ReadZoneMetricsRequest},
     },
 };
 
@@ -12,7 +12,7 @@ use tonic::transport::Channel;
 
 use crate::format::{kv2line, metrics_flat, metrics_tree, proto2dynamic};
 
-use super::resolve_guest;
+use super::resolve_zone;
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum MetricsFormat {
@@ -24,12 +24,12 @@ enum MetricsFormat {
 }
 
 #[derive(Parser)]
-#[command(about = "Read metrics from the guest")]
+#[command(about = "Read metrics from the zone")]
 pub struct MetricsCommand {
     #[arg(short, long, default_value = "tree", help = "Output format")]
     format: MetricsFormat,
-    #[arg(help = "Guest to read metrics for, either the name or the uuid")]
-    guest: String,
+    #[arg(help = "Zone to read metrics for, either the name or the uuid")]
+    zone: String,
 }
 
 impl MetricsCommand {
@@ -38,9 +38,9 @@ impl MetricsCommand {
         mut client: ControlServiceClient<Channel>,
         _events: EventStream,
     ) -> Result<()> {
-        let guest_id: String = resolve_guest(&mut client, &self.guest).await?;
+        let zone_id: String = resolve_zone(&mut client, &self.zone).await?;
         let root = client
-            .read_guest_metrics(ReadGuestMetricsRequest { guest_id })
+            .read_zone_metrics(ReadZoneMetricsRequest { zone_id })
             .await?
             .into_inner()
             .root
@@ -70,12 +70,12 @@ impl MetricsCommand {
         Ok(())
     }
 
-    fn print_metrics_tree(&self, root: GuestMetricNode) -> Result<()> {
+    fn print_metrics_tree(&self, root: ZoneMetricNode) -> Result<()> {
         print!("{}", metrics_tree(root));
         Ok(())
     }
 
-    fn print_key_value(&self, metrics: GuestMetricNode) -> Result<()> {
+    fn print_key_value(&self, metrics: ZoneMetricNode) -> Result<()> {
         let kvs = metrics_flat(metrics);
         println!("{}", kv2line(kvs));
         Ok(())

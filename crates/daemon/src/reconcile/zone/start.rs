@@ -6,40 +6,40 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use krata::launchcfg::LaunchPackedFormat;
-use krata::v1::common::GuestOciImageSpec;
-use krata::v1::common::{guest_image_spec::Image, Guest, GuestState, GuestStatus, OciImageFormat};
+use krata::v1::common::ZoneOciImageSpec;
+use krata::v1::common::{OciImageFormat, Zone, ZoneState, ZoneStatus};
 use krataoci::packer::{service::OciPackerService, OciPackedFormat};
 use kratart::launch::{PciBdf, PciDevice, PciRdmReservePolicy};
-use kratart::{launch::GuestLaunchRequest, Runtime};
+use kratart::{launch::ZoneLaunchRequest, Runtime};
 use log::info;
 
+use crate::config::DaemonPciDeviceRdmReservePolicy;
+use crate::devices::DaemonDeviceManager;
+use crate::{
+    reconcile::zone::{zoneinfo_to_networkstate, ZoneReconcilerResult},
+    zlt::ZoneLookupTable,
+};
+use krata::v1::common::zone_image_spec::Image;
 use tokio::fs::{self, File};
 use tokio::io::AsyncReadExt;
 use tokio_tar::Archive;
 use uuid::Uuid;
 
-use crate::config::DaemonPciDeviceRdmReservePolicy;
-use crate::devices::DaemonDeviceManager;
-use crate::{
-    glt::GuestLookupTable,
-    reconcile::guest::{guestinfo_to_networkstate, GuestReconcilerResult},
-};
-
-pub struct GuestStarter<'a> {
+pub struct ZoneStarter<'a> {
     pub devices: &'a DaemonDeviceManager,
     pub kernel_path: &'a Path,
     pub initrd_path: &'a Path,
     pub addons_path: &'a Path,
     pub packer: &'a OciPackerService,
-    pub glt: &'a GuestLookupTable,
+    pub glt: &'a ZoneLookupTable,
     pub runtime: &'a Runtime,
 }
 
-impl GuestStarter<'_> {
+impl ZoneStarter<'_> {
     pub async fn oci_spec_tar_read_file(
         &self,
         file: &Path,
-        oci: &GuestOciImageSpec,
+        oci: &ZoneOciImageSpec,
     ) -> Result<Vec<u8>> {
         if oci.format() != OciImageFormat::Tar {
             return Err(anyhow!(
@@ -75,9 +75,9 @@ impl GuestStarter<'_> {
         ))
     }
 
-    pub async fn start(&self, uuid: Uuid, guest: &mut Guest) -> Result<GuestReconcilerResult> {
-        let Some(ref spec) = guest.spec else {
-            return Err(anyhow!("guest spec not specified"));
+    pub async fn start(&self, uuid: Uuid, zone: &mut Zone) -> Result<ZoneReconcilerResult> {
+        let Some(ref spec) = zone.spec else {
+            return Err(anyhow!("zone spec not specified"));
         };
 
         let Some(ref image) = spec.image else {
@@ -100,7 +100,7 @@ impl GuestStarter<'_> {
                     OciImageFormat::Squashfs => OciPackedFormat::Squashfs,
                     OciImageFormat::Erofs => OciPackedFormat::Erofs,
                     OciImageFormat::Tar => {
-                        return Err(anyhow!("tar image format is not supported for guests"));
+                        return Err(anyhow!("tar image format is not supported for zones"));
                     }
                 },
             )
@@ -176,7 +176,7 @@ impl GuestStarter<'_> {
 
         let info = self
             .runtime
-            .launch(GuestLaunchRequest {
+            .launch(ZoneLaunchRequest {
                 format: LaunchPackedFormat::Squashfs,
                 uuid: Some(uuid),
                 name: if spec.name.is_empty() {
@@ -201,17 +201,17 @@ impl GuestStarter<'_> {
             })
             .await?;
         self.glt.associate(uuid, info.domid).await;
-        info!("started guest {}", uuid);
-        guest.state = Some(GuestState {
-            status: GuestStatus::Started.into(),
-            network: Some(guestinfo_to_networkstate(&info)),
+        info!("started zone {}", uuid);
+        zone.state = Some(ZoneState {
+            status: ZoneStatus::Started.into(),
+            network: Some(zoneinfo_to_networkstate(&info)),
             exit_info: None,
             error_info: None,
             host: self.glt.host_uuid().to_string(),
             domid: info.domid,
         });
         success.store(true, Ordering::Release);
-        Ok(GuestReconcilerResult::Changed { rerun: false })
+        Ok(ZoneReconcilerResult::Changed { rerun: false })
     }
 }
 
