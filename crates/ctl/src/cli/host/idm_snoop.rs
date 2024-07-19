@@ -15,7 +15,7 @@ use tonic::transport::Channel;
 use crate::format::{kv2line, proto2dynamic, value2kv};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
-enum IdmSnoopFormat {
+enum HostIdmSnoopFormat {
     Simple,
     Jsonl,
     KeyValue,
@@ -23,12 +23,12 @@ enum IdmSnoopFormat {
 
 #[derive(Parser)]
 #[command(about = "Snoop on the IDM bus")]
-pub struct IdmSnoopCommand {
+pub struct HostIdmSnoopCommand {
     #[arg(short, long, default_value = "simple", help = "Output format")]
-    format: IdmSnoopFormat,
+    format: HostIdmSnoopFormat,
 }
 
-impl IdmSnoopCommand {
+impl HostIdmSnoopCommand {
     pub async fn run(
         self,
         mut client: ControlServiceClient<Channel>,
@@ -43,16 +43,16 @@ impl IdmSnoopCommand {
             };
 
             match self.format {
-                IdmSnoopFormat::Simple => {
+                HostIdmSnoopFormat::Simple => {
                     self.print_simple(line)?;
                 }
 
-                IdmSnoopFormat::Jsonl => {
+                HostIdmSnoopFormat::Jsonl => {
                     let encoded = serde_json::to_string(&line)?;
                     println!("{}", encoded.trim());
                 }
 
-                IdmSnoopFormat::KeyValue => {
+                HostIdmSnoopFormat::KeyValue => {
                     self.print_key_value(line)?;
                 }
             }

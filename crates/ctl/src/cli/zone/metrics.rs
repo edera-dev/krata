@@ -12,10 +12,10 @@ use tonic::transport::Channel;
 
 use crate::format::{kv2line, metrics_flat, metrics_tree, proto2dynamic};
 
-use super::resolve_zone;
+use crate::cli::resolve_zone;
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
-enum MetricsFormat {
+enum ZoneMetricsFormat {
     Tree,
     Json,
     JsonPretty,
@@ -25,14 +25,14 @@ enum MetricsFormat {
 
 #[derive(Parser)]
 #[command(about = "Read metrics from the zone")]
-pub struct MetricsCommand {
+pub struct ZoneMetricsCommand {
     #[arg(short, long, default_value = "tree", help = "Output format")]
-    format: MetricsFormat,
+    format: ZoneMetricsFormat,
     #[arg(help = "Zone to read metrics for, either the name or the uuid")]
     zone: String,
 }
 
-impl MetricsCommand {
+impl ZoneMetricsCommand {
     pub async fn run(
         self,
         mut client: ControlServiceClient<Channel>,
@@ -46,15 +46,15 @@ impl MetricsCommand {
             .root
             .unwrap_or_default();
         match self.format {
-            MetricsFormat::Tree => {
+            ZoneMetricsFormat::Tree => {
                 self.print_metrics_tree(root)?;
             }
 
-            MetricsFormat::Json | MetricsFormat::JsonPretty | MetricsFormat::Yaml => {
+            ZoneMetricsFormat::Json | ZoneMetricsFormat::JsonPretty | ZoneMetricsFormat::Yaml => {
                 let value = serde_json::to_value(proto2dynamic(root)?)?;
-                let encoded = if self.format == MetricsFormat::JsonPretty {
+                let encoded = if self.format == ZoneMetricsFormat::JsonPretty {
                     serde_json::to_string_pretty(&value)?
-                } else if self.format == MetricsFormat::Yaml {
+                } else if self.format == ZoneMetricsFormat::Yaml {
                     serde_yaml::to_string(&value)?
                 } else {
                     serde_json::to_string(&value)?
@@ -62,7 +62,7 @@ impl MetricsCommand {
                 println!("{}", encoded.trim());
             }
 
-            MetricsFormat::KeyValue => {
+            ZoneMetricsFormat::KeyValue => {
                 self.print_key_value(root)?;
             }
         }

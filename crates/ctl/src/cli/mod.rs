@@ -1,35 +1,20 @@
-pub mod attach;
-pub mod cpu_topology;
-pub mod destroy;
-pub mod exec;
-pub mod identify_host;
-pub mod idm_snoop;
-pub mod launch;
-pub mod list;
-pub mod list_devices;
-pub mod logs;
-pub mod metrics;
-pub mod pull;
-pub mod resolve;
-pub mod top;
-pub mod watch;
+pub mod device;
+pub mod host;
+pub mod image;
+pub mod zone;
 
+use crate::cli::device::DeviceCommand;
+use crate::cli::host::HostCommand;
+use crate::cli::image::ImageCommand;
+use crate::cli::zone::ZoneCommand;
 use anyhow::{anyhow, Result};
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use krata::{
     client::ControlClientProvider,
     events::EventStream,
     v1::control::{control_service_client::ControlServiceClient, ResolveZoneRequest},
 };
 use tonic::{transport::Channel, Request};
-
-use self::{
-    attach::AttachCommand, cpu_topology::CpuTopologyCommand, destroy::DestroyCommand,
-    exec::ExecCommand, identify_host::IdentifyHostCommand, idm_snoop::IdmSnoopCommand,
-    launch::LaunchCommand, list::ListCommand, list_devices::ListDevicesCommand, logs::LogsCommand,
-    metrics::MetricsCommand, pull::PullCommand, resolve::ResolveCommand, top::TopCommand,
-    watch::WatchCommand,
-};
 
 #[derive(Parser)]
 #[command(version, about = "Control the krata isolation engine")]
@@ -43,26 +28,15 @@ pub struct ControlCommand {
     connection: String,
 
     #[command(subcommand)]
-    command: Commands,
+    command: ControlCommands,
 }
 
-#[derive(Subcommand)]
-pub enum Commands {
-    Launch(LaunchCommand),
-    Destroy(DestroyCommand),
-    List(ListCommand),
-    ListDevices(ListDevicesCommand),
-    Attach(AttachCommand),
-    Pull(PullCommand),
-    Logs(LogsCommand),
-    Watch(WatchCommand),
-    Resolve(ResolveCommand),
-    Metrics(MetricsCommand),
-    IdmSnoop(IdmSnoopCommand),
-    Top(TopCommand),
-    IdentifyHost(IdentifyHostCommand),
-    Exec(ExecCommand),
-    CpuTopology(CpuTopologyCommand),
+#[derive(Parser)]
+pub enum ControlCommands {
+    Zone(ZoneCommand),
+    Image(ImageCommand),
+    Device(DeviceCommand),
+    Host(HostCommand),
 }
 
 impl ControlCommand {
@@ -71,67 +45,14 @@ impl ControlCommand {
         let events = EventStream::open(client.clone()).await?;
 
         match self.command {
-            Commands::Launch(launch) => {
-                launch.run(client, events).await?;
-            }
+            ControlCommands::Zone(zone) => zone.run(client, events).await,
 
-            Commands::Destroy(destroy) => {
-                destroy.run(client, events).await?;
-            }
+            ControlCommands::Image(image) => image.run(client, events).await,
 
-            Commands::Attach(attach) => {
-                attach.run(client, events).await?;
-            }
+            ControlCommands::Device(device) => device.run(client, events).await,
 
-            Commands::Logs(logs) => {
-                logs.run(client, events).await?;
-            }
-
-            Commands::List(list) => {
-                list.run(client, events).await?;
-            }
-
-            Commands::Watch(watch) => {
-                watch.run(events).await?;
-            }
-
-            Commands::Resolve(resolve) => {
-                resolve.run(client).await?;
-            }
-
-            Commands::Metrics(metrics) => {
-                metrics.run(client, events).await?;
-            }
-
-            Commands::IdmSnoop(snoop) => {
-                snoop.run(client, events).await?;
-            }
-
-            Commands::Top(top) => {
-                top.run(client, events).await?;
-            }
-
-            Commands::Pull(pull) => {
-                pull.run(client).await?;
-            }
-
-            Commands::IdentifyHost(identify) => {
-                identify.run(client).await?;
-            }
-
-            Commands::Exec(exec) => {
-                exec.run(client).await?;
-            }
-
-            Commands::ListDevices(list) => {
-                list.run(client, events).await?;
-            }
-
-            Commands::CpuTopology(cpu_topology) => {
-                cpu_topology.run(client).await?;
-            }
+            ControlCommands::Host(snoop) => snoop.run(client, events).await,
         }
-        Ok(())
     }
 }
 

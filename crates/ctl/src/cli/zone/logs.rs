@@ -12,18 +12,18 @@ use tonic::transport::Channel;
 
 use crate::console::StdioConsoleStream;
 
-use super::resolve_zone;
+use crate::cli::resolve_zone;
 
 #[derive(Parser)]
 #[command(about = "View the logs of a zone")]
-pub struct LogsCommand {
+pub struct ZoneLogsCommand {
     #[arg(short, long, help = "Follow output from the zone")]
     follow: bool,
     #[arg(help = "Zone to show logs for, either the name or the uuid")]
     zone: String,
 }
 
-impl LogsCommand {
+impl ZoneLogsCommand {
     pub async fn run(
         self,
         mut client: ControlServiceClient<Channel>,

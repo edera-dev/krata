@@ -6,9 +6,9 @@ use tonic::{transport::Channel, Request};
 
 #[derive(Parser)]
 #[command(about = "Identify information about the host")]
-pub struct IdentifyHostCommand {}
+pub struct HostIdentifyCommand {}
 
-impl IdentifyHostCommand {
+impl HostIdentifyCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let response = client
             .identify_host(Request::new(IdentifyHostRequest {}))

@@ -29,7 +29,7 @@ pub enum LaunchImageFormat {
 
 #[derive(Parser)]
 #[command(about = "Launch a new zone")]
-pub struct LaunchCommand {
+pub struct ZoneLaunchCommand {
     #[arg(long, default_value = "squashfs", help = "Image format")]
     image_format: LaunchImageFormat,
     #[arg(long, help = "Overwrite image cache on pull")]
@@ -77,7 +77,7 @@ pub struct LaunchCommand {
     command: Vec<String>,
 }
 
-impl LaunchCommand {
+impl ZoneLaunchCommand {
     pub async fn run(
         self,
         mut client: ControlServiceClient<Channel>,

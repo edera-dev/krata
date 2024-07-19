@@ -7,16 +7,16 @@ use tonic::transport::Channel;
 
 use crate::console::StdioConsoleStream;
 
-use super::resolve_zone;
+use crate::cli::resolve_zone;
 
 #[derive(Parser)]
 #[command(about = "Attach to the zone console")]
-pub struct AttachCommand {
+pub struct ZoneAttachCommand {
     #[arg(help = "Zone to attach to, either the name or the uuid")]
     zone: String,
 }
 
-impl AttachCommand {
+impl ZoneAttachCommand {
     pub async fn run(
         self,
         mut client: ControlServiceClient<Channel>,

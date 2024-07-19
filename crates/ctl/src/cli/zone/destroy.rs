@@ -18,7 +18,7 @@ use crate::cli::resolve_zone;
 
 #[derive(Parser)]
 #[command(about = "Destroy a zone")]
-pub struct DestroyCommand {
+pub struct ZoneDestroyCommand {
     #[arg(
         short = 'W',
         long,
@@ -29,7 +29,7 @@ pub struct DestroyCommand {
     zone: String,
 }
 
-impl DestroyCommand {
+impl ZoneDestroyCommand {
     pub async fn run(
         self,
         mut client: ControlServiceClient<Channel>,
