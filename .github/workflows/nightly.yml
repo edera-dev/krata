@@ -17,7 +17,7 @@ jobs:
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
       CI_NEEDS_FPM: "1"
-    name: nightly full build ${{ matrix.arch }}
+    name: nightly full build linux-${{ matrix.arch }}
     steps:
     - name: harden runner
       uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1

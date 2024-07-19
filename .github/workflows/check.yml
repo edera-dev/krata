@@ -136,7 +136,7 @@ jobs:
         - aarch64
     env:
       TARGET_ARCH: "${{ matrix.arch }}"
-    name: zone initrd ${{ matrix.arch }}
+    name: zone initrd linux-${{ matrix.arch }}
     steps:
     - name: harden runner
       uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
