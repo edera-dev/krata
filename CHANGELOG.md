@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.14](https://github.com/edera-dev/krata/compare/v0.0.13...v0.0.14) - 2024-07-19
+
+### Other
+- update Cargo.toml dependencies
+
 ## [0.0.13](https://github.com/edera-dev/krata/compare/v0.0.12...v0.0.13) - 2024-07-19
 
 ### Added
