@@ -156,11 +156,17 @@ jobs:
       with:
         file: ./images/Dockerfile.${{ matrix.component }}
         platforms: linux/amd64,linux/aarch64
-        tags: "ghcr.io/edera-dev/${{ matrix.component }}:${{ steps.version.outputs.KRATA_VERSION }}"
+        tags: "ghcr.io/edera-dev/${{ matrix.component }}:${{ steps.version.outputs.KRATA_VERSION }},ghcr.io/edera-dev/${{ matrix.component }}:latest"
         push: true
-    - name: cosign sign ${{ matrix.component }}
+    - name: cosign sign ${{ matrix.component }}:${{ steps.version.outputs.KRATA_VERSION }}
       run: cosign sign --yes "${TAGS}@${DIGEST}"
       env:
         DIGEST: "${{ steps.push.outputs.digest }}"
         TAGS: "ghcr.io/edera-dev/${{ matrix.component }}:${{ steps.version.outputs.KRATA_VERSION }}"
+        COSIGN_EXPERIMENTAL: "true"
+    - name: cosign sign ${{ matrix.component }}:latest
+      run: cosign sign --yes "${TAGS}@${DIGEST}"
+      env:
+        DIGEST: "${{ steps.push.outputs.digest }}"
+        TAGS: "ghcr.io/edera-dev/${{ matrix.component }}:latest"
         COSIGN_EXPERIMENTAL: "true"
