@@ -1,19 +1,21 @@
 use std::collections::HashMap;
 use std::fs;
-use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
-use ipnetwork::IpNetwork;
+use tokio::sync::Semaphore;
+use uuid::Uuid;
+
 use krata::launchcfg::{
     LaunchInfo, LaunchNetwork, LaunchNetworkIpv4, LaunchNetworkIpv6, LaunchNetworkResolver,
     LaunchPackedFormat, LaunchRoot,
 };
 use krataoci::packer::OciPackedImage;
-use tokio::sync::Semaphore;
-use uuid::Uuid;
+pub use xenclient::{
+    pci::PciBdf, DomainPciDevice as PciDevice, DomainPciRdmReservePolicy as PciRdmReservePolicy,
+};
 use xenclient::{DomainChannel, DomainConfig, DomainDisk, DomainNetworkInterface};
 use xenplatform::domain::BaseDomainConfig;
 
@@ -21,10 +23,6 @@ use crate::cfgblk::ConfigBlock;
 use crate::RuntimeContext;
 
 use super::{ZoneInfo, ZoneState};
-
-pub use xenclient::{
-    pci::PciBdf, DomainPciDevice as PciDevice, DomainPciRdmReservePolicy as PciRdmReservePolicy,
-};
 
 pub struct ZoneLaunchRequest {
     pub format: LaunchPackedFormat,
@@ -40,6 +38,17 @@ pub struct ZoneLaunchRequest {
     pub debug: bool,
     pub image: OciPackedImage,
     pub addons_image: Option<PathBuf>,
+    pub network: ZoneLaunchNetwork,
+}
+
+pub struct ZoneLaunchNetwork {
+    pub ipv4: String,
+    pub ipv4_prefix: u8,
+    pub ipv6: String,
+    pub ipv6_prefix: u8,
+    pub gateway_ipv4: String,
+    pub gateway_ipv6: String,
+    pub zone_mac: MacAddr6,
 }
 
 pub struct ZoneLauncher {
@@ -58,15 +67,7 @@ impl ZoneLauncher {
     ) -> Result<ZoneInfo> {
         let uuid = request.uuid.unwrap_or_else(Uuid::new_v4);
         let xen_name = format!("krata-{uuid}");
-        let mut gateway_mac = MacAddr6::random();
-        gateway_mac.set_local(true);
-        gateway_mac.set_multicast(false);
-        let mut zone_mac = MacAddr6::random();
-        zone_mac.set_local(true);
-        zone_mac.set_multicast(false);
-
         let _launch_permit = self.launch_semaphore.acquire().await?;
-        let mut ip = context.ipvendor.assign(uuid).await?;
         let launch_config = LaunchInfo {
             root: LaunchRoot {
                 format: request.format.clone(),
@@ -81,12 +82,12 @@ impl ZoneLauncher {
             network: Some(LaunchNetwork {
                 link: "eth0".to_string(),
                 ipv4: LaunchNetworkIpv4 {
-                    address: format!("{}/{}", ip.ipv4, ip.ipv4_prefix),
-                    gateway: ip.gateway_ipv4.to_string(),
+                    address: format!("{}/{}", request.network.ipv4, request.network.ipv4_prefix),
+                    gateway: request.network.gateway_ipv4,
                 },
                 ipv6: LaunchNetworkIpv6 {
-                    address: format!("{}/{}", ip.ipv6, ip.ipv6_prefix),
-                    gateway: ip.gateway_ipv6.to_string(),
+                    address: format!("{}/{}", request.network.ipv6, request.network.ipv6_prefix),
+                    gateway: request.network.gateway_ipv6.to_string(),
                 },
                 resolver: LaunchNetworkResolver {
                     nameservers: vec![
@@ -145,8 +146,7 @@ impl ZoneLauncher {
         }
         let cmdline = cmdline_options.join(" ");
 
-        let zone_mac_string = zone_mac.to_string().replace('-', ":");
-        let gateway_mac_string = gateway_mac.to_string().replace('-', ":");
+        let zone_mac_string = request.network.zone_mac.to_string().replace('-', ":");
 
         let mut disks = vec![
             DomainDisk {
@@ -190,30 +190,6 @@ impl ZoneLauncher {
         let mut extra_keys = vec![
             ("krata/uuid".to_string(), uuid.to_string()),
             ("krata/loops".to_string(), loops.join(",")),
-            (
-                "krata/network/zone/ipv4".to_string(),
-                format!("{}/{}", ip.ipv4, ip.ipv4_prefix),
-            ),
-            (
-                "krata/network/zone/ipv6".to_string(),
-                format!("{}/{}", ip.ipv6, ip.ipv6_prefix),
-            ),
-            (
-                "krata/network/zone/mac".to_string(),
-                zone_mac_string.clone(),
-            ),
-            (
-                "krata/network/gateway/ipv4".to_string(),
-                format!("{}/{}", ip.gateway_ipv4, ip.ipv4_prefix),
-            ),
-            (
-                "krata/network/gateway/ipv6".to_string(),
-                format!("{}/{}", ip.gateway_ipv6, ip.ipv6_prefix),
-            ),
-            (
-                "krata/network/gateway/mac".to_string(),
-                gateway_mac_string.clone(),
-            ),
         ];
 
         if let Some(name) = request.name.as_ref() {
@@ -251,29 +227,14 @@ impl ZoneLauncher {
             extra_rw_paths: vec!["krata/zone".to_string()],
         };
         match context.xen.create(&config).await {
-            Ok(created) => {
-                ip.commit().await?;
-                Ok(ZoneInfo {
-                    name: request.name.as_ref().map(|x| x.to_string()),
-                    uuid,
-                    domid: created.domid,
-                    image: request.image.digest,
-                    loops: vec![],
-                    zone_ipv4: Some(IpNetwork::new(IpAddr::V4(ip.ipv4), ip.ipv4_prefix)?),
-                    zone_ipv6: Some(IpNetwork::new(IpAddr::V6(ip.ipv6), ip.ipv6_prefix)?),
-                    zone_mac: Some(zone_mac_string.clone()),
-                    gateway_ipv4: Some(IpNetwork::new(
-                        IpAddr::V4(ip.gateway_ipv4),
-                        ip.ipv4_prefix,
-                    )?),
-                    gateway_ipv6: Some(IpNetwork::new(
-                        IpAddr::V6(ip.gateway_ipv6),
-                        ip.ipv6_prefix,
-                    )?),
-                    gateway_mac: Some(gateway_mac_string.clone()),
-                    state: ZoneState { exit_code: None },
-                })
-            }
+            Ok(created) => Ok(ZoneInfo {
+                name: request.name.as_ref().map(|x| x.to_string()),
+                uuid,
+                domid: created.domid,
+                image: request.image.digest,
+                loops: vec![],
+                state: ZoneState { exit_code: None },
+            }),
             Err(error) => {
                 let _ = context.autoloop.unloop(&image_squashfs_loop.path).await;
                 let _ = context.autoloop.unloop(&cfgblk_squashfs_loop.path).await;

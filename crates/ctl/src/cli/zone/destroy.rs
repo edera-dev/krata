@@ -2,19 +2,15 @@ use anyhow::Result;
 use clap::Parser;
 use krata::{
     events::EventStream,
-    v1::{
-        common::ZoneStatus,
-        control::{
-            control_service_client::ControlServiceClient, watch_events_reply::Event,
-            DestroyZoneRequest,
-        },
+    v1::control::{
+        control_service_client::ControlServiceClient, watch_events_reply::Event, DestroyZoneRequest,
     },
 };
 
+use crate::cli::resolve_zone;
+use krata::v1::common::ZoneState;
 use log::error;
 use tonic::{transport::Channel, Request};
-
-use crate::cli::resolve_zone;
 
 #[derive(Parser)]
 #[command(about = "Destroy a zone")]
@@ -61,12 +57,12 @@ async fn wait_zone_destroyed(id: &str, events: EventStream) -> Result<()> {
             continue;
         }
 
-        let Some(state) = zone.state else {
+        let Some(status) = zone.status else {
             continue;
         };
 
-        if let Some(ref error) = state.error_info {
-            if state.status() == ZoneStatus::Failed {
+        if let Some(ref error) = status.error_status {
+            if status.state() == ZoneState::Failed {
                 error!("destroy failed: {}", error.message);
                 std::process::exit(1);
             } else {
@@ -74,7 +70,7 @@ async fn wait_zone_destroyed(id: &str, events: EventStream) -> Result<()> {
             }
         }
 
-        if state.status() == ZoneStatus::Destroyed {
+        if status.state() == ZoneState::Destroyed {
             std::process::exit(0);
         }
     }

@@ -10,6 +10,8 @@ pub struct DaemonConfig {
     pub oci: OciConfig,
     #[serde(default)]
     pub pci: DaemonPciConfig,
+    #[serde(default)]
+    pub network: DaemonNetworkConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -47,6 +49,21 @@ pub enum DaemonPciDeviceRdmReservePolicy {
     Strict,
     #[serde(rename = "relaxed")]
     Relaxed,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct DaemonNetworkConfig {
+    #[serde(default = "default_network_nameservers")]
+    pub nameservers: Vec<String>,
+}
+
+fn default_network_nameservers() -> Vec<String> {
+    vec![
+        "1.1.1.1".to_string(),
+        "1.0.0.1".to_string(),
+        "2606:4700:4700::1111".to_string(),
+        "2606:4700:4700::1001".to_string(),
+    ]
 }
 
 impl DaemonConfig {

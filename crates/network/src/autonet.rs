@@ -76,44 +76,44 @@ impl AutoNetworkWatcher {
 
         let mut networks: Vec<NetworkMetadata> = Vec::new();
         for (uuid, zone) in &all_zones {
-            let Some(ref state) = zone.state else {
+            let Some(ref status) = zone.status else {
                 continue;
             };
 
-            if state.domid == u32::MAX {
+            if status.domid == u32::MAX {
                 continue;
             }
 
-            let Some(ref network) = state.network else {
+            let Some(ref network_status) = status.network_status else {
                 continue;
             };
 
-            let Ok(zone_ipv4_cidr) = Ipv4Cidr::from_str(&network.zone_ipv4) else {
+            let Ok(zone_ipv4_cidr) = Ipv4Cidr::from_str(&network_status.zone_ipv4) else {
                 continue;
             };
 
-            let Ok(zone_ipv6_cidr) = Ipv6Cidr::from_str(&network.zone_ipv6) else {
+            let Ok(zone_ipv6_cidr) = Ipv6Cidr::from_str(&network_status.zone_ipv6) else {
                 continue;
             };
 
-            let Ok(zone_mac) = EthernetAddress::from_str(&network.zone_mac) else {
+            let Ok(zone_mac) = EthernetAddress::from_str(&network_status.zone_mac) else {
                 continue;
             };
 
-            let Ok(gateway_ipv4_cidr) = Ipv4Cidr::from_str(&network.gateway_ipv4) else {
+            let Ok(gateway_ipv4_cidr) = Ipv4Cidr::from_str(&network_status.gateway_ipv4) else {
                 continue;
             };
 
-            let Ok(gateway_ipv6_cidr) = Ipv6Cidr::from_str(&network.gateway_ipv6) else {
+            let Ok(gateway_ipv6_cidr) = Ipv6Cidr::from_str(&network_status.gateway_ipv6) else {
                 continue;
             };
 
-            let Ok(gateway_mac) = EthernetAddress::from_str(&network.gateway_mac) else {
+            let Ok(gateway_mac) = EthernetAddress::from_str(&network_status.gateway_mac) else {
                 continue;
             };
 
             networks.push(NetworkMetadata {
-                domid: state.domid,
+                domid: status.domid,
                 uuid: *uuid,
                 zone: NetworkSide {
                     ipv4: zone_ipv4_cidr,

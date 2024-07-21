@@ -5,13 +5,22 @@ use std::{
     time::Duration,
 };
 
+use self::create::ZoneCreator;
+use crate::db::ip::IpReservation;
+use crate::ip::assignment::IpAssignment;
+use crate::{
+    db::zone::ZoneStore,
+    devices::DaemonDeviceManager,
+    event::{DaemonEvent, DaemonEventContext},
+    zlt::ZoneLookupTable,
+};
 use anyhow::Result;
 use krata::v1::{
-    common::{Zone, ZoneErrorInfo, ZoneExitInfo, ZoneNetworkState, ZoneState, ZoneStatus},
+    common::{Zone, ZoneErrorStatus, ZoneExitStatus, ZoneNetworkStatus, ZoneState, ZoneStatus},
     control::ZoneChangedEvent,
 };
 use krataoci::packer::service::OciPackerService;
-use kratart::{Runtime, ZoneInfo};
+use kratart::Runtime;
 use log::{error, info, trace, warn};
 use tokio::{
     select,
@@ -24,16 +33,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-use crate::{
-    db::ZoneStore,
-    devices::DaemonDeviceManager,
-    event::{DaemonEvent, DaemonEventContext},
-    zlt::ZoneLookupTable,
-};
-
-use self::start::ZoneStarter;
-
-mod start;
+mod create;
 
 const PARALLEL_LIMIT: u32 = 5;
 
@@ -68,6 +68,7 @@ pub struct ZoneReconciler {
     tasks: Arc<Mutex<HashMap<Uuid, ZoneReconcilerEntry>>>,
     zone_reconciler_notify: Sender<Uuid>,
     zone_reconcile_lock: Arc<RwLock<()>>,
+    ip_assignment: IpAssignment,
 }
 
 impl ZoneReconciler {
@@ -83,6 +84,7 @@ impl ZoneReconciler {
         kernel_path: PathBuf,
         initrd_path: PathBuf,
         modules_path: PathBuf,
+        ip_assignment: IpAssignment,
     ) -> Result<Self> {
         Ok(Self {
             devices,
@@ -97,6 +99,7 @@ impl ZoneReconciler {
             tasks: Arc::new(Mutex::new(HashMap::new())),
             zone_reconciler_notify,
             zone_reconcile_lock: Arc::new(RwLock::with_max_readers((), PARALLEL_LIMIT)),
+            ip_assignment,
         })
     }
 
@@ -166,21 +169,21 @@ impl ZoneReconciler {
             let runtime_zone = runtime_zones.iter().find(|x| x.uuid == uuid);
             match runtime_zone {
                 None => {
-                    let mut state = stored_zone.state.as_mut().cloned().unwrap_or_default();
-                    if state.status() == ZoneStatus::Started {
-                        state.status = ZoneStatus::Starting.into();
+                    let mut status = stored_zone.status.as_mut().cloned().unwrap_or_default();
+                    if status.state() == ZoneState::Created {
+                        status.state = ZoneState::Creating.into();
                     }
-                    stored_zone.state = Some(state);
+                    stored_zone.status = Some(status);
                 }
 
                 Some(runtime) => {
                     self.zlt.associate(uuid, runtime.domid).await;
-                    let mut state = stored_zone.state.as_mut().cloned().unwrap_or_default();
+                    let mut status = stored_zone.status.as_mut().cloned().unwrap_or_default();
                     if let Some(code) = runtime.state.exit_code {
-                        state.status = ZoneStatus::Exited.into();
-                        state.exit_info = Some(ZoneExitInfo { code });
+                        status.state = ZoneState::Exited.into();
+                        status.exit_status = Some(ZoneExitStatus { code });
                     } else {
-                        state.status = ZoneStatus::Started.into();
+                        status.state = ZoneState::Created.into();
                     }
 
                     for device in &stored_zone
@@ -193,8 +196,11 @@ impl ZoneReconciler {
                         device_claims.insert(device.name.clone(), uuid);
                     }
 
-                    state.network = Some(zoneinfo_to_networkstate(runtime));
-                    stored_zone.state = Some(state);
+                    if let Some(reservation) = self.ip_assignment.retrieve(uuid).await? {
+                        status.network_status =
+                            Some(ip_reservation_to_network_status(&reservation));
+                    }
+                    stored_zone.status = Some(status);
                 }
             }
 
@@ -228,20 +234,20 @@ impl ZoneReconciler {
                 zone: Some(zone.clone()),
             }))?;
 
-        let start_status = zone.state.as_ref().map(|x| x.status()).unwrap_or_default();
-        let result = match start_status {
-            ZoneStatus::Starting => self.start(uuid, &mut zone).await,
-            ZoneStatus::Exited => self.exited(&mut zone).await,
-            ZoneStatus::Destroying => self.destroy(uuid, &mut zone).await,
+        let start_state = zone.status.as_ref().map(|x| x.state()).unwrap_or_default();
+        let result = match start_state {
+            ZoneState::Creating => self.create(uuid, &mut zone).await,
+            ZoneState::Exited => self.exited(&mut zone).await,
+            ZoneState::Destroying => self.destroy(uuid, &mut zone).await,
             _ => Ok(ZoneReconcilerResult::Unchanged),
         };
 
         let result = match result {
             Ok(result) => result,
             Err(error) => {
-                zone.state = Some(zone.state.as_mut().cloned().unwrap_or_default());
-                zone.state.as_mut().unwrap().status = ZoneStatus::Failed.into();
-                zone.state.as_mut().unwrap().error_info = Some(ZoneErrorInfo {
+                zone.status = Some(zone.status.as_mut().cloned().unwrap_or_default());
+                zone.status.as_mut().unwrap().state = ZoneState::Failed.into();
+                zone.status.as_mut().unwrap().error_status = Some(ZoneErrorStatus {
                     message: error.to_string(),
                 });
                 warn!("failed to start zone {}: {}", zone.id, error);
@@ -251,8 +257,8 @@ impl ZoneReconciler {
 
         info!("reconciled zone {}", uuid);
 
-        let status = zone.state.as_ref().map(|x| x.status()).unwrap_or_default();
-        let destroyed = status == ZoneStatus::Destroyed;
+        let state = zone.status.as_ref().map(|x| x.state()).unwrap_or_default();
+        let destroyed = state == ZoneState::Destroyed;
 
         let rerun = if let ZoneReconcilerResult::Changed { rerun } = result {
             let event = DaemonEvent::ZoneChanged(ZoneChangedEvent {
@@ -276,22 +282,23 @@ impl ZoneReconciler {
         Ok(rerun)
     }
 
-    async fn start(&self, uuid: Uuid, zone: &mut Zone) -> Result<ZoneReconcilerResult> {
-        let starter = ZoneStarter {
+    async fn create(&self, uuid: Uuid, zone: &mut Zone) -> Result<ZoneReconcilerResult> {
+        let starter = ZoneCreator {
             devices: &self.devices,
             kernel_path: &self.kernel_path,
             initrd_path: &self.initrd_path,
             addons_path: &self.addons_path,
             packer: &self.packer,
-            glt: &self.zlt,
+            ip_assignment: &self.ip_assignment,
+            zlt: &self.zlt,
             runtime: &self.runtime,
         };
-        starter.start(uuid, zone).await
+        starter.create(uuid, zone).await
     }
 
     async fn exited(&self, zone: &mut Zone) -> Result<ZoneReconcilerResult> {
-        if let Some(ref mut state) = zone.state {
-            state.set_status(ZoneStatus::Destroying);
+        if let Some(ref mut status) = zone.status {
+            status.set_state(ZoneState::Destroying);
             Ok(ZoneReconcilerResult::Changed { rerun: true })
         } else {
             Ok(ZoneReconcilerResult::Unchanged)
@@ -303,18 +310,19 @@ impl ZoneReconciler {
             trace!("failed to destroy runtime zone {}: {}", uuid, error);
         }
 
-        let domid = zone.state.as_ref().map(|x| x.domid);
+        let domid = zone.status.as_ref().map(|x| x.domid);
 
         if let Some(domid) = domid {
             self.zlt.remove(uuid, domid).await;
         }
 
         info!("destroyed zone {}", uuid);
-        zone.state = Some(ZoneState {
-            status: ZoneStatus::Destroyed.into(),
-            network: None,
-            exit_info: None,
-            error_info: None,
+        self.ip_assignment.recall(uuid).await?;
+        zone.status = Some(ZoneStatus {
+            state: ZoneState::Destroyed.into(),
+            network_status: None,
+            exit_status: None,
+            error_status: None,
             host: self.zlt.host_uuid().to_string(),
             domid: domid.unwrap_or(u32::MAX),
         });
@@ -362,13 +370,13 @@ impl ZoneReconciler {
     }
 }
 
-pub fn zoneinfo_to_networkstate(info: &ZoneInfo) -> ZoneNetworkState {
-    ZoneNetworkState {
-        zone_ipv4: info.zone_ipv4.map(|x| x.to_string()).unwrap_or_default(),
-        zone_ipv6: info.zone_ipv6.map(|x| x.to_string()).unwrap_or_default(),
-        zone_mac: info.zone_mac.as_ref().cloned().unwrap_or_default(),
-        gateway_ipv4: info.gateway_ipv4.map(|x| x.to_string()).unwrap_or_default(),
-        gateway_ipv6: info.gateway_ipv6.map(|x| x.to_string()).unwrap_or_default(),
-        gateway_mac: info.gateway_mac.as_ref().cloned().unwrap_or_default(),
+pub fn ip_reservation_to_network_status(ip: &IpReservation) -> ZoneNetworkStatus {
+    ZoneNetworkStatus {
+        zone_ipv4: format!("{}/{}", ip.ipv4, ip.ipv4_prefix),
+        zone_ipv6: format!("{}/{}", ip.ipv6, ip.ipv6_prefix),
+        zone_mac: ip.mac.to_string().replace('-', ":"),
+        gateway_ipv4: format!("{}/{}", ip.gateway_ipv4, ip.ipv4_prefix),
+        gateway_ipv6: format!("{}/{}", ip.gateway_ipv6, ip.ipv6_prefix),
+        gateway_mac: ip.gateway_mac.to_string().replace('-', ":"),
     }
 }

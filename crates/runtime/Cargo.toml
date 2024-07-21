@@ -11,7 +11,6 @@ resolver = "2"
 [dependencies]
 anyhow = { workspace = true }
 backhand = { workspace = true }
-ipnetwork = { workspace = true }
 krata = { path = "../krata", version = "^0.0.13" }
 krata-advmac = { workspace = true }
 krata-oci = { path = "../oci", version = "^0.0.13" }
