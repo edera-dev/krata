@@ -210,7 +210,7 @@ impl EventChannel {
                         }
                     }
                 }
-            };
+            }
         }
 
         Ok(())

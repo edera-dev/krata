@@ -187,7 +187,7 @@ impl AutoNetworkWatcher {
                 _ = sleep(Duration::from_secs(10)) => {
                     break;
                 }
-            };
+            }
         }
         Ok(())
     }

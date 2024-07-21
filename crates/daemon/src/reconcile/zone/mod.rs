@@ -132,7 +132,7 @@ impl ZoneReconciler {
                             error!("runtime reconciler failed: {}", error);
                         }
                     }
-                };
+                }
             }
         }))
     }

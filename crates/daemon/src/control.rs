@@ -265,7 +265,7 @@ impl ControlService for DaemonControlService {
                             break;
                         }
                     }
-                };
+                }
             }
         };
 
