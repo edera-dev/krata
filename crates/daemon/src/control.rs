@@ -1,5 +1,15 @@
+use crate::db::zone::ZoneStore;
+use crate::{
+    command::DaemonCommand, console::DaemonConsoleHandle, devices::DaemonDeviceManager,
+    event::DaemonEventContext, idm::DaemonIdmHandle, metrics::idm_metric_to_api,
+    oci::convert_oci_progress, zlt::ZoneLookupTable,
+};
 use async_stream::try_stream;
 use futures::Stream;
+use krata::v1::control::{
+    GetZoneReply, GetZoneRequest, SetHostPowerManagementPolicyReply,
+    SetHostPowerManagementPolicyRequest,
+};
 use krata::{
     idm::internal::{
         exec_stream_request_update::Update, request::Request as IdmRequestType,
@@ -10,11 +20,11 @@ use krata::{
         common::{OciImageFormat, Zone, ZoneState, ZoneStatus},
         control::{
             control_service_server::ControlService, CreateZoneReply, CreateZoneRequest,
-            DestroyZoneReply, DestroyZoneRequest, DeviceInfo, ExecZoneReply, ExecZoneRequest,
-            HostCpuTopologyInfo, HostCpuTopologyReply, HostCpuTopologyRequest,
-            HostPowerManagementPolicy, IdentifyHostReply, IdentifyHostRequest, ListDevicesReply,
+            DestroyZoneReply, DestroyZoneRequest, DeviceInfo, ExecInsideZoneReply,
+            ExecInsideZoneRequest, GetHostCpuTopologyReply, GetHostCpuTopologyRequest,
+            HostCpuTopologyInfo, HostStatusReply, HostStatusRequest, ListDevicesReply,
             ListDevicesRequest, ListZonesReply, ListZonesRequest, PullImageReply, PullImageRequest,
-            ReadZoneMetricsReply, ReadZoneMetricsRequest, ResolveZoneReply, ResolveZoneRequest,
+            ReadZoneMetricsReply, ReadZoneMetricsRequest, ResolveZoneIdReply, ResolveZoneIdRequest,
             SnoopIdmReply, SnoopIdmRequest, WatchEventsReply, WatchEventsRequest, ZoneConsoleReply,
             ZoneConsoleRequest,
         },
@@ -35,12 +45,6 @@ use tokio::{
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
-
-use crate::{
-    command::DaemonCommand, console::DaemonConsoleHandle, db::ZoneStore,
-    devices::DaemonDeviceManager, event::DaemonEventContext, idm::DaemonIdmHandle,
-    metrics::idm_metric_to_api, oci::convert_oci_progress, zlt::ZoneLookupTable,
-};
 
 pub struct ApiError {
     message: String,
@@ -112,8 +116,8 @@ enum PullImageSelect {
 
 #[tonic::async_trait]
 impl ControlService for DaemonControlService {
-    type ExecZoneStream =
-        Pin<Box<dyn Stream<Item = Result<ExecZoneReply, Status>> + Send + 'static>>;
+    type ExecInsideZoneStream =
+        Pin<Box<dyn Stream<Item = Result<ExecInsideZoneReply, Status>> + Send + 'static>>;
 
     type AttachZoneConsoleStream =
         Pin<Box<dyn Stream<Item = Result<ZoneConsoleReply, Status>> + Send + 'static>>;
@@ -127,12 +131,12 @@ impl ControlService for DaemonControlService {
     type SnoopIdmStream =
         Pin<Box<dyn Stream<Item = Result<SnoopIdmReply, Status>> + Send + 'static>>;
 
-    async fn identify_host(
+    async fn host_status(
         &self,
-        request: Request<IdentifyHostRequest>,
-    ) -> Result<Response<IdentifyHostReply>, Status> {
+        request: Request<HostStatusRequest>,
+    ) -> Result<Response<HostStatusReply>, Status> {
         let _ = request.into_inner();
-        Ok(Response::new(IdentifyHostReply {
+        Ok(Response::new(HostStatusReply {
             host_domid: self.glt.host_domid(),
             host_uuid: self.glt.host_uuid().to_string(),
             krata_version: DaemonCommand::version(),
@@ -156,11 +160,11 @@ impl ControlService for DaemonControlService {
                 uuid,
                 Zone {
                     id: uuid.to_string(),
-                    state: Some(ZoneState {
-                        status: ZoneStatus::Starting.into(),
-                        network: None,
-                        exit_info: None,
-                        error_info: None,
+                    status: Some(ZoneStatus {
+                        state: ZoneState::Creating.into(),
+                        network_status: None,
+                        exit_status: None,
+                        error_status: None,
                         host: self.glt.host_uuid().to_string(),
                         domid: u32::MAX,
                     }),
@@ -180,10 +184,10 @@ impl ControlService for DaemonControlService {
         }))
     }
 
-    async fn exec_zone(
+    async fn exec_inside_zone(
         &self,
-        request: Request<Streaming<ExecZoneRequest>>,
-    ) -> Result<Response<Self::ExecZoneStream>, Status> {
+        request: Request<Streaming<ExecInsideZoneRequest>>,
+    ) -> Result<Response<Self::ExecInsideZoneStream>, Status> {
         let mut input = request.into_inner();
         let Some(request) = input.next().await else {
             return Err(ApiError {
@@ -232,7 +236,7 @@ impl ControlService for DaemonControlService {
             loop {
                 select! {
                     x = input.next() => if let Some(update) = x {
-                        let update: Result<ExecZoneRequest, Status> = update.map_err(|error| ApiError {
+                        let update: Result<ExecInsideZoneRequest, Status> = update.map_err(|error| ApiError {
                             message: error.to_string()
                         }.into());
 
@@ -252,7 +256,7 @@ impl ControlService for DaemonControlService {
                             let Some(IdmResponseType::ExecStream(update)) = response.response else {
                                 break;
                             };
-                            let reply = ExecZoneReply {
+                            let reply = ExecInsideZoneReply {
                                 exited: update.exited,
                                 error: update.error,
                                 exit_code: update.exit_code,
@@ -269,7 +273,7 @@ impl ControlService for DaemonControlService {
             }
         };
 
-        Ok(Response::new(Box::pin(output) as Self::ExecZoneStream))
+        Ok(Response::new(Box::pin(output) as Self::ExecInsideZoneStream))
     }
 
     async fn destroy_zone(
@@ -287,16 +291,16 @@ impl ControlService for DaemonControlService {
             .into());
         };
 
-        zone.state = Some(zone.state.as_mut().cloned().unwrap_or_default());
+        zone.status = Some(zone.status.as_mut().cloned().unwrap_or_default());
 
-        if zone.state.as_ref().unwrap().status() == ZoneStatus::Destroyed {
+        if zone.status.as_ref().unwrap().state() == ZoneState::Destroyed {
             return Err(ApiError {
                 message: "zone already destroyed".to_string(),
             }
             .into());
         }
 
-        zone.state.as_mut().unwrap().status = ZoneStatus::Destroying.into();
+        zone.status.as_mut().unwrap().state = ZoneState::Destroying.into();
         self.zones
             .update(uuid, zone)
             .await
@@ -320,10 +324,10 @@ impl ControlService for DaemonControlService {
         Ok(Response::new(ListZonesReply { zones }))
     }
 
-    async fn resolve_zone(
+    async fn resolve_zone_id(
         &self,
-        request: Request<ResolveZoneRequest>,
-    ) -> Result<Response<ResolveZoneReply>, Status> {
+        request: Request<ResolveZoneIdRequest>,
+    ) -> Result<Response<ResolveZoneIdReply>, Status> {
         let request = request.into_inner();
         let zones = self.zones.list().await.map_err(ApiError::from)?;
         let zones = zones
@@ -334,8 +338,8 @@ impl ControlService for DaemonControlService {
                     || x.id == request.name
             })
             .collect::<Vec<Zone>>();
-        Ok(Response::new(ResolveZoneReply {
-            zone: zones.first().cloned(),
+        Ok(Response::new(ResolveZoneIdReply {
+            zone_id: zones.first().cloned().map(|x| x.id).unwrap_or_default(),
         }))
     }
 
@@ -558,8 +562,8 @@ impl ControlService for DaemonControlService {
 
     async fn get_host_cpu_topology(
         &self,
-        request: Request<HostCpuTopologyRequest>,
-    ) -> Result<Response<HostCpuTopologyReply>, Status> {
+        request: Request<GetHostCpuTopologyRequest>,
+    ) -> Result<Response<GetHostCpuTopologyReply>, Status> {
         let _ = request.into_inner();
         let power = self
             .runtime
@@ -579,13 +583,13 @@ impl ControlService for DaemonControlService {
             })
         }
 
-        Ok(Response::new(HostCpuTopologyReply { cpus }))
+        Ok(Response::new(GetHostCpuTopologyReply { cpus }))
     }
 
     async fn set_host_power_management_policy(
         &self,
-        request: Request<HostPowerManagementPolicy>,
-    ) -> Result<Response<HostPowerManagementPolicy>, Status> {
+        request: Request<SetHostPowerManagementPolicyRequest>,
+    ) -> Result<Response<SetHostPowerManagementPolicyReply>, Status> {
         let policy = request.into_inner();
         let power = self
             .runtime
@@ -603,9 +607,20 @@ impl ControlService for DaemonControlService {
             .await
             .map_err(ApiError::from)?;
 
-        Ok(Response::new(HostPowerManagementPolicy {
-            scheduler: scheduler.to_string(),
-            smt_awareness: policy.smt_awareness,
+        Ok(Response::new(SetHostPowerManagementPolicyReply {}))
+    }
+
+    async fn get_zone(
+        &self,
+        request: Request<GetZoneRequest>,
+    ) -> Result<Response<GetZoneReply>, Status> {
+        let request = request.into_inner();
+        let zones = self.zones.list().await.map_err(ApiError::from)?;
+        let zone = zones.get(&Uuid::from_str(&request.zone_id).map_err(|error| ApiError {
+            message: error.to_string(),
+        })?);
+        Ok(Response::new(GetZoneReply {
+            zone: zone.cloned(),
         }))
     }
 }

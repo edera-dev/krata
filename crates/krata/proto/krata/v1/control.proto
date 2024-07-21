@@ -10,31 +10,34 @@ import "krata/idm/transport.proto";
 import "krata/v1/common.proto";
 
 service ControlService {
-    rpc IdentifyHost(IdentifyHostRequest) returns (IdentifyHostReply);
-
-    rpc CreateZone(CreateZoneRequest) returns (CreateZoneReply);
-    rpc DestroyZone(DestroyZoneRequest) returns (DestroyZoneReply);
-    rpc ResolveZone(ResolveZoneRequest) returns (ResolveZoneReply);
-    rpc ListZones(ListZonesRequest) returns (ListZonesReply);
-    rpc ListDevices(ListDevicesRequest) returns (ListDevicesReply);
-
-    rpc ExecZone(stream ExecZoneRequest) returns (stream ExecZoneReply);
-
-    rpc AttachZoneConsole(stream ZoneConsoleRequest) returns (stream ZoneConsoleReply);
-    rpc ReadZoneMetrics(ReadZoneMetricsRequest) returns (ReadZoneMetricsReply);
-
+    rpc HostStatus(HostStatusRequest) returns (HostStatusReply);
     rpc SnoopIdm(SnoopIdmRequest) returns (stream SnoopIdmReply);
-    rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
+    rpc GetHostCpuTopology(GetHostCpuTopologyRequest) returns (GetHostCpuTopologyReply);
+    rpc SetHostPowerManagementPolicy(SetHostPowerManagementPolicyRequest) returns (SetHostPowerManagementPolicyReply);
+
+    rpc ListDevices(ListDevicesRequest) returns (ListDevicesReply);
 
     rpc PullImage(PullImageRequest) returns (stream PullImageReply);
 
-    rpc GetHostCpuTopology(HostCpuTopologyRequest) returns (HostCpuTopologyReply);
-    rpc SetHostPowerManagementPolicy(HostPowerManagementPolicy) returns (HostPowerManagementPolicy);
+    rpc CreateZone(CreateZoneRequest) returns (CreateZoneReply);
+    rpc DestroyZone(DestroyZoneRequest) returns (DestroyZoneReply);
+
+    rpc ResolveZoneId(ResolveZoneIdRequest) returns (ResolveZoneIdReply);
+
+    rpc GetZone(GetZoneRequest) returns (GetZoneReply);
+
+    rpc ListZones(ListZonesRequest) returns (ListZonesReply);
+
+    rpc AttachZoneConsole(stream ZoneConsoleRequest) returns (stream ZoneConsoleReply);
+    rpc ExecInsideZone(stream ExecInsideZoneRequest) returns (stream ExecInsideZoneReply);
+    rpc ReadZoneMetrics(ReadZoneMetricsRequest) returns (ReadZoneMetricsReply);
+
+    rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
 }
 
-message IdentifyHostRequest {}
+message HostStatusRequest {}
 
-message IdentifyHostReply {
+message HostStatusReply {
     string host_uuid = 1;
     uint32 host_domid = 2;
     string krata_version = 3;
@@ -45,36 +48,44 @@ message CreateZoneRequest {
 }
 
 message CreateZoneReply {
-    string Zone_id = 1;
+    string zone_id = 1;
 }
 
 message DestroyZoneRequest {
-    string Zone_id = 1;
+    string zone_id = 1;
 }
 
 message DestroyZoneReply {}
 
-message ResolveZoneRequest {
+message ResolveZoneIdRequest {
     string name = 1;
 }
 
-message ResolveZoneReply {
-    krata.v1.common.Zone Zone = 1;
+message ResolveZoneIdReply {
+    string zone_id = 1;
+}
+
+message GetZoneRequest {
+    string zone_id = 1;
+}
+
+message GetZoneReply {
+    krata.v1.common.Zone zone = 1;
 }
 
 message ListZonesRequest {}
 
 message ListZonesReply {
-    repeated krata.v1.common.Zone Zones = 1;
+    repeated krata.v1.common.Zone zones = 1;
 }
 
-message ExecZoneRequest {
-    string Zone_id = 1;
+message ExecInsideZoneRequest {
+    string zone_id = 1;
     krata.v1.common.ZoneTaskSpec task = 2;
     bytes data = 3;
 }
 
-message ExecZoneReply {
+message ExecInsideZoneReply {
     bool exited = 1;
     string error = 2;
     int32 exit_code = 3;
@@ -83,7 +94,7 @@ message ExecZoneReply {
 }
 
 message ZoneConsoleRequest {
-    string Zone_id = 1;
+    string zone_id = 1;
     bytes data = 2;
 }
 
@@ -95,16 +106,16 @@ message WatchEventsRequest {}
 
 message WatchEventsReply {
     oneof event {
-        ZoneChangedEvent Zone_changed = 1;
+        ZoneChangedEvent zone_changed = 1;
     }
 }
 
 message ZoneChangedEvent {
-    krata.v1.common.Zone Zone = 1;
+    krata.v1.common.Zone zone = 1;
 }
 
 message ReadZoneMetricsRequest {
-    string Zone_id = 1;
+    string zone_id = 1;
 }
 
 message ReadZoneMetricsReply {
@@ -219,15 +230,15 @@ message HostCpuTopologyInfo {
     HostCpuTopologyClass class = 5;
 }
 
-message HostCpuTopologyRequest {}
+message GetHostCpuTopologyRequest {}
 
-message HostCpuTopologyReply {
+message GetHostCpuTopologyReply {
     repeated HostCpuTopologyInfo cpus = 1;
 }
 
-message HostPowerManagementPolicyRequest {}
-
-message HostPowerManagementPolicy {
+message SetHostPowerManagementPolicyRequest {
     string scheduler = 1;
     bool smt_awareness = 2;
 }
+
+message SetHostPowerManagementPolicyReply {}

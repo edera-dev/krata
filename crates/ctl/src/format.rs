@@ -3,10 +3,11 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::Result;
 use fancy_duration::FancyDuration;
 use human_bytes::human_bytes;
-use krata::v1::common::{Zone, ZoneMetricFormat, ZoneMetricNode, ZoneStatus};
 use prost_reflect::{DynamicMessage, ReflectMessage};
 use prost_types::Value;
 use termtree::Tree;
+
+use krata::v1::common::{Zone, ZoneMetricFormat, ZoneMetricNode, ZoneState};
 
 pub fn proto2dynamic(proto: impl ReflectMessage) -> Result<DynamicMessage> {
     Ok(DynamicMessage::decode(
@@ -75,30 +76,30 @@ pub fn kv2line(map: HashMap<String, String>) -> String {
         .join(" ")
 }
 
-pub fn zone_status_text(status: ZoneStatus) -> String {
+pub fn zone_state_text(status: ZoneState) -> String {
     match status {
-        ZoneStatus::Starting => "starting",
-        ZoneStatus::Started => "started",
-        ZoneStatus::Destroying => "destroying",
-        ZoneStatus::Destroyed => "destroyed",
-        ZoneStatus::Exited => "exited",
-        ZoneStatus::Failed => "failed",
+        ZoneState::Creating => "creating",
+        ZoneState::Created => "created",
+        ZoneState::Destroying => "destroying",
+        ZoneState::Destroyed => "destroyed",
+        ZoneState::Exited => "exited",
+        ZoneState::Failed => "failed",
         _ => "unknown",
     }
     .to_string()
 }
 
 pub fn zone_simple_line(zone: &Zone) -> String {
-    let state = zone_status_text(
-        zone.state
+    let state = zone_state_text(
+        zone.status
             .as_ref()
-            .map(|x| x.status())
-            .unwrap_or(ZoneStatus::Unknown),
+            .map(|x| x.state())
+            .unwrap_or(ZoneState::Unknown),
     );
     let name = zone.spec.as_ref().map(|x| x.name.as_str()).unwrap_or("");
-    let network = zone.state.as_ref().and_then(|x| x.network.as_ref());
-    let ipv4 = network.map(|x| x.zone_ipv4.as_str()).unwrap_or("");
-    let ipv6 = network.map(|x| x.zone_ipv6.as_str()).unwrap_or("");
+    let network_status = zone.status.as_ref().and_then(|x| x.network_status.as_ref());
+    let ipv4 = network_status.map(|x| x.zone_ipv4.as_str()).unwrap_or("");
+    let ipv6 = network_status.map(|x| x.zone_ipv6.as_str()).unwrap_or("");
     format!("{}\t{}\t{}\t{}\t{}", zone.id, state, name, ipv4, ipv6)
 }
 

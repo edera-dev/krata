@@ -1,8 +1,10 @@
+use crate::format::metrics_value_pretty;
 use anyhow::Result;
+use krata::v1::common::ZoneState;
 use krata::{
     events::EventStream,
     v1::{
-        common::{Zone, ZoneMetricNode, ZoneStatus},
+        common::{Zone, ZoneMetricNode},
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
             ListZonesRequest, ReadZoneMetricsRequest,
@@ -18,8 +20,6 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tonic::transport::Channel;
-
-use crate::format::metrics_value_pretty;
 
 pub struct MetricState {
     pub zone: Zone,
@@ -86,11 +86,11 @@ impl MultiMetricCollector {
                             let Some(zone) = changed.zone else {
                                 continue;
                             };
-                            let Some(ref state) = zone.state else {
+                            let Some(ref status) = zone.status else {
                                 continue;
                             };
                             zones.retain(|x| x.id != zone.id);
-                            if state.status() != ZoneStatus::Destroying {
+                            if status.state() != ZoneState::Destroying {
                                 zones.push(zone);
                             }
                         false
@@ -112,11 +112,11 @@ impl MultiMetricCollector {
 
             let mut metrics = Vec::new();
             for zone in &zones {
-                let Some(ref state) = zone.state else {
+                let Some(ref status) = zone.status else {
                     continue;
                 };
 
-                if state.status() != ZoneStatus::Started {
+                if status.state() != ZoneState::Created {
                     continue;
                 }
 

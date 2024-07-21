@@ -4,14 +4,12 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, is_raw_mode_enabled},
     tty::IsTty,
 };
+use krata::v1::common::ZoneState;
 use krata::{
     events::EventStream,
-    v1::{
-        common::ZoneStatus,
-        control::{
-            watch_events_reply::Event, ExecZoneReply, ExecZoneRequest, ZoneConsoleReply,
-            ZoneConsoleRequest,
-        },
+    v1::control::{
+        watch_events_reply::Event, ExecInsideZoneReply, ExecInsideZoneRequest, ZoneConsoleReply,
+        ZoneConsoleRequest,
     },
 };
 use log::debug;
@@ -49,8 +47,8 @@ impl StdioConsoleStream {
     }
 
     pub async fn stdin_stream_exec(
-        initial: ExecZoneRequest,
-    ) -> impl Stream<Item = ExecZoneRequest> {
+        initial: ExecInsideZoneRequest,
+    ) -> impl Stream<Item = ExecInsideZoneRequest> {
         let mut stdin = stdin();
         stream! {
             yield initial;
@@ -68,7 +66,7 @@ impl StdioConsoleStream {
                 if size == 1 && buffer[0] == 0x1d {
                     break;
                 }
-                yield ExecZoneRequest { zone_id: String::default(), task: None, data };
+                yield ExecInsideZoneRequest { zone_id: String::default(), task: None, data };
             }
         }
     }
@@ -90,7 +88,7 @@ impl StdioConsoleStream {
         Ok(())
     }
 
-    pub async fn exec_output(mut stream: Streaming<ExecZoneReply>) -> Result<i32> {
+    pub async fn exec_output(mut stream: Streaming<ExecInsideZoneReply>) -> Result<i32> {
         let mut stdout = stdout();
         let mut stderr = stderr();
         while let Some(reply) = stream.next().await {
@@ -128,7 +126,7 @@ impl StdioConsoleStream {
                     continue;
                 };
 
-                let Some(state) = zone.state else {
+                let Some(status) = zone.status else {
                     continue;
                 };
 
@@ -136,12 +134,12 @@ impl StdioConsoleStream {
                     continue;
                 }
 
-                if let Some(exit_info) = state.exit_info {
-                    return Some(exit_info.code);
+                if let Some(exit_status) = status.exit_status {
+                    return Some(exit_status.code);
                 }
 
-                let status = state.status();
-                if status == ZoneStatus::Destroying || status == ZoneStatus::Destroyed {
+                let state = status.state();
+                if state == ZoneState::Destroying || state == ZoneState::Destroyed {
                     return Some(10);
                 }
             }
