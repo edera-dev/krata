@@ -95,7 +95,7 @@ impl ZoneBackground {
                         break;
                     }
                 }
-            };
+            }
         }
         Ok(())
     }

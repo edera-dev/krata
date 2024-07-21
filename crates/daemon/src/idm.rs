@@ -205,7 +205,7 @@ impl DaemonIdm {
                         break;
                     }
                 }
-            };
+            }
         }
         Ok(())
     }

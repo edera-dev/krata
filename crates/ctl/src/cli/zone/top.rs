@@ -106,7 +106,7 @@ impl ZoneTopApp {
                         break;
                     }
                 }
-            };
+            }
         }
         Ok(())
     }

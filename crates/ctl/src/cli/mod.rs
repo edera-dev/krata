@@ -51,7 +51,7 @@ impl ControlCommand {
 
             ControlCommands::Device(device) => device.run(client, events).await,
 
-            ControlCommands::Host(snoop) => snoop.run(client, events).await,
+            ControlCommands::Host(host) => host.run(client, events).await,
         }
     }
 }

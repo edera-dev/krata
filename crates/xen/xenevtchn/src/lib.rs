@@ -185,9 +185,9 @@ impl EventChannelProcessor {
                 if self.flag.load(Ordering::Acquire) {
                     break;
                 }
-                warn!("failed to process event channel notifications: {}", error);
-            }
-        });
+            };
+        }
+
         Ok(())
     }
 

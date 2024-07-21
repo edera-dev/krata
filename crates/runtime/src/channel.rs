@@ -503,7 +503,7 @@ impl KrataChannelBackendProcessor {
                         break;
                     }
                 }
-            };
+            }
         }
         Ok(())
     }

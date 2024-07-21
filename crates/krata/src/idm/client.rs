@@ -34,7 +34,7 @@ use super::{
 
 type OneshotRequestMap<R> = Arc<Mutex<HashMap<u64, oneshot::Sender<<R as IdmRequest>::Response>>>>;
 type StreamRequestMap<R> = Arc<Mutex<HashMap<u64, Sender<<R as IdmRequest>::Response>>>>;
-type StreamRequestUpdateMap<R> = Arc<Mutex<HashMap<u64, mpsc::Sender<R>>>>;
+type StreamRequestUpdateMap<R> = Arc<Mutex<HashMap<u64, Sender<R>>>>;
 pub type IdmInternalClient = IdmClient<internal::Request, internal::Event>;
 
 const IDM_PACKET_QUEUE_LEN: usize = 100;
