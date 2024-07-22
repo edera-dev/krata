@@ -147,7 +147,7 @@ impl ZoneInit {
         self.create_dir("/run", Some(0o0755)).await?;
         self.mount_kernel_fs("devtmpfs", "/dev", "mode=0755", None, None)
             .await?;
-        self.mount_kernel_fs("proc", "/proc", "", None, None)
+        self.mount_kernel_fs("proc", "/proc", "hidepid=1", None, None)
             .await?;
         self.mount_kernel_fs("sysfs", "/sys", "", None, None)
             .await?;
