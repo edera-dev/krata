@@ -139,34 +139,49 @@ impl DaemonIdm {
         data: Option<Vec<u8>>,
         buffers: &mut HashMap<u32, BytesMut>,
     ) -> Result<()> {
+        // check if data is present, if it is not, that signals a closed channel.
         if let Some(data) = data {
             let buffer = buffers.entry(domid).or_insert_with_key(|_| BytesMut::new());
             buffer.extend_from_slice(&data);
             loop {
+                // check if the buffer is less than the header size, if so, wait for more data
                 if buffer.len() < 6 {
                     break;
                 }
 
+                // check for the magic bytes 0xff, 0xff at the start of the message, if that doesn't
+                // exist, clear the buffer. this ensures that partial messages won't be processed.
                 if buffer[0] != 0xff || buffer[1] != 0xff {
                     buffer.clear();
-                    break;
+                    return Ok(());
                 }
 
-                let size = (buffer[2] as u32 | (buffer[3] as u32) << 8 | (buffer[4] as u32) << 16 | (buffer[5] as u32) << 24) as usize;
+                // read the size from the buffer as a little endian u32
+                let size = (buffer[2] as u32
+                    | (buffer[3] as u32) << 8
+                    | (buffer[4] as u32) << 16
+                    | (buffer[5] as u32) << 24) as usize;
                 let needed = size + 6;
                 if buffer.len() < needed {
-                    break;
+                    return Ok(());
                 }
                 let mut packet = buffer.split_to(needed);
+                // advance the buffer by the header, leaving only the raw data.
                 packet.advance(6);
                 match IdmTransportPacket::decode(packet) {
                     Ok(packet) => {
-                        let _ = client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await?;
+                        let _ =
+                            client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds)
+                                .await?;
                         let guard = self.feeds.lock().await;
                         if let Some(feed) = guard.get(&domid) {
                             let _ = feed.try_send(packet.clone());
                         }
-                        let _ = self.snoop_sender.send(DaemonIdmSnoopPacket { from: domid, to: 0, packet });
+                        let _ = self.snoop_sender.send(DaemonIdmSnoopPacket {
+                            from: domid,
+                            to: 0,
+                            packet,
+                        });
                     }
 
                     Err(packet) => {
@@ -187,8 +202,10 @@ impl DaemonIdm {
         let data = packet.encode_to_vec();
         let mut buffer = vec![0u8; 6];
         let length = data.len() as u32;
+        // magic bytes
         buffer[0] = 0xff;
         buffer[1] = 0xff;
+        // little endian u32 for message size
         buffer[2] = length as u8;
         buffer[3] = (length << 8) as u8;
         buffer[4] = (length << 16) as u8;

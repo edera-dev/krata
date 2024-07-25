@@ -24,7 +24,6 @@ use tokio::{
     sync::mpsc::{channel, Sender},
     task::JoinHandle,
 };
-use tokio::runtime::Runtime;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 use uuid::Uuid;
@@ -108,44 +107,30 @@ impl Daemon {
         debug!("initializing caches and hydrating zone state");
         let seed = config.oci.seed.clone().map(PathBuf::from);
         let packer = OciPackerService::new(seed, &image_cache_dir, OciPlatform::current()).await?;
-        let glt = ZoneLookupTable::new(0, host_uuid);
-        let zones_db_path = format!("{}/zones.db", store);
-        let zones = ZoneStore::open(&PathBuf::from(zones_db_path))?;
-        let (zone_reconciler_notify, zone_reconciler_receiver) =
-            channel::<Uuid>(ZONE_RECONCILER_QUEUE_LEN);
-
         debug!("initializing core runtime");
-        let runtime = Runtime::new(host_uuid).await?;
-
-        debug!("starting IDM service");
-        let idm = DaemonIdm::new(glt.clone()).await?;
-        let idm = idm.launch().await?;
-
-        debug!("initializing console interfaces");
-        let console = DaemonConsole::new(glt.clone()).await?;
+        let runtime = Runtime::new().await?;
         let zlt = ZoneLookupTable::new(0, host_uuid);
-        let db_path = format!("{}/zones.db", store);
+        let db_path = format!("{}/krata.db", store);
         let database = KrataDatabase::open(Path::new(&db_path))?;
         let zones = ZoneStore::open(database.clone())?;
         let (zone_reconciler_notify, zone_reconciler_receiver) =
             channel::<Uuid>(ZONE_RECONCILER_QUEUE_LEN);
+        debug!("starting IDM service");
         let idm = DaemonIdm::new(zlt.clone()).await?;
         let idm = idm.launch().await?;
+        debug!("initializing console interfaces");
         let console = DaemonConsole::new(zlt.clone()).await?;
         let console = console.launch().await?;
-
-        debug!("initializing zone reconciler");
         let (events, generator) =
             DaemonEventGenerator::new(zones.clone(), zone_reconciler_notify.clone(), idm.clone())
                 .await?;
         let runtime_for_reconciler = runtime.dupe().await?;
-
         let ipv4_network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
         let ipv6_network = Ipv6Network::from_str("fdd4:1476:6c7e::/48")?;
         let ip_reservation_store = IpReservationStore::open(database)?;
         let ip_assignment =
             IpAssignment::new(host_uuid, ipv4_network, ipv6_network, ip_reservation_store).await?;
-
+        debug!("initializing zone reconciler");
         let zone_reconciler = ZoneReconciler::new(
             devices.clone(),
             zlt.clone(),

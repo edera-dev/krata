@@ -84,40 +84,22 @@ impl IpAssignment {
         gateway_ipv6: Option<Ipv6Addr>,
         gateway_mac: Option<MacAddr6>,
     ) -> Result<IpReservation> {
-        let mut found_ipv4: Option<Ipv4Addr> = None;
-        for ip in ipv4_network.iter() {
-            if ip.is_loopback() || ip.is_multicast() || ip.is_broadcast() {
-                continue;
-            }
+        let found_ipv4: Option<Ipv4Addr> = ipv4_network
+            .iter()
+            .filter(|ip| {
+                ip.is_private() && !(ip.is_loopback() || ip.is_multicast() || ip.is_broadcast())
+            })
+            .filter(|ip| {
+                let last = ip.octets()[3];
+                // filter for IPs ending in .1 to .250 because .250+ can have special meaning
+                last > 0 && last < 250
+            })
+            .find(|ip| !state.ipv4.contains_key(ip));
 
-            if !ip.is_private() {
-                continue;
-            }
-
-            let last = ip.octets()[3];
-            if last == 0 || last > 250 {
-                continue;
-            }
-
-            if state.ipv4.contains_key(&ip) {
-                continue;
-            }
-            found_ipv4 = Some(ip);
-            break;
-        }
-
-        let mut found_ipv6: Option<Ipv6Addr> = None;
-        for ip in ipv6_network.iter() {
-            if ip.is_loopback() || ip.is_multicast() {
-                continue;
-            }
-
-            if state.ipv6.contains_key(&ip) {
-                continue;
-            }
-            found_ipv6 = Some(ip);
-            break;
-        }
+        let found_ipv6: Option<Ipv6Addr> = ipv6_network
+            .iter()
+            .filter(|ip| !ip.is_loopback() && !ip.is_multicast())
+            .find(|ip| !state.ipv6.contains_key(ip));
 
         let Some(ipv4) = found_ipv4 else {
             return Err(anyhow!(
