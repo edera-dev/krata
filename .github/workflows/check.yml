@@ -198,5 +198,7 @@ jobs:
       if: ${{ matrix.platform.os == 'darwin' }}
     - name: install ${{ matrix.platform.deps }} dependencies
       run: ./hack/ci/install-${{ matrix.platform.deps }}-deps.sh
+    - name: dump env
+      run: env
     - name: cargo build kratactl
       run: ./hack/build/cargo.sh build --bin kratactl
