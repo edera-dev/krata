@@ -34,24 +34,51 @@ impl IpReservationStore {
     }
 
     pub async fn list(&self) -> Result<HashMap<Uuid, IpReservation>> {
-        let mut reservations: HashMap<Uuid, IpReservation> = HashMap::new();
-        let read = self.db.database.begin_read()?;
-        let table = read.open_table(IP_RESERVATION_TABLE)?;
-        for result in table.iter()? {
-            let (key, value) = result?;
-            let uuid = Uuid::from_u128_le(key.value());
-            let reservation = match serde_json::from_slice(value.value()) {
-                Ok(reservation) => reservation,
-                Err(error) => {
-                    error!(
-                        "found invalid ip reservation in database for uuid {}: {}",
-                        uuid, error
-                    );
-                    continue;
-                }
-            };
-            reservations.insert(uuid, reservation);
+        enum ListEntry {
+            Valid(Uuid, IpReservation),
+            Invalid(Uuid),
         }
+        let mut reservations: HashMap<Uuid, IpReservation> = HashMap::new();
+
+        let corruptions = {
+            let read = self.db.database.begin_read()?;
+            let table = read.open_table(IP_RESERVATION_TABLE)?;
+            table
+                .iter()?
+                .flat_map(|result| {
+                    result.map(|(key, value)| {
+                        let uuid = Uuid::from_u128_le(key.value());
+                        match serde_json::from_slice::<IpReservation>(value.value()) {
+                            Ok(reservation) => ListEntry::Valid(uuid, reservation),
+                            Err(error) => {
+                                error!(
+                                    "found invalid ip reservation in database for uuid {}: {}",
+                                    uuid, error
+                                );
+                                ListEntry::Invalid(uuid)
+                            }
+                        }
+                    })
+                })
+                .filter_map(|entry| match entry {
+                    ListEntry::Valid(uuid, reservation) => {
+                        reservations.insert(uuid, reservation);
+                        None
+                    }
+
+                    ListEntry::Invalid(uuid) => Some(uuid),
+                })
+                .collect::<Vec<Uuid>>()
+        };
+
+        if !corruptions.is_empty() {
+            let write = self.db.database.begin_write()?;
+            let mut table = write.open_table(IP_RESERVATION_TABLE)?;
+            for corruption in corruptions {
+                table.remove(corruption.to_u128_le())?;
+            }
+        }
+
         Ok(reservations)
     }
 
