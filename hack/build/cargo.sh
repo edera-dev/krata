@@ -15,5 +15,10 @@ then
   fi
 fi
 
+if ! command -v cargo > /dev/null && [ -f "${HOME}/.cargo/env" ]
+then
+  . "${HOME}/.cargo/env"
+fi
+
 export CARGO_BUILD_TARGET="${RUST_TARGET}"
 exec "${CARGO}" "${@}"

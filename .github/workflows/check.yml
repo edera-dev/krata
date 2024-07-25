@@ -199,6 +199,10 @@ jobs:
     - name: install ${{ matrix.platform.deps }} dependencies
       run: ./hack/ci/install-${{ matrix.platform.deps }}-deps.sh
     - name: dump env
-      run: env
+      run: |
+        env
+    - name: Setup tmate session
+      uses: mxschmitt/action-tmate@v3
+      if: ${{ matrix.platform.os == 'darwin' }}
     - name: cargo build kratactl
       run: ./hack/build/cargo.sh build --bin kratactl
