@@ -1,4 +1,4 @@
-FROM rust:1.79-alpine@sha256:cc9b42c44d37caccb8f7c366f19f5a41ca0f20f826fb043be073167308b6073d AS build
+FROM rust:1.80-alpine@sha256:596c7fa13f7458097b8c88ad83f33420da0341e2f5b544e34d9aa18a22fe11d0 AS build
 RUN apk update && apk add protoc protobuf-dev build-base && rm -rf /var/cache/apk/*
 ENV TARGET_LIBC=musl TARGET_VENDOR=unknown
 
