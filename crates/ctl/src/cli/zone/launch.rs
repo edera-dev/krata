@@ -7,7 +7,7 @@ use krata::{
     v1::{
         common::{
             zone_image_spec::Image, OciImageFormat, ZoneImageSpec, ZoneOciImageSpec, ZoneSpec,
-            ZoneSpecDevice, ZoneStatus, ZoneTaskSpec, ZoneTaskSpecEnvVar,
+            ZoneSpecDevice, ZoneState, ZoneTaskSpec, ZoneTaskSpecEnvVar,
         },
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
@@ -118,7 +118,7 @@ impl ZoneLaunchCommand {
                 image: Some(image),
                 kernel,
                 initrd,
-                vcpus: self.cpus,
+                cpus: self.cpus,
                 mem: self.mem,
                 task: Some(ZoneTaskSpec {
                     environment: env_map(&self.env.unwrap_or_default())
@@ -206,12 +206,12 @@ async fn wait_zone_started(id: &str, events: EventStream) -> Result<()> {
                     continue;
                 }
 
-                let Some(state) = zone.state else {
+                let Some(status) = zone.status else {
                     continue;
                 };
 
-                if let Some(ref error) = state.error_info {
-                    if state.status() == ZoneStatus::Failed {
+                if let Some(ref error) = status.error_status {
+                    if status.state() == ZoneState::Failed {
                         error!("launch failed: {}", error.message);
                         std::process::exit(1);
                     } else {
@@ -219,12 +219,12 @@ async fn wait_zone_started(id: &str, events: EventStream) -> Result<()> {
                     }
                 }
 
-                if state.status() == ZoneStatus::Destroyed {
+                if status.state() == ZoneState::Destroyed {
                     error!("zone destroyed");
                     std::process::exit(1);
                 }
 
-                if state.status() == ZoneStatus::Started {
+                if status.state() == ZoneState::Created {
                     break;
                 }
             }

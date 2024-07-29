@@ -97,13 +97,13 @@ impl OciPackerBackend for OciPackerMkSquashfs {
                     status = &mut wait => {
                         break status;
                     }
-                };
+                }
             } else {
                 select! {
                     status = &mut wait => {
                         break status;
                     }
-                };
+                }
             }
         };
         if let Some(writer) = writer {
@@ -172,13 +172,13 @@ impl OciPackerBackend for OciPackerMkfsErofs {
                     status = &mut wait => {
                         break status;
                     }
-                };
+                }
             } else {
                 select! {
                     status = &mut wait => {
                         break status;
                     }
-                };
+                }
             }
         };
         if let Some(writer) = writer {

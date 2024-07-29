@@ -130,8 +130,7 @@ impl<P: BootSetupPlatform> XenClient<P> {
         match self.init(created.domid, config, &created).await {
             Ok(_) => Ok(created),
             Err(err) => {
-                // ignore since destroying a domain is best
-                // effort when an error occurs
+                // ignore since destroying a domain is best-effort when an error occurs
                 let _ = self.domain_manager.destroy(created.domid).await;
                 Err(err)
             }

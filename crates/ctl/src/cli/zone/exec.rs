@@ -5,7 +5,7 @@ use anyhow::Result;
 use clap::Parser;
 use krata::v1::{
     common::{ZoneTaskSpec, ZoneTaskSpecEnvVar},
-    control::{control_service_client::ControlServiceClient, ExecZoneRequest},
+    control::{control_service_client::ControlServiceClient, ExecInsideZoneRequest},
 };
 
 use tonic::{transport::Channel, Request};
@@ -34,7 +34,7 @@ pub struct ZoneExecCommand {
 impl ZoneExecCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let zone_id: String = resolve_zone(&mut client, &self.zone).await?;
-        let initial = ExecZoneRequest {
+        let initial = ExecInsideZoneRequest {
             zone_id,
             task: Some(ZoneTaskSpec {
                 environment: env_map(&self.env.unwrap_or_default())
@@ -52,7 +52,10 @@ impl ZoneExecCommand {
 
         let stream = StdioConsoleStream::stdin_stream_exec(initial).await;
 
-        let response = client.exec_zone(Request::new(stream)).await?.into_inner();
+        let response = client
+            .exec_inside_zone(Request::new(stream))
+            .await?
+            .into_inner();
 
         let code = StdioConsoleStream::exec_output(response).await?;
         std::process::exit(code);

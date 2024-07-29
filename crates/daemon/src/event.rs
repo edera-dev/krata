@@ -4,9 +4,10 @@ use std::{
     time::Duration,
 };
 
-use crate::{db::ZoneStore, idm::DaemonIdmHandle};
+use crate::db::zone::ZoneStore;
+use crate::idm::DaemonIdmHandle;
 use anyhow::Result;
-use krata::v1::common::ZoneExitInfo;
+use krata::v1::common::ZoneExitStatus;
 use krata::{
     idm::{internal::event::Event as EventType, internal::Event},
     v1::common::{ZoneState, ZoneStatus},
@@ -83,15 +84,15 @@ impl DaemonEventGenerator {
             return Ok(());
         };
 
-        let Some(ref state) = zone.state else {
+        let Some(ref status) = zone.status else {
             return Ok(());
         };
 
-        let status = state.status();
+        let state = status.state();
         let id = Uuid::from_str(&zone.id)?;
-        let domid = state.domid;
-        match status {
-            ZoneStatus::Started => {
+        let domid = status.domid;
+        match state {
+            ZoneState::Created => {
                 if let Entry::Vacant(e) = self.idms.entry(domid) {
                     let client = self.idm.client_by_domid(domid).await?;
                     let mut receiver = client.subscribe().await?;
@@ -111,7 +112,7 @@ impl DaemonEventGenerator {
                 }
             }
 
-            ZoneStatus::Destroyed => {
+            ZoneState::Destroyed => {
                 if let Some((_, handle)) = self.idms.remove(&domid) {
                     handle.abort();
                 }
@@ -131,13 +132,13 @@ impl DaemonEventGenerator {
 
     async fn handle_exit_code(&mut self, id: Uuid, code: i32) -> Result<()> {
         if let Some(mut zone) = self.zones.read(id).await? {
-            zone.state = Some(ZoneState {
-                status: ZoneStatus::Exited.into(),
-                network: zone.state.clone().unwrap_or_default().network,
-                exit_info: Some(ZoneExitInfo { code }),
-                error_info: None,
-                host: zone.state.clone().map(|x| x.host).unwrap_or_default(),
-                domid: zone.state.clone().map(|x| x.domid).unwrap_or(u32::MAX),
+            zone.status = Some(ZoneStatus {
+                state: ZoneState::Exited.into(),
+                network_status: zone.status.clone().unwrap_or_default().network_status,
+                exit_status: Some(ZoneExitStatus { code }),
+                error_status: None,
+                host: zone.status.clone().map(|x| x.host).unwrap_or_default(),
+                domid: zone.status.clone().map(|x| x.domid).unwrap_or(u32::MAX),
             });
 
             self.zones.update(id, zone).await?;

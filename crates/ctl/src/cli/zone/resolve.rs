@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use krata::v1::control::{control_service_client::ControlServiceClient, ResolveZoneRequest};
+use krata::v1::control::{control_service_client::ControlServiceClient, ResolveZoneIdRequest};
 
 use tonic::{transport::Channel, Request};
 
@@ -14,13 +14,13 @@ pub struct ZoneResolveCommand {
 impl ZoneResolveCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let reply = client
-            .resolve_zone(Request::new(ResolveZoneRequest {
+            .resolve_zone_id(Request::new(ResolveZoneIdRequest {
                 name: self.zone.clone(),
             }))
             .await?
             .into_inner();
-        if let Some(zone) = reply.zone {
-            println!("{}", zone.id);
+        if !reply.zone_id.is_empty() {
+            println!("{}", reply.zone_id);
         } else {
             std::process::exit(1);
         }
