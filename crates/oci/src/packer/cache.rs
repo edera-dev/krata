@@ -4,6 +4,7 @@ use crate::{
     schema::OciSchema,
 };
 
+use crate::fetch::OciResolvedImage;
 use anyhow::Result;
 use log::{debug, error};
 use oci_spec::image::{
@@ -48,6 +49,51 @@ impl OciPackerCache {
     pub async fn list(&self) -> Result<Vec<Descriptor>> {
         let index = self.index.read().await;
         Ok(index.manifests().clone())
+    }
+
+    pub async fn resolve(
+        &self,
+        name: ImageName,
+        format: OciPackedFormat,
+    ) -> Result<Option<OciResolvedImage>> {
+        if name.reference.as_deref() == Some("latest") {
+            return Ok(None);
+        }
+        let name_str = name.to_string();
+        let index = self.index.read().await;
+        let mut descriptor: Option<Descriptor> = None;
+        for manifest in index.manifests() {
+            let Some(name) = manifest
+                .annotations()
+                .clone()
+                .unwrap_or_default()
+                .get(ANNOTATION_IMAGE_NAME)
+                .cloned()
+            else {
+                continue;
+            };
+
+            if name == name_str {
+                descriptor = Some(manifest.clone());
+            }
+        }
+
+        let Some(descriptor) = descriptor else {
+            return Ok(None);
+        };
+
+        debug!("resolve hit name={} digest={}", name, descriptor.digest());
+
+        self.recall(name, descriptor.digest().as_ref(), format)
+            .await
+            .map(|image| {
+                image.map(|i| OciResolvedImage {
+                    name: i.name,
+                    digest: i.digest,
+                    descriptor: i.descriptor,
+                    manifest: i.manifest,
+                })
+            })
     }
 
     pub async fn recall(

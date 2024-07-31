@@ -38,6 +38,7 @@ impl ImagePullCommand {
                     ImagePullImageFormat::Tar => OciImageFormat::Tar.into(),
                 },
                 overwrite_cache: self.overwrite_cache,
+                update: true,
             })
             .await?;
         let reply = pull_interactive_progress(response.into_inner()).await?;

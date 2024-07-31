@@ -448,7 +448,7 @@ impl ControlService for DaemonControlService {
 
         let output = try_stream! {
             let mut task = tokio::task::spawn(async move {
-                our_packer.request(name, format, request.overwrite_cache, context).await
+                our_packer.request(name, format, request.overwrite_cache, request.update, context).await
             });
             let abort_handle = task.abort_handle();
             let _task_cancel_guard = scopeguard::guard(abort_handle, |handle| {
