@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
     let (context, _) = OciProgressContext::create();
     let service = OciPackerService::new(None, &cache_dir, platform).await?;
     let packed = service
-        .request(image.clone(), OciPackedFormat::Tar, false, context)
+        .request(image.clone(), OciPackedFormat::Tar, false, true, context)
         .await?;
     let annotations = packed
         .manifest

@@ -37,7 +37,13 @@ async fn main() -> Result<()> {
     });
     let service = OciPackerService::new(seed, &cache_dir, OciPlatform::current()).await?;
     let packed = service
-        .request(image.clone(), OciPackedFormat::Squashfs, false, context)
+        .request(
+            image.clone(),
+            OciPackedFormat::Squashfs,
+            false,
+            true,
+            context,
+        )
         .await?;
     println!(
         "generated squashfs of {} to {}",

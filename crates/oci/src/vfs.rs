@@ -138,7 +138,7 @@ impl VfsNode {
         header.set_mode(self.mode);
 
         if let Some(link_name) = self.link_name.as_ref() {
-            header.set_link_name(&PathBuf::from(link_name))?;
+            header.set_link_name(PathBuf::from(link_name))?;
         }
         header.set_size(self.size);
         Ok(header)

@@ -184,6 +184,7 @@ message PullImageRequest {
     string image = 1;
     krata.v1.common.OciImageFormat format = 2;
     bool overwrite_cache = 3;
+    bool update = 4;
 }
 
 message PullImageReply {

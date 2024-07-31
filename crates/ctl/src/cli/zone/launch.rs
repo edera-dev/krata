@@ -34,6 +34,8 @@ pub struct ZoneLaunchCommand {
     image_format: LaunchImageFormat,
     #[arg(long, help = "Overwrite image cache on pull")]
     pull_overwrite_cache: bool,
+    #[arg(long, help = "Update image on pull")]
+    pull_update: bool,
     #[arg(short, long, help = "Name of the zone")]
     name: Option<String>,
     #[arg(short, long, default_value_t = 1, help = "vCPUs available to the zone")]
@@ -181,6 +183,7 @@ impl ZoneLaunchCommand {
                 image: image.to_string(),
                 format: format.into(),
                 overwrite_cache: self.pull_overwrite_cache,
+                update: self.pull_update,
             })
             .await?;
         let reply = pull_interactive_progress(response.into_inner()).await?;

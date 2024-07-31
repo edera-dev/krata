@@ -75,13 +75,23 @@ impl OciPackerService {
         name: ImageName,
         format: OciPackedFormat,
         overwrite: bool,
+        pull: bool,
         progress_context: OciProgressContext,
     ) -> Result<OciPackedImage> {
         let progress = OciProgress::new();
         let progress = OciBoundProgress::new(progress_context.clone(), progress);
+        let mut resolved = None;
+        if !pull && !overwrite {
+            resolved = self.cache.resolve(name.clone(), format).await?;
+        }
         let fetcher =
             OciImageFetcher::new(self.seed.clone(), self.platform.clone(), progress.clone());
-        let resolved = fetcher.resolve(name.clone()).await?;
+        let resolved = if let Some(resolved) = resolved {
+            resolved
+        } else {
+            fetcher.resolve(name.clone()).await?
+        };
+
         let key = OciPackerTaskKey {
             digest: resolved.digest.clone(),
             format,
