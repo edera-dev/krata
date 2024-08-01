@@ -11,6 +11,7 @@ resolver = "2"
 [dependencies]
 anyhow = { workspace = true }
 cgroups-rs = { workspace = true }
+dashmap = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
 ipnetwork = { workspace = true }
@@ -21,6 +22,7 @@ log = { workspace = true }
 nix = { workspace = true, features = ["ioctl", "process", "fs"] }
 oci-spec = { workspace = true }
 path-absolutize = { workspace = true }
+pin-project = { workspace = true }
 platform-info = { workspace = true }
 pty-process = { workspace = true }
 rtnetlink = { workspace = true }
