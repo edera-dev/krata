@@ -136,34 +136,36 @@ impl DaemonIdm {
                         if let Some(data) = data {
                             let buffer = buffers.entry(domid).or_insert_with_key(|_| BytesMut::new());
                             buffer.extend_from_slice(&data);
-                            if buffer.len() < 6 {
-                                continue;
-                            }
-
-                            if buffer[0] != 0xff || buffer[1] != 0xff {
-                                buffer.clear();
-                                continue;
-                            }
-
-                            let size = (buffer[2] as u32 | (buffer[3] as u32) << 8 | (buffer[4] as u32) << 16 | (buffer[5] as u32) << 24) as usize;
-                            let needed = size + 6;
-                            if buffer.len() < needed {
-                                continue;
-                            }
-                            let mut packet = buffer.split_to(needed);
-                            packet.advance(6);
-                            match IdmTransportPacket::decode(packet) {
-                                Ok(packet) => {
-                                    let _ = client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await?;
-                                    let guard = self.feeds.lock().await;
-                                    if let Some(feed) = guard.get(&domid) {
-                                        let _ = feed.try_send(packet.clone());
-                                    }
-                                    let _ = self.snoop_sender.send(DaemonIdmSnoopPacket { from: domid, to: 0, packet });
+                            loop {
+                                if buffer.len() < 6 {
+                                    break;
                                 }
 
-                                Err(packet) => {
-                                    warn!("received invalid packet from domain {}: {}", domid, packet);
+                                if buffer[0] != 0xff || buffer[1] != 0xff {
+                                    buffer.clear();
+                                    break;
+                                }
+
+                                let size = (buffer[2] as u32 | (buffer[3] as u32) << 8 | (buffer[4] as u32) << 16 | (buffer[5] as u32) << 24) as usize;
+                                let needed = size + 6;
+                                if buffer.len() < needed {
+                                    break;
+                                }
+                                let mut packet = buffer.split_to(needed);
+                                packet.advance(6);
+                                match IdmTransportPacket::decode(packet) {
+                                    Ok(packet) => {
+                                        let _ = client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await?;
+                                        let guard = self.feeds.lock().await;
+                                        if let Some(feed) = guard.get(&domid) {
+                                            let _ = feed.try_send(packet.clone());
+                                        }
+                                        let _ = self.snoop_sender.send(DaemonIdmSnoopPacket { from: domid, to: 0, packet });
+                                    }
+
+                                    Err(packet) => {
+                                        warn!("received invalid packet from domain {}: {}", domid, packet);
+                                    }
                                 }
                             }
                         } else {

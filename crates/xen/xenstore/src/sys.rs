@@ -143,19 +143,6 @@ pub const XSD_ERROR_EPERM: XsdError = XsdError {
 pub const XSD_WATCH_PATH: u32 = 0;
 pub const XSD_WATCH_TOKEN: u32 = 1;
 
-#[repr(C)]
-pub struct XenDomainInterface {
-    req: [i8; 1024],
-    rsp: [i8; 1024],
-    req_cons: u32,
-    req_prod: u32,
-    rsp_cons: u32,
-    rsp_prod: u32,
-    server_features: u32,
-    connection: u32,
-    error: u32,
-}
-
 pub const XS_PAYLOAD_MAX: u32 = 4096;
 pub const XS_ABS_PATH_MAX: u32 = 3072;
 pub const XS_REL_PATH_MAX: u32 = 2048;

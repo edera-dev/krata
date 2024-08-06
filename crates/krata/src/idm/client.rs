@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use bytes::{BufMut, BytesMut};
 use log::{debug, error};
 use nix::sys::termios::{cfmakeraw, tcgetattr, tcsetattr, SetArg};
 use prost::Message;
@@ -96,10 +97,12 @@ impl IdmBackend for IdmFileBackend {
 
     async fn send(&mut self, packet: IdmTransportPacket) -> Result<()> {
         let mut file = self.write.lock().await;
-        let data = packet.encode_to_vec();
-        file.write_all(&[0xff, 0xff]).await?;
-        file.write_u32_le(data.len() as u32).await?;
-        file.write_all(&data).await?;
+        let length = packet.encoded_len();
+        let mut buffer = BytesMut::with_capacity(6 + length);
+        buffer.put_slice(&[0xff, 0xff]);
+        buffer.put_u32_le(length as u32);
+        packet.encode(&mut buffer)?;
+        file.write_all(&buffer).await?;
         Ok(())
     }
 }
@@ -488,7 +491,7 @@ impl<R: IdmRequest, E: IdmSerializable> IdmClient<R, E> {
                             error!("unable to send idm packet, packet size exceeded (tried to send {} bytes)", length);
                             continue;
                         }
-                        backend.send(packet).await?;
+                        backend.send(packet.clone()).await?;
                     },
 
                     None => {
