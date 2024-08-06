@@ -39,6 +39,7 @@ impl ZoneBackground {
         let mut event_subscription = self.idm.subscribe().await?;
         let mut requests_subscription = self.idm.requests().await?;
         let mut request_streams_subscription = self.idm.request_streams().await?;
+        let mut wait_subscription = self.wait.subscribe().await?;
         loop {
             select! {
                 x = event_subscription.recv() => match x {
@@ -85,9 +86,9 @@ impl ZoneBackground {
                     }
                 },
 
-                event = self.wait.recv() => match event {
-                    Some(event) => self.child_event(event).await?,
-                    None => {
+                event = wait_subscription.recv() => match event {
+                    Ok(event) => self.child_event(event).await?,
+                    Err(_) => {
                         break;
                     }
                 }
@@ -128,9 +129,10 @@ impl ZoneBackground {
         &mut self,
         handle: IdmClientStreamResponseHandle<Request>,
     ) -> Result<()> {
+        let wait = self.wait.clone();
         if let Some(RequestType::ExecStream(_)) = &handle.initial.request {
             tokio::task::spawn(async move {
-                let exec = ZoneExecTask { handle };
+                let exec = ZoneExecTask { wait, handle };
                 if let Err(error) = exec.run().await {
                     let _ = exec
                         .handle

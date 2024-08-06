@@ -11,7 +11,7 @@ use anyhow::Result;
 use libc::{c_int, waitpid, WEXITSTATUS, WIFEXITED};
 use log::warn;
 use nix::unistd::Pid;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::broadcast::{channel, Receiver, Sender};
 
 const CHILD_WAIT_QUEUE_LEN: usize = 10;
 
@@ -21,18 +21,19 @@ pub struct ChildEvent {
     pub status: c_int,
 }
 
+#[derive(Clone)]
 pub struct ChildWait {
-    receiver: Receiver<ChildEvent>,
+    sender: Sender<ChildEvent>,
     signal: Arc<AtomicBool>,
-    _task: JoinHandle<()>,
+    _task: Arc<JoinHandle<()>>,
 }
 
 impl ChildWait {
     pub fn new() -> Result<ChildWait> {
-        let (sender, receiver) = channel(CHILD_WAIT_QUEUE_LEN);
+        let (sender, _) = channel(CHILD_WAIT_QUEUE_LEN);
         let signal = Arc::new(AtomicBool::new(false));
         let mut processor = ChildWaitTask {
-            sender,
+            sender: sender.clone(),
             signal: signal.clone(),
         };
         let task = thread::spawn(move || {
@@ -41,14 +42,14 @@ impl ChildWait {
             }
         });
         Ok(ChildWait {
-            receiver,
+            sender,
             signal,
-            _task: task,
+            _task: Arc::new(task),
         })
     }
 
-    pub async fn recv(&mut self) -> Option<ChildEvent> {
-        self.receiver.recv().await
+    pub async fn subscribe(&self) -> Result<Receiver<ChildEvent>> {
+        Ok(self.sender.subscribe())
     }
 }
 
@@ -68,7 +69,7 @@ impl ChildWaitTask {
                     pid: Pid::from_raw(pid),
                     status: WEXITSTATUS(status),
                 };
-                let _ = self.sender.try_send(event);
+                let _ = self.sender.send(event);
 
                 if self.signal.load(Ordering::Acquire) {
                     return Ok(());
@@ -80,6 +81,8 @@ impl ChildWaitTask {
 
 impl Drop for ChildWait {
     fn drop(&mut self) {
-        self.signal.store(true, Ordering::Release);
+        if Arc::strong_count(&self.signal) <= 1 {
+            self.signal.store(true, Ordering::Release);
+        }
     }
 }
