@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.14](https://github.com/edera-dev/krata/compare/v0.0.13...v0.0.14) - 2024-08-06
+
+### Added
+- *(oci)* use local index as resolution cache when appropriate, fixes [#289](https://github.com/edera-dev/krata/pull/289) ([#294](https://github.com/edera-dev/krata/pull/294))
+
+### Fixed
+- *(idm)* process all idm messages in the same frame and use childwait exit notification for exec (fixes [#290](https://github.com/edera-dev/krata/pull/290)) ([#302](https://github.com/edera-dev/krata/pull/302))
+
+### Other
+- init: mount /proc with hidepid=1 ([#277](https://github.com/edera-dev/krata/pull/277))
+- update Cargo.toml dependencies
+
 ## [0.0.13](https://github.com/edera-dev/krata/compare/v0.0.12...v0.0.13) - 2024-07-19
 
 ### Added
