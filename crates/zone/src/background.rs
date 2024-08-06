@@ -16,6 +16,7 @@ use krata::idm::{
 };
 use log::debug;
 use nix::unistd::Pid;
+use tokio::sync::broadcast::Receiver;
 use tokio::{select, sync::broadcast};
 
 pub struct ZoneBackground {
@@ -23,15 +24,18 @@ pub struct ZoneBackground {
     child: Pid,
     _cgroup: Cgroup,
     wait: ChildWait,
+    child_receiver: Receiver<ChildEvent>,
 }
 
 impl ZoneBackground {
     pub async fn new(idm: IdmInternalClient, cgroup: Cgroup, child: Pid) -> Result<ZoneBackground> {
+        let (wait, child_receiver) = ChildWait::new()?;
         Ok(ZoneBackground {
             idm,
             child,
             _cgroup: cgroup,
-            wait: ChildWait::new()?,
+            wait,
+            child_receiver,
         })
     }
 
@@ -39,7 +43,6 @@ impl ZoneBackground {
         let mut event_subscription = self.idm.subscribe().await?;
         let mut requests_subscription = self.idm.requests().await?;
         let mut request_streams_subscription = self.idm.request_streams().await?;
-        let mut wait_subscription = self.wait.subscribe().await?;
         loop {
             select! {
                 x = event_subscription.recv() => match x {
@@ -86,7 +89,7 @@ impl ZoneBackground {
                     }
                 },
 
-                event = wait_subscription.recv() => match event {
+                event = self.child_receiver.recv() => match event {
                     Ok(event) => self.child_event(event).await?,
                     Err(_) => {
                         break;
