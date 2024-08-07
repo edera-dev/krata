@@ -116,9 +116,11 @@ impl XsdSocket {
         let rx_task = std::thread::Builder::new()
             .name("xenstore-reader".to_string())
             .spawn(move || {
-                if let Err(error) = XsdSocketProcessor::process_rx(read, rx_sender) {
+                let mut read = read;
+                if let Err(error) = XsdSocketProcessor::process_rx(&mut read, rx_sender) {
                     debug!("failed to process xen store bus: {}", error);
                 }
+                std::mem::forget(read);
             })?;
 
         Ok(XsdSocket {
@@ -197,12 +199,12 @@ struct XsdSocketProcessor {
 }
 
 impl XsdSocketProcessor {
-    fn process_rx(mut read: std::fs::File, rx_sender: Sender<XsdMessage>) -> Result<()> {
+    fn process_rx(read: &mut std::fs::File, rx_sender: Sender<XsdMessage>) -> Result<()> {
         let mut header_buffer: Vec<u8> = vec![0u8; XsdMessageHeader::SIZE];
         let mut buffer: Vec<u8> = vec![0u8; XEN_BUS_MAX_PACKET_SIZE - XsdMessageHeader::SIZE];
         loop {
             let message =
-                XsdSocketProcessor::read_message(&mut header_buffer, &mut buffer, &mut read)?;
+                XsdSocketProcessor::read_message(&mut header_buffer, &mut buffer, read)?;
             rx_sender.blocking_send(message)?;
         }
     }
