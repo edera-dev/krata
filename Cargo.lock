@@ -1594,6 +1594,7 @@ dependencies = [
  "nix 0.29.0",
  "oci-spec",
  "path-absolutize",
+ "pin-project-lite",
  "platform-info",
  "rtnetlink",
  "serde",

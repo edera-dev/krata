@@ -1,30 +1,33 @@
+use std::{
+    collections::HashMap,
+    ffi::CString,
+    fs::{File, OpenOptions, Permissions},
+    io,
+    net::{Ipv4Addr, Ipv6Addr},
+    os::fd::AsRawFd,
+    os::unix::{ffi::OsStrExt, fs::{chroot, PermissionsExt}},
+    path::{Path, PathBuf},
+    str::FromStr,
+};
+
 use anyhow::{anyhow, Result};
+use log::{trace, warn};
+
 use cgroups_rs::{Cgroup, CgroupPid};
 use futures::stream::TryStreamExt;
+use libc::{pid_t, sethostname, setsid, TIOCSCTTY};
+use nix::{ioctl_write_int_bad, unistd::{dup2, execve, fork, ForkResult}};
+use oci_spec::image::{Config, ImageConfiguration};
+use path_absolutize::Absolutize;
+use platform_info::{PlatformInfo, PlatformInfoAPI, UNameAPI};
+use sys_mount::{FilesystemType, Mount, MountFlags};
+use tokio::fs;
+
 use ipnetwork::IpNetwork;
 use krata::ethtool::EthtoolHandle;
 use krata::idm::client::IdmInternalClient;
 use krata::idm::internal::INTERNAL_IDM_CHANNEL;
 use krata::launchcfg::{LaunchInfo, LaunchNetwork, LaunchPackedFormat};
-use libc::{sethostname, setsid, TIOCSCTTY};
-use log::{trace, warn};
-use nix::ioctl_write_int_bad;
-use nix::unistd::{dup2, execve, fork, ForkResult, Pid};
-use oci_spec::image::{Config, ImageConfiguration};
-use path_absolutize::Absolutize;
-use platform_info::{PlatformInfo, PlatformInfoAPI, UNameAPI};
-use std::collections::HashMap;
-use std::ffi::CString;
-use std::fs::{File, OpenOptions, Permissions};
-use std::io;
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::os::fd::AsRawFd;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{chroot, PermissionsExt};
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use sys_mount::{FilesystemType, Mount, MountFlags};
-use tokio::fs;
 
 use crate::background::ZoneBackground;
 
@@ -606,7 +609,7 @@ impl ZoneInit {
         env: Vec<CString>,
     ) -> Result<()> {
         match unsafe { fork()? } {
-            ForkResult::Parent { child } => self.background(idm, cgroup, child).await,
+            ForkResult::Parent { child } => self.background(idm, cgroup, child.as_raw()).await,
             ForkResult::Child => self.foreground(cgroup, working_dir, path, cmd, env).await,
         }
     }
@@ -638,7 +641,7 @@ impl ZoneInit {
         &mut self,
         idm: IdmInternalClient,
         cgroup: Cgroup,
-        executed: Pid,
+        executed: pid_t,
     ) -> Result<()> {
         let mut background = ZoneBackground::new(idm, cgroup, executed).await?;
         background.run().await?;

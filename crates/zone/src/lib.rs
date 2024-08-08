@@ -9,6 +9,7 @@ pub mod childwait;
 pub mod exec;
 pub mod init;
 pub mod metrics;
+pub mod spawn;
 
 pub async fn death(code: c_int) -> Result<()> {
     let store = XsdClient::open().await?;
