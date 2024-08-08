@@ -1,10 +1,13 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{
+    collections::HashMap,
+    ffi::CString,
+    path::PathBuf,
+};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     join,
-    process::Command,
 };
 
 use krata::idm::{
@@ -16,7 +19,10 @@ use krata::idm::{
     internal::{response::Response as ResponseType, Request, Response},
 };
 
-use crate::childwait::ChildWait;
+use crate::{
+    childwait::ChildWait,
+    spawn::child::ChildSpec,
+};
 
 pub struct ZoneExecTask {
     pub wait: ChildWait,
@@ -39,11 +45,14 @@ impl ZoneExecTask {
             return Err(anyhow!("first request did not contain a start update"));
         };
 
-        let mut cmd = start.command.clone();
+        let cmd = start.command.clone();
         if cmd.is_empty() {
             return Err(anyhow!("command line was empty"));
         }
-        let exe = cmd.remove(0);
+
+        let exe: PathBuf = cmd[0].clone().into();
+        let cmd = cmd.into_iter().map(CString::new).collect::<Result<Vec<CString>, _>>()?;
+
         let mut env = HashMap::new();
         for entry in &start.environment {
             env.insert(entry.key.clone(), entry.value.clone());
@@ -56,37 +65,29 @@ impl ZoneExecTask {
             );
         }
 
-        let dir = if start.working_directory.is_empty() {
+        let working_dir = if start.working_directory.is_empty() {
             "/".to_string()
         } else {
             start.working_directory.clone()
         };
 
-        let mut wait_subscription = self.wait.subscribe().await?;
-        let mut child = Command::new(exe)
-            .args(cmd)
-            .envs(env)
-            .current_dir(dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|error| anyhow!("failed to spawn: {}", error))?;
+        let wait_rx = self.wait.subscribe().await?;
 
-        let pid = child.id().ok_or_else(|| anyhow!("pid is not provided"))?;
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("stdin was missing"))?;
-        let mut stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("stdout was missing"))?;
-        let mut stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| anyhow!("stderr was missing"))?;
+        let spec = ChildSpec {
+            exe: PathBuf::from(exe),
+            cmd, 
+            env,
+            tty: false,
+            cgroup: None,
+            working_dir,
+            with_new_session: false,
+        };
+
+        let mut child = spec.spawn(wait_rx).context("failed to spawn")?;
+
+        let mut stdin = child.stdin.take().context("stdin was missing")?;
+        let mut stdout = child.stdout.take().context("stdout was missing")?;
+        let mut stderr = child.stderr.take().context("stderr was missing")?;
 
         let stdout_handle = self.handle.clone();
         let stdout_task = tokio::task::spawn(async move {
@@ -161,18 +162,12 @@ impl ZoneExecTask {
             stdin_task.abort();
         });
 
-        let code = loop {
-            if let Ok(event) = wait_subscription.recv().await {
-                if event.pid.as_raw() as u32 == pid {
-                    break event.status;
-                }
-            }
-        };
+        let exit_code = child.wait().await?;
         data_task.await?;
         let response = Response {
             response: Some(ResponseType::ExecStream(ExecStreamResponseUpdate {
                 exited: true,
-                exit_code: code,
+                exit_code,
                 error: String::new(),
                 stdout: vec![],
                 stderr: vec![],

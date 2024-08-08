@@ -1,7 +1,3 @@
-use anyhow::Result;
-use libc::{c_int, waitpid, WEXITSTATUS, WIFEXITED};
-use log::warn;
-use nix::unistd::Pid;
 use std::thread::sleep;
 use std::time::Duration;
 use std::{
@@ -12,13 +8,18 @@ use std::{
     },
     thread::{self, JoinHandle},
 };
+
+use anyhow::Result;
+use log::warn;
+
+use libc::{c_int, pid_t, waitpid, WEXITSTATUS, WIFEXITED};
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 
 const CHILD_WAIT_QUEUE_LEN: usize = 10;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ChildEvent {
-    pub pid: Pid,
+    pub pid: pid_t,
     pub status: c_int,
 }
 
@@ -75,10 +76,8 @@ impl ChildWaitTask {
                 continue;
             }
             if WIFEXITED(status) {
-                let event = ChildEvent {
-                    pid: Pid::from_raw(pid),
-                    status: WEXITSTATUS(status),
-                };
+                let status = WEXITSTATUS(status);
+                let event = ChildEvent { pid, status };
                 let _ = self.sender.send(event);
 
                 if self.signal.load(Ordering::Acquire) {

@@ -1,11 +1,11 @@
-use crate::{
-    childwait::{ChildEvent, ChildWait},
-    death,
-    exec::ZoneExecTask,
-    metrics::MetricsCollector,
-};
 use anyhow::Result;
+use log::debug;
+
 use cgroups_rs::Cgroup;
+use libc::pid_t;
+use tokio::sync::broadcast::Receiver;
+use tokio::{select, sync::broadcast};
+
 use krata::idm::{
     client::{IdmClientStreamResponseHandle, IdmInternalClient},
     internal::{
@@ -14,21 +14,24 @@ use krata::idm::{
         MetricsResponse, PingResponse, Request, Response,
     },
 };
-use log::debug;
-use nix::unistd::Pid;
-use tokio::sync::broadcast::Receiver;
-use tokio::{select, sync::broadcast};
+
+use crate::{
+    childwait::{ChildEvent, ChildWait},
+    death,
+    exec::ZoneExecTask,
+    metrics::MetricsCollector,
+};
 
 pub struct ZoneBackground {
     idm: IdmInternalClient,
-    child: Pid,
+    child: pid_t,
     _cgroup: Cgroup,
     wait: ChildWait,
     child_receiver: Receiver<ChildEvent>,
 }
 
 impl ZoneBackground {
-    pub async fn new(idm: IdmInternalClient, cgroup: Cgroup, child: Pid) -> Result<ZoneBackground> {
+    pub async fn new(idm: IdmInternalClient, cgroup: Cgroup, child: pid_t) -> Result<ZoneBackground> {
         let (wait, child_receiver) = ChildWait::new()?;
         Ok(ZoneBackground {
             idm,
