@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use ip::IpVendor;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use krataloopdev::LoopControl;
-use log::error;
+use log::{debug, error};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use xenclient::XenClient;
@@ -66,15 +66,23 @@ pub struct RuntimeContext {
 
 impl RuntimeContext {
     pub async fn new(host_uuid: Uuid) -> Result<Self> {
+        debug!("initializing XenClient");
         let xen = XenClient::new(0, RuntimePlatform::new()).await?;
+
+        debug!("initializing ip allocation vendor");
         let ipv4_network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
         let ipv6_network = Ipv6Network::from_str("fdd4:1476:6c7e::/48")?;
-        let ipvend =
+        let ipvendor =
             IpVendor::new(xen.store.clone(), host_uuid, ipv4_network, ipv6_network).await?;
+
+        debug!("initializing loop devices");
+        let autoloop = AutoLoop::new(LoopControl::open()?);
+
+        debug!("krata runtime initialized!");
         Ok(RuntimeContext {
-            autoloop: AutoLoop::new(LoopControl::open()?),
+            autoloop,
             xen,
-            ipvendor: ipvend,
+            ipvendor,
         })
     }
 

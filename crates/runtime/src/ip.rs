@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use ipnetwork::{Ipv4Network, Ipv6Network};
-use log::error;
+use log::{debug, error, trace};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use xenstore::{XsdClient, XsdInterface};
@@ -72,7 +72,9 @@ impl IpVendor {
         ipv4_network: Ipv4Network,
         ipv6_network: Ipv6Network,
     ) -> Result<Self> {
+        debug!("fetching state from xenstore");
         let mut state = IpVendor::fetch_stored_state(&store).await?;
+        debug!("allocating IP set");
         let (gateway_ipv4, gateway_ipv6) =
             IpVendor::allocate_ipset(&mut state, host_uuid, ipv4_network, ipv6_network)?;
         let vend = IpVendor {
@@ -84,11 +86,14 @@ impl IpVendor {
             gateway_ipv6,
             state: Arc::new(RwLock::new(state)),
         };
+        debug!("IP vendor initialized!");
         Ok(vend)
     }
 
     async fn fetch_stored_state(store: &XsdClient) -> Result<IpVendorState> {
+        debug!("initializing default IP vendor state");
         let mut state = IpVendorState::default();
+        debug!("iterating over xen domains");
         for domid_candidate in store.list("/local/domain").await? {
             let dom_path = format!("/local/domain/{}", domid_candidate);
             let Some(uuid) = store
@@ -119,6 +124,7 @@ impl IpVendor {
                 }
             }
         }
+        debug!("IP state hydrated");
         Ok(state)
     }
 
