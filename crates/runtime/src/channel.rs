@@ -62,14 +62,22 @@ impl ChannelService {
     )> {
         let (input_sender, input_receiver) = channel(GROUPED_CHANNEL_QUEUE_LEN);
         let (output_sender, output_receiver) = channel(GROUPED_CHANNEL_QUEUE_LEN);
+
+        debug!("opening Xen event channel");
+        let evtchn = EventChannel::open().await?;
+        debug!("opening XenStore");
+        let store = XsdClient::open().await?;
+        debug!("opening GrantTab");
+        let gnttab = GrantTab::open()?;
+
         Ok((
             ChannelService {
                 typ,
                 use_reserved_ref,
                 backends: HashMap::new(),
-                evtchn: EventChannel::open().await?,
-                store: XsdClient::open().await?,
-                gnttab: GrantTab::open()?,
+                evtchn,
+                store,
+                gnttab,
                 input_sender: input_sender.clone(),
                 input_receiver,
                 output_sender,
