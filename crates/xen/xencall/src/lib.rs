@@ -31,7 +31,7 @@ use sys::{
     XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION, XEN_MEM_SET_MEMORY_MAP,
     XEN_SYSCTL_CPUTOPOINFO, XEN_SYSCTL_MAX_INTERFACE_VERSION, XEN_SYSCTL_MIN_INTERFACE_VERSION,
     XEN_SYSCTL_PHYSINFO, XEN_SYSCTL_PM_OP, XEN_SYSCTL_PM_OP_DISABLE_TURBO,
-    XEN_SYSCTL_PM_OP_ENABLE_TURBO,
+    XEN_SYSCTL_PM_OP_ENABLE_TURBO, XEN_SYSCTL_PM_OP_SET_CPUFREQ_GOV,
 };
 use tokio::sync::Semaphore;
 use tokio::time::sleep;
@@ -1038,7 +1038,7 @@ impl XenCall {
             interface_version: self.sysctl_interface_version,
             value: SysctlValue {
                 pm_op: SysctlPmOp {
-                    cmd: XEN_SYSCTL_PM_OP_ENABLE_TURBO,
+                    cmd: XEN_SYSCTL_PM_OP_SET_CPUFREQ_GOV,
                     cpuid,
                     value: SysctlPmOpValue {
                         set_gov: SysctlSetCpuFreqGov { scaling_governor },
