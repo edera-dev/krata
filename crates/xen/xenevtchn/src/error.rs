@@ -8,6 +8,10 @@ pub enum Error {
     Io(#[from] io::Error),
     #[error("failed to send event channel wake: {0}")]
     WakeSend(tokio::sync::broadcast::error::SendError<u32>),
+    #[error("failed to acquire lock")]
+    LockAcquireFailed,
+    #[error("event port already in use")]
+    PortInUse,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

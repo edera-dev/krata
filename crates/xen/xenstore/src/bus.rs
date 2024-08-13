@@ -203,8 +203,7 @@ impl XsdSocketProcessor {
         let mut header_buffer: Vec<u8> = vec![0u8; XsdMessageHeader::SIZE];
         let mut buffer: Vec<u8> = vec![0u8; XEN_BUS_MAX_PACKET_SIZE - XsdMessageHeader::SIZE];
         loop {
-            let message =
-                XsdSocketProcessor::read_message(&mut header_buffer, &mut buffer, read)?;
+            let message = XsdSocketProcessor::read_message(&mut header_buffer, &mut buffer, read)?;
             rx_sender.blocking_send(message)?;
         }
     }

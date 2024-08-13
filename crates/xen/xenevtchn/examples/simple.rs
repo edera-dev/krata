@@ -1,9 +1,9 @@
 use xenevtchn::error::Result;
-use xenevtchn::EventChannel;
+use xenevtchn::EventChannelService;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let channel = EventChannel::open().await?;
+    let channel = EventChannelService::open().await?;
     println!("channel opened");
     let port = channel.bind_unbound_port(0).await?;
     println!("port: {}", port);

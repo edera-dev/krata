@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use ipnetwork::{Ipv4Network, Ipv6Network};
-use log::{debug, error, trace};
+use log::{debug, error};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use xenstore::{XsdClient, XsdInterface};
