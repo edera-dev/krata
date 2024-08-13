@@ -43,7 +43,7 @@ impl ZoneLogsCommand {
         };
         let output = client.attach_zone_console(input).await?.into_inner();
         let stdout_handle =
-            tokio::task::spawn(async move { StdioConsoleStream::stdout(output).await });
+            tokio::task::spawn(async move { StdioConsoleStream::stdout(output, false).await });
         let exit_hook_task = StdioConsoleStream::zone_exit_hook(zone_id.clone(), events).await?;
         let code = select! {
             x = stdout_handle => {

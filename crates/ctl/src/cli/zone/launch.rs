@@ -155,7 +155,7 @@ impl ZoneLaunchCommand {
             let input = StdioConsoleStream::stdin_stream(id.clone()).await;
             let output = client.attach_zone_console(input).await?.into_inner();
             let stdout_handle =
-                tokio::task::spawn(async move { StdioConsoleStream::stdout(output).await });
+                tokio::task::spawn(async move { StdioConsoleStream::stdout(output, true).await });
             let exit_hook_task = StdioConsoleStream::zone_exit_hook(id.clone(), events).await?;
             select! {
                 x = stdout_handle => {

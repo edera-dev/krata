@@ -73,8 +73,8 @@ impl StdioConsoleStream {
         }
     }
 
-    pub async fn stdout(mut stream: Streaming<ZoneConsoleReply>) -> Result<()> {
-        if stdin().is_tty() {
+    pub async fn stdout(mut stream: Streaming<ZoneConsoleReply>, raw: bool) -> Result<()> {
+        if raw && stdin().is_tty() {
             enable_raw_mode()?;
             StdioConsoleStream::register_terminal_restore_hook()?;
         }
