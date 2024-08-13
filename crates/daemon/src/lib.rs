@@ -141,12 +141,12 @@ impl Daemon {
 
         // TODO: Create a way of abstracting early init tasks in kratad.
         // TODO: Make initial power management policy configurable.
-        // FIXME: Power management hypercalls fail when running as an L1 hypervisor.
-        // let power = runtime.power_management_context().await?;
-        // power.set_smt_policy(true).await?;
-        // power
-        //     .set_scheduler_policy("performance".to_string())
-        //     .await?;
+        let power = runtime.power_management_context().await?;
+        power.set_smt_policy(true).await?;
+        power
+            .set_scheduler_policy("performance".to_string())
+            .await?;
+        info!("power management initialized");
 
         info!("krata daemon initialized");
         Ok(Self {
