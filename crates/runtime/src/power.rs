@@ -1,5 +1,6 @@
 use anyhow::Result;
 use indexmap::IndexMap;
+use log::info;
 use xencall::sys::{CpuId, SysctlCputopo};
 
 use crate::RuntimeContext;
@@ -151,7 +152,10 @@ impl PowerManagementContext {
             .xen
             .call
             .set_turbo_mode(CpuId::All, enable)
-            .await?;
+            .await
+            .unwrap_or_else(|error| {
+                info!("non-fatal error while setting SMT policy: {:?}", error);
+            });
         Ok(())
     }
 
@@ -161,7 +165,10 @@ impl PowerManagementContext {
             .xen
             .call
             .set_cpufreq_gov(CpuId::All, policy)
-            .await?;
+            .await
+            .unwrap_or_else(|error| {
+                info!("non-fatal error while setting scheduler policy: {:?}", error);
+            });
         Ok(())
     }
 }
