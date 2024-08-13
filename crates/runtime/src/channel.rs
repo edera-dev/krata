@@ -8,14 +8,11 @@ use anyhow::{anyhow, Result};
 use log::{debug, error};
 use tokio::{
     select,
-    sync::{
-        broadcast,
-        mpsc::{channel, Receiver, Sender},
-    },
+    sync::mpsc::{channel, Receiver, Sender},
     task::JoinHandle,
     time::sleep,
 };
-use xenevtchn::EventChannel;
+use xenevtchn::EventChannelService;
 use xengnt::{sys::GrantRef, GrantTab, MappedMemory};
 use xenstore::{XsdClient, XsdInterface};
 
@@ -43,7 +40,7 @@ pub struct ChannelService {
     typ: String,
     use_reserved_ref: Option<u64>,
     backends: HashMap<u32, ChannelBackend>,
-    evtchn: EventChannel,
+    evtchn: EventChannelService,
     store: XsdClient,
     gnttab: GrantTab,
     input_receiver: Receiver<(u32, Vec<u8>)>,
@@ -64,7 +61,7 @@ impl ChannelService {
         let (output_sender, output_receiver) = channel(GROUPED_CHANNEL_QUEUE_LEN);
 
         debug!("opening Xen event channel");
-        let evtchn = EventChannel::open().await?;
+        let evtchn = EventChannelService::open().await?;
         debug!("opening XenStore");
         let store = XsdClient::open().await?;
         debug!("opening GrantTab");
@@ -234,7 +231,7 @@ impl ChannelBackend {
         domid: u32,
         id: u32,
         store: XsdClient,
-        evtchn: EventChannel,
+        evtchn: EventChannelService,
         gnttab: GrantTab,
         output_sender: Sender<(u32, Option<Vec<u8>>)>,
         use_reserved_ref: Option<u64>,
@@ -273,7 +270,7 @@ pub struct KrataChannelBackendProcessor {
     id: u32,
     domid: u32,
     store: XsdClient,
-    evtchn: EventChannel,
+    evtchn: EventChannelService,
     gnttab: GrantTab,
 }
 
@@ -492,25 +489,18 @@ impl KrataChannelBackendProcessor {
                 },
 
                 x = channel.receiver.recv() => match x {
-                    Ok(_) => {
+                    Some(_) => {
                         unsafe {
                             let buffer = self.read_output_buffer(channel.local_port, &memory).await?;
                             if !buffer.is_empty() {
                                 sender.send((self.domid, Some(buffer))).await?;
                             }
                         };
-                        channel.unmask_sender.send(channel.local_port).await?;
+                        channel.unmask().await?;
                     },
 
-                    Err(error) => {
-                        match error {
-                            broadcast::error::RecvError::Closed => {
-                                break;
-                            },
-                            error => {
-                                return Err(anyhow!("failed to receive event notification: {}", error));
-                            }
-                        }
+                    None => {
+                        break;
                     }
                 }
             };

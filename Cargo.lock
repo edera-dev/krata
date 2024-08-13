@@ -1527,6 +1527,7 @@ dependencies = [
 name = "krata-xenevtchn"
 version = "0.0.15"
 dependencies = [
+ "byteorder",
  "libc",
  "log",
  "nix 0.29.0",

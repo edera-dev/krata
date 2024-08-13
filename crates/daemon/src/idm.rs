@@ -254,9 +254,9 @@ pub struct IdmDaemonBackend {
 
 #[async_trait::async_trait]
 impl IdmBackend for IdmDaemonBackend {
-    async fn recv(&mut self) -> Result<IdmTransportPacket> {
+    async fn recv(&mut self) -> Result<Vec<IdmTransportPacket>> {
         if let Some(packet) = self.rx_receiver.recv().await {
-            Ok(packet)
+            Ok(vec![packet])
         } else {
             Err(anyhow!("idm receive channel closed"))
         }

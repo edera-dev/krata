@@ -167,7 +167,10 @@ impl PowerManagementContext {
             .set_cpufreq_gov(CpuId::All, policy)
             .await
             .unwrap_or_else(|error| {
-                info!("non-fatal error while setting scheduler policy: {:?}", error);
+                info!(
+                    "non-fatal error while setting scheduler policy: {:?}",
+                    error
+                );
             });
         Ok(())
     }
