@@ -26,6 +26,8 @@ service ControlService {
 
     rpc GetZone(GetZoneRequest) returns (GetZoneReply);
 
+    rpc UpdateZoneResources(UpdateZoneResourcesRequest) returns (UpdateZoneResourcesReply);
+
     rpc ListZones(ListZonesRequest) returns (ListZonesReply);
 
     rpc AttachZoneConsole(stream ZoneConsoleRequest) returns (stream ZoneConsoleReply);
@@ -242,3 +244,10 @@ message SetHostPowerManagementPolicyRequest {
 }
 
 message SetHostPowerManagementPolicyReply {}
+
+message UpdateZoneResourcesRequest {
+    string zone_id = 1;
+    krata.v1.common.ZoneResourceSpec resources = 2;
+}
+
+message UpdateZoneResourcesReply {}

@@ -6,8 +6,9 @@ use krata::{
     events::EventStream,
     v1::{
         common::{
-            zone_image_spec::Image, OciImageFormat, ZoneImageSpec, ZoneOciImageSpec, ZoneSpec,
-            ZoneSpecDevice, ZoneState, ZoneTaskSpec, ZoneTaskSpecEnvVar,
+            zone_image_spec::Image, OciImageFormat, ZoneImageSpec, ZoneOciImageSpec,
+            ZoneResourceSpec, ZoneSpec, ZoneSpecDevice, ZoneState, ZoneTaskSpec,
+            ZoneTaskSpecEnvVar,
         },
         control::{
             control_service_client::ControlServiceClient, watch_events_reply::Event,
@@ -41,12 +42,19 @@ pub struct ZoneLaunchCommand {
     #[arg(short, long, default_value_t = 1, help = "vCPUs available to the zone")]
     cpus: u32,
     #[arg(
-        short,
-        long,
+        short = 'M',
+        long = "max-memory",
         default_value_t = 512,
-        help = "Memory available to the zone, in megabytes"
+        help = "Maximum memory available to the zone, in megabytes"
     )]
-    mem: u64,
+    max_memory: u64,
+    #[arg(
+        short = 'm',
+        long = "target-memory",
+        default_value_t = 512,
+        help = "Memory target for the zone, in megabytes"
+    )]
+    target_memory: u64,
     #[arg[short = 'D', long = "device", help = "Devices to request for the zone"]]
     device: Vec<String>,
     #[arg[short, long, help = "Environment variables set in the zone"]]
@@ -120,8 +128,11 @@ impl ZoneLaunchCommand {
                 image: Some(image),
                 kernel,
                 initrd,
-                cpus: self.cpus,
-                mem: self.mem,
+                initial_resources: Some(ZoneResourceSpec {
+                    cpus: self.cpus,
+                    max_memory: self.max_memory,
+                    target_memory: self.target_memory,
+                }),
                 task: Some(ZoneTaskSpec {
                     environment: env_map(&self.env.unwrap_or_default())
                         .iter()

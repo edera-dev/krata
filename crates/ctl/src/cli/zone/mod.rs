@@ -14,6 +14,7 @@ use crate::cli::zone::logs::ZoneLogsCommand;
 use crate::cli::zone::metrics::ZoneMetricsCommand;
 use crate::cli::zone::resolve::ZoneResolveCommand;
 use crate::cli::zone::top::ZoneTopCommand;
+use crate::cli::zone::update_resources::ZoneUpdateResourcesCommand;
 use crate::cli::zone::watch::ZoneWatchCommand;
 
 pub mod attach;
@@ -25,6 +26,7 @@ pub mod logs;
 pub mod metrics;
 pub mod resolve;
 pub mod top;
+mod update_resources;
 pub mod watch;
 
 #[derive(Parser)]
@@ -56,6 +58,7 @@ pub enum ZoneCommands {
     Resolve(ZoneResolveCommand),
     Top(ZoneTopCommand),
     Watch(ZoneWatchCommand),
+    UpdateResources(ZoneUpdateResourcesCommand),
 }
 
 impl ZoneCommands {
@@ -84,6 +87,8 @@ impl ZoneCommands {
             ZoneCommands::Top(top) => top.run(client, events).await,
 
             ZoneCommands::Exec(exec) => exec.run(client).await,
+
+            ZoneCommands::UpdateResources(update_resources) => update_resources.run(client).await,
         }
     }
 }

@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use krata::launchcfg::LaunchPackedFormat;
-use krata::v1::common::ZoneOciImageSpec;
 use krata::v1::common::{OciImageFormat, Zone, ZoneState, ZoneStatus};
+use krata::v1::common::{ZoneOciImageSpec, ZoneResourceStatus};
 use krataoci::packer::{service::OciPackerService, OciPackedFormat};
 use kratart::launch::{PciBdf, PciDevice, PciRdmReservePolicy, ZoneLaunchNetwork};
 use kratart::{launch::ZoneLaunchRequest, Runtime};
@@ -176,6 +176,7 @@ impl ZoneCreator<'_> {
 
         let reservation = self.ip_assignment.assign(uuid).await?;
 
+        let initial_resources = spec.initial_resources.unwrap_or_default();
         let info = self
             .runtime
             .launch(ZoneLaunchRequest {
@@ -189,8 +190,9 @@ impl ZoneCreator<'_> {
                 image,
                 kernel,
                 initrd,
-                vcpus: spec.cpus,
-                mem: spec.mem,
+                cpus: initial_resources.cpus,
+                max_memory: initial_resources.max_memory,
+                target_memory: initial_resources.target_memory,
                 pcis,
                 env: task
                     .environment
@@ -219,6 +221,9 @@ impl ZoneCreator<'_> {
             network_status: Some(ip_reservation_to_network_status(&reservation)),
             exit_status: None,
             error_status: None,
+            resource_status: Some(ZoneResourceStatus {
+                active_resources: Some(initial_resources),
+            }),
             host: self.zlt.host_uuid().to_string(),
             domid: info.domid,
         });

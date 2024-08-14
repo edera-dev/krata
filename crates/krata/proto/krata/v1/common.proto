@@ -21,11 +21,16 @@ message ZoneSpec {
     ZoneImageSpec kernel = 3;
     // If not specified, defaults to the daemon default initrd.
     ZoneImageSpec initrd = 4;
-    uint32 cpus = 5;
-    uint64 mem = 6;
-    ZoneTaskSpec task = 7;
-    repeated ZoneSpecAnnotation annotations = 8;
-    repeated ZoneSpecDevice devices = 9;
+    ZoneResourceSpec initial_resources = 5;
+    ZoneTaskSpec task = 6;
+    repeated ZoneSpecAnnotation annotations = 7;
+    repeated ZoneSpecDevice devices = 8;
+}
+
+message ZoneResourceSpec {
+    uint64 max_memory = 1;
+    uint64 target_memory = 2;
+    uint32 cpus = 3;
 }
 
 message ZoneImageSpec {
@@ -74,6 +79,7 @@ message ZoneStatus {
     ZoneErrorStatus error_status = 4;
     string host = 5;
     uint32 domid = 6;
+    ZoneResourceStatus resource_status = 7;
 }
 
 enum ZoneState {
@@ -101,6 +107,10 @@ message ZoneExitStatus {
 
 message ZoneErrorStatus {
     string message = 1;
+}
+
+message ZoneResourceStatus {
+    ZoneResourceSpec active_resources = 1;
 }
 
 message ZoneMetricNode {

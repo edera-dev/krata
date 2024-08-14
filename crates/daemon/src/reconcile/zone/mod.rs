@@ -328,6 +328,7 @@ impl ZoneReconciler {
             network_status: None,
             exit_status: None,
             error_status: None,
+            resource_status: None,
             host: self.zlt.host_uuid().to_string(),
             domid: domid.unwrap_or(u32::MAX),
         });

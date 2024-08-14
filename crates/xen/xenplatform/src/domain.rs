@@ -29,7 +29,7 @@ impl<P: BootSetupPlatform> BaseDomainManager<P> {
         let domid = self.call.create_domain(domain).await?;
         self.call.set_max_vcpus(domid, config.max_vcpus).await?;
         self.call
-            .set_max_mem(domid, (config.mem_mb * 1024) + 2048)
+            .set_max_mem(domid, (config.max_mem_mb * 1024) + 2048)
             .await?;
         let loader = ElfImageLoader::load_file_kernel(&config.kernel)?;
         let platform = (*self.platform).clone();
@@ -37,7 +37,8 @@ impl<P: BootSetupPlatform> BaseDomainManager<P> {
         let mut domain = boot
             .initialize(
                 &config.initrd,
-                config.mem_mb,
+                config.target_mem_mb,
+                config.max_mem_mb,
                 config.max_vcpus,
                 &config.cmdline,
             )
@@ -63,7 +64,8 @@ pub struct BaseDomainConfig {
     pub uuid: Uuid,
     pub owner_domid: u32,
     pub max_vcpus: u32,
-    pub mem_mb: u64,
+    pub max_mem_mb: u64,
+    pub target_mem_mb: u64,
     pub kernel: Vec<u8>,
     pub initrd: Vec<u8>,
     pub cmdline: String,

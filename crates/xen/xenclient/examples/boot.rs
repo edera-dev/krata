@@ -27,7 +27,8 @@ async fn main() -> Result<()> {
         base: BaseDomainConfig {
             uuid: Uuid::new_v4(),
             max_vcpus: 1,
-            mem_mb: 512,
+            max_mem_mb: 512,
+            target_mem_mb: 512,
             enable_iommu: true,
             kernel: fs::read(&kernel_image_path).await?,
             initrd: fs::read(&initrd_path).await?,

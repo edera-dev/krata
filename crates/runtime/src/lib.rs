@@ -226,6 +226,36 @@ impl Runtime {
         Ok(uuid)
     }
 
+    pub async fn set_max_memory(&self, domid: u32, max_memory_bytes: u64) -> Result<()> {
+        self.context
+            .xen
+            .call
+            .set_max_mem(domid, max_memory_bytes / 1024)
+            .await?;
+        let domain_path = self.context.xen.store.get_domain_path(domid).await?;
+        let max_memory_path = format!("{}/memory/static-max", domain_path);
+        self.context
+            .xen
+            .store
+            .write_string(max_memory_path, &(max_memory_bytes / 1024).to_string())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_target_memory(&self, domid: u32, target_memory_bytes: u64) -> Result<()> {
+        let domain_path = self.context.xen.store.get_domain_path(domid).await?;
+        let target_memory_path = format!("{}/memory/target", domain_path);
+        self.context
+            .xen
+            .store
+            .write_string(
+                target_memory_path,
+                &(target_memory_bytes / 1024).to_string(),
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn list(&self) -> Result<Vec<ZoneInfo>> {
         self.context.list().await
     }
