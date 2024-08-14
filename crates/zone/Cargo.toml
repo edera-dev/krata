@@ -22,6 +22,7 @@ nix = { workspace = true, features = ["ioctl", "process", "fs"] }
 oci-spec = { workspace = true }
 path-absolutize = { workspace = true }
 platform-info = { workspace = true }
+pty-process = { workspace = true, features = ["async"] }
 rtnetlink = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

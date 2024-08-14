@@ -59,6 +59,8 @@ pub struct ZoneLaunchCommand {
     device: Vec<String>,
     #[arg[short, long, help = "Environment variables set in the zone"]]
     env: Option<Vec<String>>,
+    #[arg(short = 't', long, help = "Allocate tty for task")]
+    tty: bool,
     #[arg(
         short,
         long,
@@ -143,6 +145,7 @@ impl ZoneLaunchCommand {
                         .collect(),
                     command: self.command,
                     working_directory: self.working_directory.unwrap_or_default(),
+                    tty: self.tty,
                 }),
                 annotations: vec![],
                 devices: self
