@@ -49,6 +49,7 @@ pub struct ZoneLaunchNetwork {
     pub gateway_ipv4: String,
     pub gateway_ipv6: String,
     pub zone_mac: MacAddr6,
+    pub nameservers: Vec<String>,
 }
 
 pub struct ZoneLauncher {
@@ -90,12 +91,7 @@ impl ZoneLauncher {
                     gateway: request.network.gateway_ipv6.to_string(),
                 },
                 resolver: LaunchNetworkResolver {
-                    nameservers: vec![
-                        "1.1.1.1".to_string(),
-                        "1.0.0.1".to_string(),
-                        "2606:4700:4700::1111".to_string(),
-                        "2606:4700:4700::1001".to_string(),
-                    ],
+                    nameservers: request.network.nameservers,
                 },
             }),
             env: request.env,

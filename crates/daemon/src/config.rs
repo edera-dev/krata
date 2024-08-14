@@ -10,7 +10,7 @@ pub struct DaemonConfig {
     pub oci: OciConfig,
     #[serde(default)]
     pub pci: DaemonPciConfig,
-    #[serde(default)]
+    #[serde(default = "default_network")]
     pub network: DaemonNetworkConfig,
 }
 
@@ -55,6 +55,30 @@ pub enum DaemonPciDeviceRdmReservePolicy {
 pub struct DaemonNetworkConfig {
     #[serde(default = "default_network_nameservers")]
     pub nameservers: Vec<String>,
+    #[serde(default = "default_network_ipv4")]
+    pub ipv4: DaemonIpv4NetworkConfig,
+    #[serde(default = "default_network_ipv6")]
+    pub ipv6: DaemonIpv6NetworkConfig,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct DaemonIpv4NetworkConfig {
+    #[serde(default = "default_network_ipv4_subnet")]
+    pub subnet: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct DaemonIpv6NetworkConfig {
+    #[serde(default = "default_network_ipv6_subnet")]
+    pub subnet: String,
+}
+
+fn default_network() -> DaemonNetworkConfig {
+    DaemonNetworkConfig {
+        nameservers: default_network_nameservers(),
+        ipv4: default_network_ipv4(),
+        ipv6: default_network_ipv6(),
+    }
 }
 
 fn default_network_nameservers() -> Vec<String> {
@@ -64,6 +88,26 @@ fn default_network_nameservers() -> Vec<String> {
         "2606:4700:4700::1111".to_string(),
         "2606:4700:4700::1001".to_string(),
     ]
+}
+
+fn default_network_ipv4() -> DaemonIpv4NetworkConfig {
+    DaemonIpv4NetworkConfig {
+        subnet: default_network_ipv4_subnet(),
+    }
+}
+
+fn default_network_ipv4_subnet() -> String {
+    "10.75.80.0/24".to_string()
+}
+
+fn default_network_ipv6() -> DaemonIpv6NetworkConfig {
+    DaemonIpv6NetworkConfig {
+        subnet: default_network_ipv6_subnet(),
+    }
+}
+
+fn default_network_ipv6_subnet() -> String {
+    "fdd4:1476:6c7e::/48".to_string()
 }
 
 impl DaemonConfig {

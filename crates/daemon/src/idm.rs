@@ -85,13 +85,13 @@ pub struct DaemonIdm {
 
 impl DaemonIdm {
     pub async fn new(glt: ZoneLookupTable) -> Result<DaemonIdm> {
-        debug!("allocating channel for IDM");
+        debug!("allocating channel service for idm");
         let (service, tx_raw_sender, rx_receiver) =
             ChannelService::new("krata-channel".to_string(), None).await?;
         let (tx_sender, tx_receiver) = channel(100);
         let (snoop_sender, _) = broadcast::channel(100);
 
-        debug!("starting channel service");
+        debug!("starting idm channel service");
         let task = service.launch().await?;
 
         let clients = Arc::new(Mutex::new(HashMap::new()));

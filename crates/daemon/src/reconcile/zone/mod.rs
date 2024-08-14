@@ -6,6 +6,7 @@ use std::{
 };
 
 use self::create::ZoneCreator;
+use crate::config::DaemonConfig;
 use crate::db::ip::IpReservation;
 use crate::ip::assignment::IpAssignment;
 use crate::{
@@ -69,6 +70,7 @@ pub struct ZoneReconciler {
     zone_reconciler_notify: Sender<Uuid>,
     zone_reconcile_lock: Arc<RwLock<()>>,
     ip_assignment: IpAssignment,
+    config: Arc<DaemonConfig>,
 }
 
 impl ZoneReconciler {
@@ -85,6 +87,7 @@ impl ZoneReconciler {
         initrd_path: PathBuf,
         modules_path: PathBuf,
         ip_assignment: IpAssignment,
+        config: Arc<DaemonConfig>,
     ) -> Result<Self> {
         Ok(Self {
             devices,
@@ -100,6 +103,7 @@ impl ZoneReconciler {
             zone_reconciler_notify,
             zone_reconcile_lock: Arc::new(RwLock::with_max_readers((), PARALLEL_LIMIT)),
             ip_assignment,
+            config,
         })
     }
 
@@ -292,6 +296,7 @@ impl ZoneReconciler {
             ip_assignment: &self.ip_assignment,
             zlt: &self.zlt,
             runtime: &self.runtime,
+            config: &self.config,
         };
         starter.create(uuid, zone).await
     }

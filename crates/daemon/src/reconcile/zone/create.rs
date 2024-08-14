@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::config::DaemonPciDeviceRdmReservePolicy;
+use crate::config::{DaemonConfig, DaemonPciDeviceRdmReservePolicy};
 use crate::devices::DaemonDeviceManager;
 use crate::ip::assignment::IpAssignment;
 use crate::reconcile::zone::ip_reservation_to_network_status;
@@ -32,6 +32,7 @@ pub struct ZoneCreator<'a> {
     pub ip_assignment: &'a IpAssignment,
     pub zlt: &'a ZoneLookupTable,
     pub runtime: &'a Runtime,
+    pub config: &'a DaemonConfig,
 }
 
 impl ZoneCreator<'_> {
@@ -207,6 +208,7 @@ impl ZoneCreator<'_> {
                     gateway_ipv4: reservation.gateway_ipv4.to_string(),
                     gateway_ipv6: reservation.gateway_ipv6.to_string(),
                     zone_mac: reservation.mac,
+                    nameservers: self.config.network.nameservers.clone(),
                 },
             })
             .await?;

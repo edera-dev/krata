@@ -15,7 +15,6 @@ use krataoci::{packer::service::OciPackerService, registry::OciPlatform};
 use kratart::Runtime;
 use log::{debug, info};
 use reconcile::zone::ZoneReconciler;
-use std::net::Ipv4Addr;
 use std::path::Path;
 use std::{net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
 use tokio::{
@@ -125,8 +124,8 @@ impl Daemon {
             DaemonEventGenerator::new(zones.clone(), zone_reconciler_notify.clone(), idm.clone())
                 .await?;
         let runtime_for_reconciler = runtime.dupe().await?;
-        let ipv4_network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
-        let ipv6_network = Ipv6Network::from_str("fdd4:1476:6c7e::/48")?;
+        let ipv4_network = Ipv4Network::from_str(&config.network.ipv4.subnet)?;
+        let ipv6_network = Ipv6Network::from_str(&config.network.ipv6.subnet)?;
         let ip_reservation_store = IpReservationStore::open(database)?;
         let ip_assignment =
             IpAssignment::new(host_uuid, ipv4_network, ipv6_network, ip_reservation_store).await?;
@@ -143,6 +142,7 @@ impl Daemon {
             initrd_path,
             addons_path,
             ip_assignment,
+            config.clone(),
         )?;
 
         let zone_reconciler_task = zone_reconciler.launch(zone_reconciler_receiver).await?;
@@ -176,7 +176,7 @@ impl Daemon {
     }
 
     pub async fn listen(&mut self, addr: ControlDialAddress) -> Result<()> {
-        debug!("starting API service");
+        debug!("starting control service");
         let control_service = DaemonControlService::new(
             self.glt.clone(),
             self.devices.clone(),
