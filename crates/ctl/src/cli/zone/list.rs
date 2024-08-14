@@ -4,17 +4,18 @@ use comfy_table::{presets::UTF8_FULL_CONDENSED, Cell, Color, Table};
 use krata::{
     events::EventStream,
     v1::{
-        common::{Zone, ZoneStatus},
+        common::Zone,
         control::{
-            control_service_client::ControlServiceClient, ListZonesRequest, ResolveZoneRequest,
+            control_service_client::ControlServiceClient, ListZonesRequest, ResolveZoneIdRequest,
         },
     },
 };
 
+use crate::format::{kv2line, proto2dynamic, proto2kv, zone_simple_line, zone_state_text};
+use krata::v1::common::ZoneState;
+use krata::v1::control::GetZoneRequest;
 use serde_json::Value;
 use tonic::{transport::Channel, Request};
-
-use crate::format::{kv2line, proto2dynamic, proto2kv, zone_simple_line, zone_status_text};
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum ZoneListFormat {
@@ -44,11 +45,21 @@ impl ZoneListCommand {
     ) -> Result<()> {
         let mut zones = if let Some(ref zone) = self.zone {
             let reply = client
-                .resolve_zone(Request::new(ResolveZoneRequest { name: zone.clone() }))
+                .resolve_zone_id(Request::new(ResolveZoneIdRequest { name: zone.clone() }))
                 .await?
                 .into_inner();
-            if let Some(zone) = reply.zone {
-                vec![zone]
+            if !reply.zone_id.is_empty() {
+                let reply = client
+                    .get_zone(Request::new(GetZoneRequest {
+                        zone_id: reply.zone_id,
+                    }))
+                    .await?
+                    .into_inner();
+                if let Some(zone) = reply.zone {
+                    vec![zone]
+                } else {
+                    return Err(anyhow!("unable to resolve zone '{}'", zone));
+                }
             } else {
                 return Err(anyhow!("unable to resolve zone '{}'", zone));
             }
@@ -115,30 +126,30 @@ impl ZoneListCommand {
         let mut table = Table::new();
         table.load_preset(UTF8_FULL_CONDENSED);
         table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
-        table.set_header(vec!["name", "uuid", "status", "ipv4", "ipv6"]);
+        table.set_header(vec!["name", "uuid", "state", "ipv4", "ipv6"]);
         for zone in zones {
             let ipv4 = zone
-                .state
+                .status
                 .as_ref()
-                .and_then(|x| x.network.as_ref())
+                .and_then(|x| x.network_status.as_ref())
                 .map(|x| x.zone_ipv4.as_str())
                 .unwrap_or("n/a");
             let ipv6 = zone
-                .state
+                .status
                 .as_ref()
-                .and_then(|x| x.network.as_ref())
+                .and_then(|x| x.network_status.as_ref())
                 .map(|x| x.zone_ipv6.as_str())
                 .unwrap_or("n/a");
             let Some(spec) = zone.spec else {
                 continue;
             };
-            let status = zone.state.as_ref().cloned().unwrap_or_default().status();
-            let status_text = zone_status_text(status);
+            let state = zone.status.as_ref().cloned().unwrap_or_default().state();
+            let status_text = zone_state_text(state);
 
-            let status_color = match status {
-                ZoneStatus::Destroyed | ZoneStatus::Failed => Color::Red,
-                ZoneStatus::Destroying | ZoneStatus::Exited | ZoneStatus::Starting => Color::Yellow,
-                ZoneStatus::Started => Color::Green,
+            let status_color = match state {
+                ZoneState::Destroyed | ZoneState::Failed => Color::Red,
+                ZoneState::Destroying | ZoneState::Exited | ZoneState::Creating => Color::Yellow,
+                ZoneState::Created => Color::Green,
                 _ => Color::Reset,
             };
 

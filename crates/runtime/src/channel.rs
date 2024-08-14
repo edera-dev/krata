@@ -60,11 +60,11 @@ impl ChannelService {
         let (input_sender, input_receiver) = channel(GROUPED_CHANNEL_QUEUE_LEN);
         let (output_sender, output_receiver) = channel(GROUPED_CHANNEL_QUEUE_LEN);
 
-        debug!("opening Xen event channel");
+        debug!("opening xenevtchn");
         let evtchn = EventChannelService::open().await?;
-        debug!("opening XenStore");
+        debug!("opening xenstore");
         let store = XsdClient::open().await?;
-        debug!("opening GrantTab");
+        debug!("opening xengnt");
         let gnttab = GrantTab::open()?;
 
         Ok((
@@ -503,7 +503,7 @@ impl KrataChannelBackendProcessor {
                         break;
                     }
                 }
-            };
+            }
         }
         Ok(())
     }

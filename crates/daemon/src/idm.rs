@@ -85,13 +85,13 @@ pub struct DaemonIdm {
 
 impl DaemonIdm {
     pub async fn new(glt: ZoneLookupTable) -> Result<DaemonIdm> {
-        debug!("allocating channel for IDM");
+        debug!("allocating channel service for idm");
         let (service, tx_raw_sender, rx_receiver) =
             ChannelService::new("krata-channel".to_string(), None).await?;
         let (tx_sender, tx_receiver) = channel(100);
         let (snoop_sender, _) = broadcast::channel(100);
 
-        debug!("starting channel service");
+        debug!("starting idm channel service");
         let task = service.launch().await?;
 
         let clients = Arc::new(Mutex::new(HashMap::new()));
@@ -133,52 +133,99 @@ impl DaemonIdm {
         })
     }
 
+    async fn process_rx_packet(
+        &mut self,
+        domid: u32,
+        data: Option<Vec<u8>>,
+        buffers: &mut HashMap<u32, BytesMut>,
+    ) -> Result<()> {
+        // check if data is present, if it is not, that signals a closed channel.
+        if let Some(data) = data {
+            let buffer = buffers.entry(domid).or_insert_with_key(|_| BytesMut::new());
+            buffer.extend_from_slice(&data);
+            loop {
+                // check if the buffer is less than the header size, if so, wait for more data
+                if buffer.len() < 6 {
+                    break;
+                }
+
+                // check for the magic bytes 0xff, 0xff at the start of the message, if that doesn't
+                // exist, clear the buffer. this ensures that partial messages won't be processed.
+                if buffer[0] != 0xff || buffer[1] != 0xff {
+                    buffer.clear();
+                    return Ok(());
+                }
+
+                // read the size from the buffer as a little endian u32
+                let size = (buffer[2] as u32
+                    | (buffer[3] as u32) << 8
+                    | (buffer[4] as u32) << 16
+                    | (buffer[5] as u32) << 24) as usize;
+                let needed = size + 6;
+                if buffer.len() < needed {
+                    return Ok(());
+                }
+                let mut packet = buffer.split_to(needed);
+                // advance the buffer by the header, leaving only the raw data.
+                packet.advance(6);
+                match IdmTransportPacket::decode(packet) {
+                    Ok(packet) => {
+                        let _ =
+                            client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds)
+                                .await?;
+                        let guard = self.feeds.lock().await;
+                        if let Some(feed) = guard.get(&domid) {
+                            let _ = feed.try_send(packet.clone());
+                        }
+                        let _ = self.snoop_sender.send(DaemonIdmSnoopPacket {
+                            from: domid,
+                            to: 0,
+                            packet,
+                        });
+                    }
+
+                    Err(packet) => {
+                        warn!("received invalid packet from domain {}: {}", domid, packet);
+                    }
+                }
+            }
+        } else {
+            let mut clients = self.clients.lock().await;
+            let mut feeds = self.feeds.lock().await;
+            clients.remove(&domid);
+            feeds.remove(&domid);
+        }
+        Ok(())
+    }
+
+    async fn tx_packet(&mut self, domid: u32, packet: IdmTransportPacket) -> Result<()> {
+        let data = packet.encode_to_vec();
+        let mut buffer = vec![0u8; 6];
+        let length = data.len() as u32;
+        // magic bytes
+        buffer[0] = 0xff;
+        buffer[1] = 0xff;
+        // little endian u32 for message size
+        buffer[2] = length as u8;
+        buffer[3] = (length << 8) as u8;
+        buffer[4] = (length << 16) as u8;
+        buffer[5] = (length << 24) as u8;
+        buffer.extend_from_slice(&data);
+        self.tx_raw_sender.send((domid, buffer)).await?;
+        let _ = self.snoop_sender.send(DaemonIdmSnoopPacket {
+            from: 0,
+            to: domid,
+            packet,
+        });
+        Ok(())
+    }
+
     async fn process(&mut self, buffers: &mut HashMap<u32, BytesMut>) -> Result<()> {
         loop {
             select! {
                 x = self.rx_receiver.recv() => match x {
                     Some((domid, data)) => {
-                        if let Some(data) = data {
-                            let buffer = buffers.entry(domid).or_insert_with_key(|_| BytesMut::new());
-                            buffer.extend_from_slice(&data);
-                            loop {
-                                if buffer.len() < 6 {
-                                    break;
-                                }
-
-                                if buffer[0] != 0xff || buffer[1] != 0xff {
-                                    buffer.clear();
-                                    break;
-                                }
-
-                                let size = (buffer[2] as u32 | (buffer[3] as u32) << 8 | (buffer[4] as u32) << 16 | (buffer[5] as u32) << 24) as usize;
-                                let needed = size + 6;
-                                if buffer.len() < needed {
-                                    break;
-                                }
-                                let mut packet = buffer.split_to(needed);
-                                packet.advance(6);
-                                match IdmTransportPacket::decode(packet) {
-                                    Ok(packet) => {
-                                        let _ = client_or_create(domid, &self.tx_sender, &self.clients, &self.feeds).await?;
-                                        let guard = self.feeds.lock().await;
-                                        if let Some(feed) = guard.get(&domid) {
-                                            let _ = feed.try_send(packet.clone());
-                                        }
-                                        let _ = self.snoop_sender.send(DaemonIdmSnoopPacket { from: domid, to: 0, packet });
-                                    }
-
-                                    Err(packet) => {
-                                        warn!("received invalid packet from domain {}: {}", domid, packet);
-                                    }
-                                }
-                            }
-                        } else {
-                            let mut clients = self.clients.lock().await;
-                            let mut feeds = self.feeds.lock().await;
-                            clients.remove(&domid);
-                            feeds.remove(&domid);
-                        }
+                        self.process_rx_packet(domid, data, buffers).await?;
                     },
 
                     None => {
@@ -187,25 +234,14 @@ impl DaemonIdm {
                 },
                 x = self.tx_receiver.recv() => match x {
                     Some((domid, packet)) => {
-                        let data = packet.encode_to_vec();
-                        let mut buffer = vec![0u8; 6];
-                        let length = data.len() as u32;
-                        buffer[0] = 0xff;
-                        buffer[1] = 0xff;
-                        buffer[2] = length as u8;
-                        buffer[3] = (length << 8) as u8;
-                        buffer[4] = (length << 16) as u8;
-                        buffer[5] = (length << 24) as u8;
-                        buffer.extend_from_slice(&data);
-                        self.tx_raw_sender.send((domid, buffer)).await?;
-                        let _ = self.snoop_sender.send(DaemonIdmSnoopPacket { from: 0, to: domid, packet });
+                        self.tx_packet(domid, packet).await?;
                     },
 
                     None => {
                         break;
                     }
                 }
-            };
+            }
         }
         Ok(())
     }

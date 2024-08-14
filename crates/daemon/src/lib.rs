@@ -1,18 +1,22 @@
-use std::{net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
-
+use crate::db::ip::IpReservationStore;
+use crate::db::zone::ZoneStore;
+use crate::db::KrataDatabase;
+use crate::ip::assignment::IpAssignment;
 use anyhow::{anyhow, Result};
 use config::DaemonConfig;
 use console::{DaemonConsole, DaemonConsoleHandle};
 use control::DaemonControlService;
-use db::ZoneStore;
 use devices::DaemonDeviceManager;
 use event::{DaemonEventContext, DaemonEventGenerator};
 use idm::{DaemonIdm, DaemonIdmHandle};
+use ipnetwork::{Ipv4Network, Ipv6Network};
 use krata::{dial::ControlDialAddress, v1::control::control_service_server::ControlServiceServer};
 use krataoci::{packer::service::OciPackerService, registry::OciPlatform};
 use kratart::Runtime;
 use log::{debug, info};
 use reconcile::zone::ZoneReconciler;
+use std::path::Path;
+use std::{net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
 use tokio::{
     fs,
     net::UnixListener,
@@ -32,6 +36,7 @@ pub mod db;
 pub mod devices;
 pub mod event;
 pub mod idm;
+pub mod ip;
 pub mod metrics;
 pub mod oci;
 pub mod reconcile;
@@ -101,31 +106,33 @@ impl Daemon {
         debug!("initializing caches and hydrating zone state");
         let seed = config.oci.seed.clone().map(PathBuf::from);
         let packer = OciPackerService::new(seed, &image_cache_dir, OciPlatform::current()).await?;
-        let glt = ZoneLookupTable::new(0, host_uuid);
-        let zones_db_path = format!("{}/zones.db", store);
-        let zones = ZoneStore::open(&PathBuf::from(zones_db_path))?;
+        debug!("initializing core runtime");
+        let runtime = Runtime::new().await?;
+        let zlt = ZoneLookupTable::new(0, host_uuid);
+        let db_path = format!("{}/krata.db", store);
+        let database = KrataDatabase::open(Path::new(&db_path))?;
+        let zones = ZoneStore::open(database.clone())?;
         let (zone_reconciler_notify, zone_reconciler_receiver) =
             channel::<Uuid>(ZONE_RECONCILER_QUEUE_LEN);
-
-        debug!("initializing core runtime");
-        let runtime = Runtime::new(host_uuid).await?;
-
         debug!("starting IDM service");
-        let idm = DaemonIdm::new(glt.clone()).await?;
+        let idm = DaemonIdm::new(zlt.clone()).await?;
         let idm = idm.launch().await?;
-
         debug!("initializing console interfaces");
-        let console = DaemonConsole::new(glt.clone()).await?;
+        let console = DaemonConsole::new(zlt.clone()).await?;
         let console = console.launch().await?;
-
-        debug!("initializing zone reconciler");
         let (events, generator) =
             DaemonEventGenerator::new(zones.clone(), zone_reconciler_notify.clone(), idm.clone())
                 .await?;
         let runtime_for_reconciler = runtime.dupe().await?;
+        let ipv4_network = Ipv4Network::from_str(&config.network.ipv4.subnet)?;
+        let ipv6_network = Ipv6Network::from_str(&config.network.ipv6.subnet)?;
+        let ip_reservation_store = IpReservationStore::open(database)?;
+        let ip_assignment =
+            IpAssignment::new(host_uuid, ipv4_network, ipv6_network, ip_reservation_store).await?;
+        debug!("initializing zone reconciler");
         let zone_reconciler = ZoneReconciler::new(
             devices.clone(),
-            glt.clone(),
+            zlt.clone(),
             zones.clone(),
             events.clone(),
             runtime_for_reconciler,
@@ -134,6 +141,8 @@ impl Daemon {
             kernel_path,
             initrd_path,
             addons_path,
+            ip_assignment,
+            config.clone(),
         )?;
 
         let zone_reconciler_task = zone_reconciler.launch(zone_reconciler_receiver).await?;
@@ -152,7 +161,7 @@ impl Daemon {
         Ok(Self {
             store,
             _config: config,
-            glt,
+            glt: zlt,
             devices,
             zones,
             events,
@@ -167,7 +176,7 @@ impl Daemon {
     }
 
     pub async fn listen(&mut self, addr: ControlDialAddress) -> Result<()> {
-        debug!("starting API service");
+        debug!("starting control service");
         let control_service = DaemonControlService::new(
             self.glt.clone(),
             self.devices.clone(),

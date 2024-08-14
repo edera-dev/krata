@@ -1,12 +1,10 @@
-use std::{fs, net::Ipv4Addr, path::PathBuf, str::FromStr, sync::Arc};
+use std::{fs, path::PathBuf, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use ip::IpVendor;
-use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use krataloopdev::LoopControl;
-use log::{debug, error};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
+
 use xenclient::XenClient;
 use xenstore::{XsdClient, XsdInterface};
 
@@ -19,7 +17,6 @@ use self::{
 pub mod autoloop;
 pub mod cfgblk;
 pub mod channel;
-pub mod ip;
 pub mod launch;
 pub mod power;
 
@@ -48,12 +45,6 @@ pub struct ZoneInfo {
     pub domid: u32,
     pub image: String,
     pub loops: Vec<ZoneLoopInfo>,
-    pub zone_ipv4: Option<IpNetwork>,
-    pub zone_ipv6: Option<IpNetwork>,
-    pub zone_mac: Option<String>,
-    pub gateway_ipv4: Option<IpNetwork>,
-    pub gateway_ipv6: Option<IpNetwork>,
-    pub gateway_mac: Option<String>,
     pub state: ZoneState,
 }
 
@@ -61,28 +52,14 @@ pub struct ZoneInfo {
 pub struct RuntimeContext {
     pub autoloop: AutoLoop,
     pub xen: XenClient<RuntimePlatform>,
-    pub ipvendor: IpVendor,
 }
 
 impl RuntimeContext {
-    pub async fn new(host_uuid: Uuid) -> Result<Self> {
-        debug!("initializing XenClient");
+    pub async fn new() -> Result<Self> {
         let xen = XenClient::new(0, RuntimePlatform::new()).await?;
-
-        debug!("initializing ip allocation vendor");
-        let ipv4_network = Ipv4Network::new(Ipv4Addr::new(10, 75, 80, 0), 24)?;
-        let ipv6_network = Ipv6Network::from_str("fdd4:1476:6c7e::/48")?;
-        let ipvendor =
-            IpVendor::new(xen.store.clone(), host_uuid, ipv4_network, ipv6_network).await?;
-
-        debug!("initializing loop devices");
-        let autoloop = AutoLoop::new(LoopControl::open()?);
-
-        debug!("krata runtime initialized!");
         Ok(RuntimeContext {
-            autoloop,
+            autoloop: AutoLoop::new(LoopControl::open()?),
             xen,
-            ipvendor,
         })
     }
 
@@ -123,61 +100,6 @@ impl RuntimeContext {
                 .store
                 .read_string(&format!("{}/krata/loops", &dom_path))
                 .await?;
-            let zone_ipv4 = self
-                .xen
-                .store
-                .read_string(&format!("{}/krata/network/zone/ipv4", &dom_path))
-                .await?;
-            let zone_ipv6 = self
-                .xen
-                .store
-                .read_string(&format!("{}/krata/network/zone/ipv6", &dom_path))
-                .await?;
-            let zone_mac = self
-                .xen
-                .store
-                .read_string(&format!("{}/krata/network/zone/mac", &dom_path))
-                .await?;
-            let gateway_ipv4 = self
-                .xen
-                .store
-                .read_string(&format!("{}/krata/network/gateway/ipv4", &dom_path))
-                .await?;
-            let gateway_ipv6 = self
-                .xen
-                .store
-                .read_string(&format!("{}/krata/network/gateway/ipv6", &dom_path))
-                .await?;
-            let gateway_mac = self
-                .xen
-                .store
-                .read_string(&format!("{}/krata/network/gateway/mac", &dom_path))
-                .await?;
-
-            let zone_ipv4 = if let Some(zone_ipv4) = zone_ipv4 {
-                IpNetwork::from_str(&zone_ipv4).ok()
-            } else {
-                None
-            };
-
-            let zone_ipv6 = if let Some(zone_ipv6) = zone_ipv6 {
-                IpNetwork::from_str(&zone_ipv6).ok()
-            } else {
-                None
-            };
-
-            let gateway_ipv4 = if let Some(gateway_ipv4) = gateway_ipv4 {
-                IpNetwork::from_str(&gateway_ipv4).ok()
-            } else {
-                None
-            };
-
-            let gateway_ipv6 = if let Some(gateway_ipv6) = gateway_ipv6 {
-                IpNetwork::from_str(&gateway_ipv6).ok()
-            } else {
-                None
-            };
-
             let exit_code = self
                 .xen
                 .store
@@ -198,12 +120,6 @@ impl RuntimeContext {
                 domid,
                 image,
                 loops,
-                zone_ipv4,
-                zone_ipv6,
-                zone_mac,
-                gateway_ipv4,
-                gateway_ipv6,
-                gateway_mac,
                 state,
             });
         }
@@ -245,16 +161,14 @@ impl RuntimeContext {
 
 #[derive(Clone)]
 pub struct Runtime {
-    host_uuid: Uuid,
     context: RuntimeContext,
     launch_semaphore: Arc<Semaphore>,
 }
 
 impl Runtime {
-    pub async fn new(host_uuid: Uuid) -> Result<Self> {
-        let context = RuntimeContext::new(host_uuid).await?;
+    pub async fn new() -> Result<Self> {
+        let context = RuntimeContext::new().await?;
         Ok(Self {
-            host_uuid,
             context,
             launch_semaphore: Arc::new(Semaphore::new(10)),
         })
@@ -290,11 +204,6 @@ impl Runtime {
             return Err(anyhow!("unable to find krata uuid based on the domain",));
         }
         let uuid = Uuid::parse_str(&uuid)?;
-        let ip = self
-            .context
-            .ipvendor
-            .read_domain_assignment(uuid, domid)
-            .await?;
         let loops = store
             .read_string(format!("{}/krata/loops", dom_path).as_str())
             .await?;
@@ -314,16 +223,6 @@ impl Runtime {
                 }
             }
         }
-
-        if let Some(ip) = ip {
-            if let Err(error) = self.context.ipvendor.recall(&ip).await {
-                error!(
-                    "failed to recall ip assignment for zone {}: {}",
-                    uuid, error
-                );
-            }
-        }
-
         Ok(uuid)
     }
 
@@ -332,11 +231,11 @@ impl Runtime {
     }
 
     pub async fn dupe(&self) -> Result<Runtime> {
-        Runtime::new(self.host_uuid).await
+        Runtime::new().await
     }
 
     pub async fn power_management_context(&self) -> Result<PowerManagementContext> {
-        let context = RuntimeContext::new(self.host_uuid).await?;
+        let context = RuntimeContext::new().await?;
         Ok(PowerManagementContext { context })
     }
 }

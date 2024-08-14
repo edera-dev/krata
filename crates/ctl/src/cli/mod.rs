@@ -12,7 +12,7 @@ use clap::Parser;
 use krata::{
     client::ControlClientProvider,
     events::EventStream,
-    v1::control::{control_service_client::ControlServiceClient, ResolveZoneRequest},
+    v1::control::{control_service_client::ControlServiceClient, ResolveZoneIdRequest},
 };
 use tonic::{transport::Channel, Request};
 
@@ -51,7 +51,7 @@ impl ControlCommand {
 
             ControlCommands::Device(device) => device.run(client, events).await,
 
-            ControlCommands::Host(snoop) => snoop.run(client, events).await,
+            ControlCommands::Host(host) => host.run(client, events).await,
         }
     }
 }
@@ -61,14 +61,14 @@ pub async fn resolve_zone(
     name: &str,
 ) -> Result<String> {
     let reply = client
-        .resolve_zone(Request::new(ResolveZoneRequest {
+        .resolve_zone_id(Request::new(ResolveZoneIdRequest {
             name: name.to_string(),
         }))
         .await?
         .into_inner();
 
-    if let Some(zone) = reply.zone {
-        Ok(zone.id)
+    if !reply.zone_id.is_empty() {
+        Ok(reply.zone_id)
     } else {
         Err(anyhow!("unable to resolve zone '{}'", name))
     }

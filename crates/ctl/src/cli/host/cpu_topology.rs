@@ -3,7 +3,7 @@ use clap::{Parser, ValueEnum};
 use comfy_table::presets::UTF8_FULL_CONDENSED;
 use comfy_table::{Cell, Table};
 use krata::v1::control::{
-    control_service_client::ControlServiceClient, HostCpuTopologyClass, HostCpuTopologyRequest,
+    control_service_client::ControlServiceClient, GetHostCpuTopologyRequest, HostCpuTopologyClass,
 };
 
 use tonic::{transport::Channel, Request};
@@ -31,7 +31,7 @@ pub struct HostCpuTopologyCommand {
 impl HostCpuTopologyCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let response = client
-            .get_host_cpu_topology(Request::new(HostCpuTopologyRequest {}))
+            .get_host_cpu_topology(Request::new(GetHostCpuTopologyRequest {}))
             .await?
             .into_inner();
 

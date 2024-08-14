@@ -228,7 +228,7 @@ impl OciBoundProgress {
         context.update(&progress);
         let mut receiver = self.context.subscribe();
         tokio::task::spawn(async move {
-            while (receiver.changed().await).is_ok() {
+            while receiver.changed().await.is_ok() {
                 context
                     .sender
                     .send_replace(receiver.borrow_and_update().clone());

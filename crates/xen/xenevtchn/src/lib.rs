@@ -7,7 +7,7 @@ use crate::sys::{BindInterdomain, BindUnboundPort, BindVirq, Notify, UnbindPort}
 
 use crate::raw::EVENT_CHANNEL_DEVICE;
 use byteorder::{LittleEndian, ReadBytesExt};
-use log::warn;
+use log::error;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::mem::size_of;
@@ -16,7 +16,6 @@ use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::fs::{File, OpenOptions};
-use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::{Mutex, RwLock};
 
@@ -185,9 +184,10 @@ impl EventChannelProcessor {
                 if self.flag.load(Ordering::Acquire) {
                     break;
                 }
-                warn!("failed to process event channel notifications: {}", error);
+                error!("failed to process event channel wakes: {}", error);
             }
         });
+
         Ok(())
     }
 

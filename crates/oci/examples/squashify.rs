@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
     let (context, mut receiver) = OciProgressContext::create();
     tokio::task::spawn(async move {
         loop {
-            if (receiver.changed().await).is_err() {
+            if receiver.changed().await.is_err() {
                 break;
             }
             let progress = receiver.borrow_and_update();

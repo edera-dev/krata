@@ -1,41 +1,41 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use krata::launchcfg::LaunchPackedFormat;
 use krata::v1::common::ZoneOciImageSpec;
 use krata::v1::common::{OciImageFormat, Zone, ZoneState, ZoneStatus};
 use krataoci::packer::{service::OciPackerService, OciPackedFormat};
-use kratart::launch::{PciBdf, PciDevice, PciRdmReservePolicy};
+use kratart::launch::{PciBdf, PciDevice, PciRdmReservePolicy, ZoneLaunchNetwork};
 use kratart::{launch::ZoneLaunchRequest, Runtime};
 use log::info;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::config::DaemonPciDeviceRdmReservePolicy;
+use crate::config::{DaemonConfig, DaemonPciDeviceRdmReservePolicy};
 use crate::devices::DaemonDeviceManager;
-use crate::{
-    reconcile::zone::{zoneinfo_to_networkstate, ZoneReconcilerResult},
-    zlt::ZoneLookupTable,
-};
+use crate::ip::assignment::IpAssignment;
+use crate::reconcile::zone::ip_reservation_to_network_status;
+use crate::{reconcile::zone::ZoneReconcilerResult, zlt::ZoneLookupTable};
 use krata::v1::common::zone_image_spec::Image;
 use tokio::fs::{self, File};
 use tokio::io::AsyncReadExt;
 use tokio_tar::Archive;
 use uuid::Uuid;
 
-pub struct ZoneStarter<'a> {
+pub struct ZoneCreator<'a> {
     pub devices: &'a DaemonDeviceManager,
     pub kernel_path: &'a Path,
     pub initrd_path: &'a Path,
     pub addons_path: &'a Path,
     pub packer: &'a OciPackerService,
-    pub glt: &'a ZoneLookupTable,
+    pub ip_assignment: &'a IpAssignment,
+    pub zlt: &'a ZoneLookupTable,
     pub runtime: &'a Runtime,
+    pub config: &'a DaemonConfig,
 }
 
-impl ZoneStarter<'_> {
+impl ZoneCreator<'_> {
     pub async fn oci_spec_tar_read_file(
         &self,
         file: &Path,
@@ -75,7 +75,7 @@ impl ZoneStarter<'_> {
         ))
     }
 
-    pub async fn start(&self, uuid: Uuid, zone: &mut Zone) -> Result<ZoneReconcilerResult> {
+    pub async fn create(&self, uuid: Uuid, zone: &mut Zone) -> Result<ZoneReconcilerResult> {
         let Some(ref spec) = zone.spec else {
             return Err(anyhow!("zone spec not specified"));
         };
@@ -174,6 +174,8 @@ impl ZoneStarter<'_> {
             }
         }
 
+        let reservation = self.ip_assignment.assign(uuid).await?;
+
         let info = self
             .runtime
             .launch(ZoneLaunchRequest {
@@ -187,7 +189,7 @@ impl ZoneStarter<'_> {
                 image,
                 kernel,
                 initrd,
-                vcpus: spec.vcpus,
+                vcpus: spec.cpus,
                 mem: spec.mem,
                 pcis,
                 env: task
@@ -198,16 +200,26 @@ impl ZoneStarter<'_> {
                 run: empty_vec_optional(task.command.clone()),
                 debug: false,
                 addons_image: Some(self.addons_path.to_path_buf()),
+                network: ZoneLaunchNetwork {
+                    ipv4: reservation.ipv4.to_string(),
+                    ipv4_prefix: reservation.ipv4_prefix,
+                    ipv6: reservation.ipv6.to_string(),
+                    ipv6_prefix: reservation.ipv6_prefix,
+                    gateway_ipv4: reservation.gateway_ipv4.to_string(),
+                    gateway_ipv6: reservation.gateway_ipv6.to_string(),
+                    zone_mac: reservation.mac,
+                    nameservers: self.config.network.nameservers.clone(),
+                },
             })
             .await?;
-        self.glt.associate(uuid, info.domid).await;
-        info!("started zone {}", uuid);
-        zone.state = Some(ZoneState {
-            status: ZoneStatus::Started.into(),
-            network: Some(zoneinfo_to_networkstate(&info)),
-            exit_info: None,
-            error_info: None,
-            host: self.glt.host_uuid().to_string(),
+        self.zlt.associate(uuid, info.domid).await;
+        info!("created zone {}", uuid);
+        zone.status = Some(ZoneStatus {
+            state: ZoneState::Created.into(),
+            network_status: Some(ip_reservation_to_network_status(&reservation)),
+            exit_status: None,
+            error_status: None,
+            host: self.zlt.host_uuid().to_string(),
             domid: info.domid,
         });
         success.store(true, Ordering::Release);

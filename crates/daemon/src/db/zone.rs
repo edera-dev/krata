@@ -1,33 +1,31 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::collections::HashMap;
 
+use crate::db::KrataDatabase;
 use anyhow::Result;
 use krata::v1::common::Zone;
 use log::error;
 use prost::Message;
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{ReadableTable, TableDefinition};
 use uuid::Uuid;
 
-const ZONES: TableDefinition<u128, &[u8]> = TableDefinition::new("zones");
+const ZONE_TABLE: TableDefinition<u128, &[u8]> = TableDefinition::new("zone");
 
 #[derive(Clone)]
 pub struct ZoneStore {
-    database: Arc<Database>,
+    db: KrataDatabase,
 }
 
 impl ZoneStore {
-    pub fn open(path: &Path) -> Result<Self> {
-        let database = Database::create(path)?;
-        let write = database.begin_write()?;
-        let _ = write.open_table(ZONES);
+    pub fn open(db: KrataDatabase) -> Result<Self> {
+        let write = db.database.begin_write()?;
+        let _ = write.open_table(ZONE_TABLE);
         write.commit()?;
-        Ok(ZoneStore {
-            database: Arc::new(database),
-        })
+        Ok(ZoneStore { db })
     }
 
     pub async fn read(&self, id: Uuid) -> Result<Option<Zone>> {
-        let read = self.database.begin_read()?;
-        let table = read.open_table(ZONES)?;
+        let read = self.db.database.begin_read()?;
+        let table = read.open_table(ZONE_TABLE)?;
         let Some(entry) = table.get(id.to_u128_le())? else {
             return Ok(None);
         };
@@ -37,8 +35,8 @@ impl ZoneStore {
 
     pub async fn list(&self) -> Result<HashMap<Uuid, Zone>> {
         let mut zones: HashMap<Uuid, Zone> = HashMap::new();
-        let read = self.database.begin_read()?;
-        let table = read.open_table(ZONES)?;
+        let read = self.db.database.begin_read()?;
+        let table = read.open_table(ZONE_TABLE)?;
         for result in table.iter()? {
             let (key, value) = result?;
             let uuid = Uuid::from_u128_le(key.value());
@@ -58,9 +56,9 @@ impl ZoneStore {
     }
 
     pub async fn update(&self, id: Uuid, entry: Zone) -> Result<()> {
-        let write = self.database.begin_write()?;
+        let write = self.db.database.begin_write()?;
         {
-            let mut table = write.open_table(ZONES)?;
+            let mut table = write.open_table(ZONE_TABLE)?;
             let bytes = entry.encode_to_vec();
             table.insert(id.to_u128_le(), bytes.as_slice())?;
         }
@@ -69,9 +67,9 @@ impl ZoneStore {
     }
 
     pub async fn remove(&self, id: Uuid) -> Result<()> {
-        let write = self.database.begin_write()?;
+        let write = self.db.database.begin_write()?;
         {
-            let mut table = write.open_table(ZONES)?;
+            let mut table = write.open_table(ZONE_TABLE)?;
             table.remove(id.to_u128_le())?;
         }
         write.commit()?;

@@ -298,7 +298,7 @@ impl XsdSocketProcessor {
                         break;
                     }
                 }
-            };
+            }
         }
         Ok(())
     }

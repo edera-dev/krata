@@ -24,7 +24,7 @@ use ratatui::{
 };
 
 use crate::{
-    format::zone_status_text,
+    format::zone_state_text,
     metrics::{
         lookup_metric_value, MultiMetricCollector, MultiMetricCollectorHandle, MultiMetricState,
     },
@@ -106,7 +106,7 @@ impl ZoneTopApp {
                         break;
                     }
                 }
-            };
+            }
         }
         Ok(())
     }
@@ -157,7 +157,7 @@ impl Widget for &mut ZoneTopApp {
                 continue;
             };
 
-            let Some(ref state) = ms.zone.state else {
+            let Some(ref status) = ms.zone.status else {
                 continue;
             };
 
@@ -177,7 +177,7 @@ impl Widget for &mut ZoneTopApp {
             let row = Row::new(vec![
                 spec.name.clone(),
                 ms.zone.id.clone(),
-                zone_status_text(state.status()),
+                zone_state_text(status.state()),
                 memory_total.unwrap_or_default(),
                 memory_used.unwrap_or_default(),
                 memory_free.unwrap_or_default(),
