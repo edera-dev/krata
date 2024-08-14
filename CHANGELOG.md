@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.16](https://github.com/edera-dev/krata/compare/v0.0.15...v0.0.16) - 2024-08-14
+
+### Added
+- *(krata)* prepare for workload rework ([#276](https://github.com/edera-dev/krata/pull/276))
+
+### Fixed
+- *(idm)* reimplement packet processing algorithm ([#330](https://github.com/edera-dev/krata/pull/330))
+- *(power-trap-eacces)* gracefully handle hypercall errors in power management ([#325](https://github.com/edera-dev/krata/pull/325))
+
+### Other
+- *(o11y)* add more debug logs to daemon & runtime ([#318](https://github.com/edera-dev/krata/pull/318))
+
 ## [0.0.15](https://github.com/edera-dev/krata/compare/v0.0.14...v0.0.15) - 2024-08-06
 
 ### Fixed
