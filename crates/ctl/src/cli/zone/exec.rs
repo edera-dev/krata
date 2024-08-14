@@ -21,6 +21,8 @@ pub struct ZoneExecCommand {
     env: Option<Vec<String>>,
     #[arg(short = 'w', long, help = "Working directory")]
     working_directory: Option<String>,
+    #[arg(short = 't', long, help = "Allocate tty")]
+    tty: bool,
     #[arg(help = "Zone to exec inside, either the name or the uuid")]
     zone: String,
     #[arg(
@@ -46,8 +48,10 @@ impl ZoneExecCommand {
                     .collect(),
                 command: self.command,
                 working_directory: self.working_directory.unwrap_or_default(),
+                tty: self.tty,
             }),
-            data: vec![],
+            stdin: vec![],
+            stdin_closed: false,
         };
 
         let stream = StdioConsoleStream::stdin_stream_exec(initial).await;
@@ -57,7 +61,7 @@ impl ZoneExecCommand {
             .await?
             .into_inner();
 
-        let code = StdioConsoleStream::exec_output(response).await?;
+        let code = StdioConsoleStream::exec_output(response, self.tty).await?;
         std::process::exit(code);
     }
 }

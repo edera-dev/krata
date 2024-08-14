@@ -112,7 +112,7 @@ impl ZoneTopApp {
     }
 
     fn render_frame(&mut self, frame: &mut Frame) {
-        frame.render_widget(self, frame.size());
+        frame.render_widget(self, frame.area());
     }
 
     fn handle_event(&mut self, event: Event) -> io::Result<()> {

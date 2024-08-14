@@ -2,7 +2,7 @@ use std::{ops::Add, path::Path};
 
 use anyhow::Result;
 use krata::idm::internal::{MetricFormat, MetricNode};
-use sysinfo::Process;
+use sysinfo::{Process, ProcessesToUpdate};
 
 pub struct MetricsCollector {}
 
@@ -38,7 +38,7 @@ impl MetricsCollector {
     }
 
     fn collect_processes(&self, sysinfo: &mut sysinfo::System) -> Result<MetricNode> {
-        sysinfo.refresh_processes();
+        sysinfo.refresh_processes(ProcessesToUpdate::All);
         let mut processes = Vec::new();
         let mut sysinfo_processes = sysinfo.processes().values().collect::<Vec<_>>();
         sysinfo_processes.sort_by_key(|x| x.pid());
@@ -70,7 +70,11 @@ impl MetricsCollector {
             metrics.push(MetricNode::raw_value("cwd", working_directory));
         }
 
-        let cmdline = process.cmd().to_vec();
+        let cmdline = process
+            .cmd()
+            .iter()
+            .map(|x| x.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
         metrics.push(MetricNode::raw_value("cmdline", cmdline));
         metrics.push(MetricNode::structural(
             "memory",

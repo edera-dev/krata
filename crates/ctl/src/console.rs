@@ -62,11 +62,15 @@ impl StdioConsoleStream {
                         break;
                     }
                 };
-                let data = buffer[0..size].to_vec();
+                let stdin = buffer[0..size].to_vec();
                 if size == 1 && buffer[0] == 0x1d {
                     break;
                 }
-                yield ExecInsideZoneRequest { zone_id: String::default(), task: None, data };
+                let stdin_closed = size == 0;
+                yield ExecInsideZoneRequest { zone_id: String::default(), task: None, stdin, stdin_closed, };
+                if stdin_closed {
+                    break;
+                }
             }
         }
     }
@@ -88,7 +92,11 @@ impl StdioConsoleStream {
         Ok(())
     }
 
-    pub async fn exec_output(mut stream: Streaming<ExecInsideZoneReply>) -> Result<i32> {
+    pub async fn exec_output(mut stream: Streaming<ExecInsideZoneReply>, raw: bool) -> Result<i32> {
+        if raw && stdin().is_tty() {
+            enable_raw_mode()?;
+            StdioConsoleStream::register_terminal_restore_hook()?;
+        }
         let mut stdout = stdout();
         let mut stderr = stderr();
         while let Some(reply) = stream.next().await {

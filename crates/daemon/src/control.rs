@@ -226,6 +226,7 @@ impl ControlService for DaemonControlService {
                         .collect(),
                     command: task.command,
                     working_directory: task.working_directory,
+                    tty: task.tty,
                 })),
             })),
         };
@@ -243,11 +244,12 @@ impl ControlService for DaemonControlService {
                         }.into());
 
                         if let Ok(update) = update {
-                            if !update.data.is_empty() {
+                            if !update.stdin.is_empty() {
                                 let _ = handle.update(IdmRequest {
                                     request: Some(IdmRequestType::ExecStream(ExecStreamRequestUpdate {
                                         update: Some(Update::Stdin(ExecStreamRequestStdin {
-                                            data: update.data,
+                                            data: update.stdin,
+                                            closed: update.stdin_closed,
                                         })),
                                     }))}).await;
                             }
@@ -263,7 +265,7 @@ impl ControlService for DaemonControlService {
                                 error: update.error,
                                 exit_code: update.exit_code,
                                 stdout: update.stdout,
-                                stderr: update.stderr
+                                stderr: update.stderr,
                             };
                             yield reply;
                         },
