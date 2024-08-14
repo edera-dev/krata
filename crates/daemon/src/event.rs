@@ -137,6 +137,7 @@ impl DaemonEventGenerator {
                 network_status: zone.status.clone().unwrap_or_default().network_status,
                 exit_status: Some(ZoneExitStatus { code }),
                 error_status: None,
+                resource_status: zone.status.clone().unwrap_or_default().resource_status,
                 host: zone.status.clone().map(|x| x.host).unwrap_or_default(),
                 domid: zone.status.clone().map(|x| x.domid).unwrap_or(u32::MAX),
             });

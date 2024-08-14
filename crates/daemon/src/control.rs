@@ -6,6 +6,7 @@ use crate::{
 };
 use async_stream::try_stream;
 use futures::Stream;
+use krata::v1::common::ZoneResourceStatus;
 use krata::v1::control::{
     GetZoneReply, GetZoneRequest, SetHostPowerManagementPolicyReply,
     SetHostPowerManagementPolicyRequest,
@@ -25,8 +26,8 @@ use krata::{
             HostCpuTopologyInfo, HostStatusReply, HostStatusRequest, ListDevicesReply,
             ListDevicesRequest, ListZonesReply, ListZonesRequest, PullImageReply, PullImageRequest,
             ReadZoneMetricsReply, ReadZoneMetricsRequest, ResolveZoneIdReply, ResolveZoneIdRequest,
-            SnoopIdmReply, SnoopIdmRequest, WatchEventsReply, WatchEventsRequest, ZoneConsoleReply,
-            ZoneConsoleRequest,
+            SnoopIdmReply, SnoopIdmRequest, UpdateZoneResourcesReply, UpdateZoneResourcesRequest,
+            WatchEventsReply, WatchEventsRequest, ZoneConsoleReply, ZoneConsoleRequest,
         },
     },
 };
@@ -165,6 +166,7 @@ impl ControlService for DaemonControlService {
                         network_status: None,
                         exit_status: None,
                         error_status: None,
+                        resource_status: None,
                         host: self.glt.host_uuid().to_string(),
                         domid: u32::MAX,
                     }),
@@ -622,5 +624,68 @@ impl ControlService for DaemonControlService {
         Ok(Response::new(GetZoneReply {
             zone: zone.cloned(),
         }))
+    }
+
+    async fn update_zone_resources(
+        &self,
+        request: Request<UpdateZoneResourcesRequest>,
+    ) -> Result<Response<UpdateZoneResourcesReply>, Status> {
+        let request = request.into_inner();
+        let uuid = Uuid::from_str(&request.zone_id).map_err(|error| ApiError {
+            message: error.to_string(),
+        })?;
+        let Some(mut zone) = self.zones.read(uuid).await.map_err(ApiError::from)? else {
+            return Err(ApiError {
+                message: "zone not found".to_string(),
+            }
+            .into());
+        };
+
+        let Some(ref mut status) = zone.status else {
+            return Err(ApiError {
+                message: "zone state not available".to_string(),
+            }
+            .into());
+        };
+
+        if status.state() != ZoneState::Created {
+            return Err(ApiError {
+                message: "zone is in an invalid state".to_string(),
+            }
+            .into());
+        }
+
+        if status.domid == 0 || status.domid == u32::MAX {
+            return Err(ApiError {
+                message: "zone domid is invalid".to_string(),
+            }
+            .into());
+        }
+
+        let resources = request.resources.unwrap_or_default();
+
+        self.runtime
+            .set_max_memory(status.domid, resources.max_memory * 1024 * 1024)
+            .await
+            .map_err(|error| ApiError {
+                message: format!("failed to set maximum memory: {}", error),
+            })?;
+
+        self.runtime
+            .set_target_memory(status.domid, resources.target_memory * 1024 * 1024)
+            .await
+            .map_err(|error| ApiError {
+                message: format!("failed to set target memory: {}", error),
+            })?;
+
+        status.resource_status = Some(ZoneResourceStatus {
+            active_resources: Some(resources),
+        });
+
+        self.zones
+            .update(uuid, zone)
+            .await
+            .map_err(ApiError::from)?;
+        Ok(Response::new(UpdateZoneResourcesReply {}))
     }
 }

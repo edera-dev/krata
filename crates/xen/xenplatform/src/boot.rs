@@ -162,11 +162,13 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
     pub async fn initialize(
         &mut self,
         initrd: &[u8],
-        mem_mb: u64,
+        target_mem_mb: u64,
+        max_mem_mb: u64,
         max_vcpus: u32,
         cmdline: &str,
     ) -> Result<BootDomain> {
-        let total_pages = mem_mb << (20 - self.platform.page_shift());
+        let target_pages = target_mem_mb << (20 - self.platform.page_shift());
+        let total_pages = max_mem_mb << (20 - self.platform.page_shift());
         let image_info = self.image_loader.parse(self.platform.hvm()).await?;
         let mut domain = BootDomain {
             domid: self.domid,
@@ -175,7 +177,7 @@ impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
             virt_pgtab_end: 0,
             pfn_alloc_end: 0,
             total_pages,
-            target_pages: total_pages,
+            target_pages,
             page_size: self.platform.page_size(),
             image_info,
             console_evtchn: 0,

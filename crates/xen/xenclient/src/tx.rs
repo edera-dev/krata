@@ -156,13 +156,13 @@ impl ClientTransaction {
         self.tx
             .write_string(
                 format!("{}/memory/static-max", self.dom_path).as_str(),
-                &(base.mem_mb * 1024).to_string(),
+                &(base.max_mem_mb * 1024).to_string(),
             )
             .await?;
         self.tx
             .write_string(
                 format!("{}/memory/target", self.dom_path).as_str(),
-                &(base.mem_mb * 1024).to_string(),
+                &(base.target_mem_mb * 1024).to_string(),
             )
             .await?;
         self.tx
