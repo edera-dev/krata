@@ -9,6 +9,8 @@ use xencall::XenCall;
 
 use crate::error::Result;
 
+pub const XEN_EXTRA_MEMORY_KB: u64 = 2048;
+
 pub struct BaseDomainManager<P: BootSetupPlatform> {
     call: XenCall,
     pub platform: Arc<P>,
@@ -29,7 +31,7 @@ impl<P: BootSetupPlatform> BaseDomainManager<P> {
         let domid = self.call.create_domain(domain).await?;
         self.call.set_max_vcpus(domid, config.max_vcpus).await?;
         self.call
-            .set_max_mem(domid, (config.max_mem_mb * 1024) + 2048)
+            .set_max_mem(domid, (config.max_mem_mb * 1024) + XEN_EXTRA_MEMORY_KB)
             .await?;
         let loader = ElfImageLoader::load_file_kernel(&config.kernel)?;
         let platform = (*self.platform).clone();

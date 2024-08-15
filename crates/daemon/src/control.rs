@@ -664,22 +664,21 @@ impl ControlService for DaemonControlService {
             .into());
         }
 
-        let resources = request.resources.unwrap_or_default();
+        let mut resources = request.resources.unwrap_or_default();
+        if resources.target_memory > resources.max_memory {
+            resources.max_memory = resources.target_memory;
+        }
 
         self.runtime
-            .set_max_memory(status.domid, resources.max_memory * 1024 * 1024)
+            .set_memory_resources(
+                status.domid,
+                resources.target_memory * 1024 * 1024,
+                resources.max_memory * 1024 * 1024,
+            )
             .await
             .map_err(|error| ApiError {
-                message: format!("failed to set maximum memory: {}", error),
+                message: format!("failed to set memory resources: {}", error),
             })?;
-
-        self.runtime
-            .set_target_memory(status.domid, resources.target_memory * 1024 * 1024)
-            .await
-            .map_err(|error| ApiError {
-                message: format!("failed to set target memory: {}", error),
-            })?;
-
         status.resource_status = Some(ZoneResourceStatus {
             active_resources: Some(resources),
         });
