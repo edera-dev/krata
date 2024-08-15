@@ -1,7 +1,6 @@
-use std::{fs, path::PathBuf, str::FromStr, sync::Arc};
-
 use anyhow::{anyhow, Result};
 use krataloopdev::LoopControl;
+use std::{fs, path::PathBuf, str::FromStr, sync::Arc};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
@@ -254,6 +253,34 @@ impl Runtime {
             &(target_memory_bytes / 1024).to_string(),
         )
         .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn set_cpu_resources(&self, domid: u32, target_cpus: u32) -> Result<()> {
+        let domain_path = self.context.xen.store.get_domain_path(domid).await?;
+        let cpus = self
+            .context
+            .xen
+            .store
+            .list(&format!("{}/cpu", domain_path))
+            .await?;
+        let tx = self.context.xen.store.transaction().await?;
+        for cpu in cpus {
+            let Some(id) = cpu.parse::<u32>().ok() else {
+                continue;
+            };
+            let available = if id >= target_cpus {
+                "offline"
+            } else {
+                "online"
+            };
+            tx.write_string(
+                format!("{}/cpu/{}/availability", domain_path, id),
+                available,
+            )
+            .await?;
+        }
         tx.commit().await?;
         Ok(())
     }

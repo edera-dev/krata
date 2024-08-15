@@ -27,6 +27,7 @@ async fn main() -> Result<()> {
         base: BaseDomainConfig {
             uuid: Uuid::new_v4(),
             max_vcpus: 1,
+            target_vcpus: 1,
             max_mem_mb: 512,
             target_mem_mb: 512,
             enable_iommu: true,

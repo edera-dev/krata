@@ -66,6 +66,7 @@ pub struct BaseDomainConfig {
     pub uuid: Uuid,
     pub owner_domid: u32,
     pub max_vcpus: u32,
+    pub target_vcpus: u32,
     pub max_mem_mb: u64,
     pub target_mem_mb: u64,
     pub kernel: Vec<u8>,

@@ -669,6 +669,21 @@ impl ControlService for DaemonControlService {
             resources.max_memory = resources.target_memory;
         }
 
+        if resources.target_cpus < 1 {
+            resources.target_cpus = 1;
+        }
+
+        let initial_resources = zone
+            .spec
+            .clone()
+            .unwrap_or_default()
+            .initial_resources
+            .unwrap_or_default();
+        if resources.target_cpus > initial_resources.max_cpus {
+            resources.target_cpus = initial_resources.max_cpus;
+        }
+        resources.max_cpus = initial_resources.max_cpus;
+
         self.runtime
             .set_memory_resources(
                 status.domid,
@@ -678,6 +693,12 @@ impl ControlService for DaemonControlService {
             .await
             .map_err(|error| ApiError {
                 message: format!("failed to set memory resources: {}", error),
+            })?;
+        self.runtime
+            .set_cpu_resources(status.domid, resources.target_cpus)
+            .await
+            .map_err(|error| ApiError {
+                message: format!("failed to set cpu resources: {}", error),
             })?;
         status.resource_status = Some(ZoneResourceStatus {
             active_resources: Some(resources),

@@ -39,20 +39,32 @@ pub struct ZoneLaunchCommand {
     pull_update: bool,
     #[arg(short, long, help = "Name of the zone")]
     name: Option<String>,
-    #[arg(short, long, default_value_t = 1, help = "vCPUs available to the zone")]
-    cpus: u32,
+    #[arg(
+        short = 'C',
+        long = "max-cpus",
+        default_value_t = 4,
+        help = "Maximum vCPUs available for the zone"
+    )]
+    max_cpus: u32,
+    #[arg(
+        short = 'c',
+        long = "target-cpus",
+        default_value_t = 1,
+        help = "Target vCPUs for the zone to use"
+    )]
+    target_cpus: u32,
     #[arg(
         short = 'M',
         long = "max-memory",
-        default_value_t = 512,
+        default_value_t = 1024,
         help = "Maximum memory available to the zone, in megabytes"
     )]
     max_memory: u64,
     #[arg(
         short = 'm',
         long = "target-memory",
-        default_value_t = 512,
-        help = "Memory target for the zone, in megabytes"
+        default_value_t = 1024,
+        help = "Target memory for the zone to use, in megabytes"
     )]
     target_memory: u64,
     #[arg[short = 'D', long = "device", help = "Devices to request for the zone"]]
@@ -131,9 +143,10 @@ impl ZoneLaunchCommand {
                 kernel,
                 initrd,
                 initial_resources: Some(ZoneResourceSpec {
-                    cpus: self.cpus,
                     max_memory: self.max_memory,
                     target_memory: self.target_memory,
+                    max_cpus: self.max_cpus,
+                    target_cpus: self.target_cpus,
                 }),
                 task: Some(ZoneTaskSpec {
                     environment: env_map(&self.env.unwrap_or_default())
