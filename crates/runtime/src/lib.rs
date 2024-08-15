@@ -1,11 +1,11 @@
-use std::{fs, path::PathBuf, str::FromStr, sync::Arc};
-
 use anyhow::{anyhow, Result};
 use krataloopdev::LoopControl;
+use std::{fs, path::PathBuf, str::FromStr, sync::Arc};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use xenclient::XenClient;
+use xenplatform::domain::XEN_EXTRA_MEMORY_KB;
 use xenstore::{XsdClient, XsdInterface};
 
 use self::{
@@ -226,33 +226,62 @@ impl Runtime {
         Ok(uuid)
     }
 
-    pub async fn set_max_memory(&self, domid: u32, max_memory_bytes: u64) -> Result<()> {
+    pub async fn set_memory_resources(
+        &self,
+        domid: u32,
+        target_memory_bytes: u64,
+        max_memory_bytes: u64,
+    ) -> Result<()> {
+        let mut max_memory_bytes = max_memory_bytes + (XEN_EXTRA_MEMORY_KB * 1024);
+        if target_memory_bytes > max_memory_bytes {
+            max_memory_bytes = target_memory_bytes + (XEN_EXTRA_MEMORY_KB * 1024);
+        }
+
         self.context
             .xen
             .call
             .set_max_mem(domid, max_memory_bytes / 1024)
             .await?;
         let domain_path = self.context.xen.store.get_domain_path(domid).await?;
+        let tx = self.context.xen.store.transaction().await?;
         let max_memory_path = format!("{}/memory/static-max", domain_path);
-        self.context
-            .xen
-            .store
-            .write_string(max_memory_path, &(max_memory_bytes / 1024).to_string())
+        tx.write_string(max_memory_path, &(max_memory_bytes / 1024).to_string())
             .await?;
+        let target_memory_path = format!("{}/memory/target", domain_path);
+        tx.write_string(
+            target_memory_path,
+            &(target_memory_bytes / 1024).to_string(),
+        )
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
 
-    pub async fn set_target_memory(&self, domid: u32, target_memory_bytes: u64) -> Result<()> {
+    pub async fn set_cpu_resources(&self, domid: u32, target_cpus: u32) -> Result<()> {
         let domain_path = self.context.xen.store.get_domain_path(domid).await?;
-        let target_memory_path = format!("{}/memory/target", domain_path);
-        self.context
+        let cpus = self
+            .context
             .xen
             .store
-            .write_string(
-                target_memory_path,
-                &(target_memory_bytes / 1024).to_string(),
+            .list(&format!("{}/cpu", domain_path))
+            .await?;
+        let tx = self.context.xen.store.transaction().await?;
+        for cpu in cpus {
+            let Some(id) = cpu.parse::<u32>().ok() else {
+                continue;
+            };
+            let available = if id >= target_cpus {
+                "offline"
+            } else {
+                "online"
+            };
+            tx.write_string(
+                format!("{}/cpu/{}/availability", domain_path, id),
+                available,
             )
             .await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 

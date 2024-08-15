@@ -76,7 +76,7 @@ impl ZoneCreator<'_> {
     }
 
     pub async fn create(&self, uuid: Uuid, zone: &mut Zone) -> Result<ZoneReconcilerResult> {
-        let Some(ref spec) = zone.spec else {
+        let Some(ref mut spec) = zone.spec else {
             return Err(anyhow!("zone spec not specified"));
         };
 
@@ -176,7 +176,14 @@ impl ZoneCreator<'_> {
 
         let reservation = self.ip_assignment.assign(uuid).await?;
 
-        let initial_resources = spec.initial_resources.unwrap_or_default();
+        let mut initial_resources = spec.initial_resources.unwrap_or_default();
+        if initial_resources.target_cpus < 1 {
+            initial_resources.target_cpus = 1;
+        }
+        if initial_resources.target_cpus > initial_resources.max_cpus {
+            initial_resources.max_cpus = initial_resources.target_cpus;
+        }
+        spec.initial_resources = Some(initial_resources);
         let info = self
             .runtime
             .launch(ZoneLaunchRequest {
@@ -190,7 +197,8 @@ impl ZoneCreator<'_> {
                 image,
                 kernel,
                 initrd,
-                cpus: initial_resources.cpus,
+                target_cpus: initial_resources.target_cpus,
+                max_cpus: initial_resources.max_cpus,
                 max_memory: initial_resources.max_memory,
                 target_memory: initial_resources.target_memory,
                 pcis,

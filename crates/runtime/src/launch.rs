@@ -30,7 +30,8 @@ pub struct ZoneLaunchRequest {
     pub initrd: Vec<u8>,
     pub uuid: Option<Uuid>,
     pub name: Option<String>,
-    pub cpus: u32,
+    pub target_cpus: u32,
+    pub max_cpus: u32,
     pub target_memory: u64,
     pub max_memory: u64,
     pub env: HashMap<String, String>,
@@ -195,7 +196,8 @@ impl ZoneLauncher {
 
         let config = DomainConfig {
             base: BaseDomainConfig {
-                max_vcpus: request.cpus,
+                max_vcpus: request.max_cpus,
+                target_vcpus: request.target_cpus,
                 max_mem_mb: request.max_memory,
                 target_mem_mb: request.target_memory,
                 kernel: request.kernel,

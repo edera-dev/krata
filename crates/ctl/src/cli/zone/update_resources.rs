@@ -14,20 +14,32 @@ use tonic::{transport::Channel, Request};
 pub struct ZoneUpdateResourcesCommand {
     #[arg(help = "Zone to update resources of, either the name or the uuid")]
     zone: String,
-    #[arg(short, long, default_value_t = 0, help = "vCPUs available to the zone")]
-    cpus: u32,
+    #[arg(
+        short = 'C',
+        long = "max-cpus",
+        default_value_t = 0,
+        help = "Maximum vCPUs available to the zone (0 means previous value)"
+    )]
+    max_cpus: u32,
+    #[arg(
+        short = 'c',
+        long = "target-cpus",
+        default_value_t = 0,
+        help = "Target vCPUs for the zone to use (0 means previous value)"
+    )]
+    target_cpus: u32,
     #[arg(
         short = 'M',
         long = "max-memory",
         default_value_t = 0,
-        help = "Maximum memory available to the zone, in megabytes"
+        help = "Maximum memory available to the zone, in megabytes (0 means previous value)"
     )]
     max_memory: u64,
     #[arg(
         short = 'm',
         long = "target-memory",
         default_value_t = 0,
-        help = "Memory target for the zone, in megabytes"
+        help = "Target memory for the zone to use, in megabytes (0 means previous value)"
     )]
     target_memory: u64,
 }
@@ -63,10 +75,15 @@ impl ZoneUpdateResourcesCommand {
                     } else {
                         self.target_memory
                     },
-                    cpus: if self.cpus == 0 {
-                        active_resources.cpus
+                    max_cpus: if self.max_cpus == 0 {
+                        active_resources.max_cpus
                     } else {
-                        self.cpus
+                        self.max_cpus
+                    },
+                    target_cpus: if self.target_cpus == 0 {
+                        active_resources.target_cpus
+                    } else {
+                        self.target_cpus
                     },
                 }),
             }))

@@ -30,7 +30,8 @@ message ZoneSpec {
 message ZoneResourceSpec {
     uint64 max_memory = 1;
     uint64 target_memory = 2;
-    uint32 cpus = 3;
+    uint32 max_cpus = 3;
+    uint32 target_cpus = 4;
 }
 
 message ZoneImageSpec {
