@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "krata"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1331,7 +1331,7 @@ dependencies = [
 
 [[package]]
 name = "krata-buildtools"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -1346,7 +1346,7 @@ dependencies = [
 
 [[package]]
 name = "krata-ctl"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1376,7 +1376,7 @@ dependencies = [
 
 [[package]]
 name = "krata-daemon"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1408,14 +1408,14 @@ dependencies = [
 
 [[package]]
 name = "krata-loopdev"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "krata-network"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1439,7 +1439,7 @@ dependencies = [
 
 [[package]]
 name = "krata-oci"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1466,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "krata-runtime"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "anyhow",
  "backhand",
@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xencall"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "env_logger",
  "libc",
@@ -1520,7 +1520,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xenclient"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "async-trait",
  "env_logger",
@@ -1538,7 +1538,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xenevtchn"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "byteorder",
  "libc",
@@ -1550,7 +1550,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xengnt"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "libc",
  "nix 0.29.0",
@@ -1559,7 +1559,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xenplatform"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "async-trait",
  "c2rust-bitfields",
@@ -1582,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "krata-xenstore"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "byteorder",
  "env_logger",
@@ -1594,7 +1594,7 @@ dependencies = [
 
 [[package]]
 name = "krata-zone"
-version = "0.0.16"
+version = "0.0.17"
 dependencies = [
  "anyhow",
  "cgroups-rs",
