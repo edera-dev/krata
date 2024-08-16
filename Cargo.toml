@@ -94,7 +94,7 @@ walkdir = "2"
 xz2 = "0.1"
 
 [workspace.dependencies.clap]
-version = "4.5.15"
+version = "4.5.16"
 features = ["derive"]
 
 [workspace.dependencies.prost-reflect]
@@ -107,7 +107,7 @@ default-features = false
 features = ["rustls-tls"]
 
 [workspace.dependencies.serde]
-version = "1.0.207"
+version = "1.0.208"
 features = ["derive"]
 
 [workspace.dependencies.sys-mount]
