@@ -43,8 +43,13 @@ impl ControlCommand {
     pub async fn run(self) -> Result<()> {
         let client = ControlClientProvider::dial(self.connection.parse()?).await?;
         let events = EventStream::open(client.clone()).await?;
+        self.command.run(client, events).await
+    }
+}
 
-        match self.command {
+impl ControlCommands {
+    pub async fn run(self, client: ControlServiceClient<Channel>, events: EventStream) -> Result<()> {
+        match self {
             ControlCommands::Zone(zone) => zone.run(client, events).await,
 
             ControlCommands::Image(image) => image.run(client, events).await,
