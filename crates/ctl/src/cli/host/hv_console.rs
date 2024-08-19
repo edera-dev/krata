@@ -8,10 +8,10 @@ use tonic::{transport::Channel, Request};
 
 #[derive(Parser)]
 #[command(about = "Display hypervisor diagnostic messages")]
-pub struct HostHypervisorMessagesCommand {
+pub struct HostHvConsoleCommand {
 }
 
-impl HostHypervisorMessagesCommand {
+impl HostHvConsoleCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let response = client
             .read_hypervisor_console_ring(Request::new(ReadHypervisorConsoleRingRequest { clear: false }))
