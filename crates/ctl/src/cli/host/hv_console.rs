@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use krata::v1::control::{
-    control_service_client::ControlServiceClient, ReadHypervisorConsoleRingRequest,
+    control_service_client::ControlServiceClient, ReadHypervisorConsoleRequest,
 };
 
 use tonic::{transport::Channel, Request};
@@ -14,7 +14,7 @@ pub struct HostHvConsoleCommand {
 impl HostHvConsoleCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let response = client
-            .read_hypervisor_console_ring(Request::new(ReadHypervisorConsoleRingRequest { clear: false }))
+            .read_hypervisor_console(Request::new(ReadHypervisorConsoleRequest {}))
             .await?
             .into_inner();
 
