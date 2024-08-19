@@ -752,6 +752,7 @@ pub struct SysctlCputopoinfo {
 
 #[repr(C)]
 pub union SysctlValue {
+    pub console: SysctlReadconsole,
     pub cputopoinfo: SysctlCputopoinfo,
     pub pm_op: SysctlPmOp,
     pub phys_info: SysctlPhysinfo,
@@ -765,6 +766,7 @@ pub struct Sysctl {
     pub value: SysctlValue,
 }
 
+pub const XEN_SYSCTL_READCONSOLE: u32 = 1;
 pub const XEN_SYSCTL_PHYSINFO: u32 = 3;
 pub const XEN_SYSCTL_PM_OP: u32 = 12;
 pub const XEN_SYSCTL_CPUTOPOINFO: u32 = 16;
@@ -801,4 +803,15 @@ pub struct SysctlPhysinfo {
     pub outstanding_pages: u64,
     pub max_mfn: u64,
     pub hw_cap: [u32; 8],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SysctlReadconsole {
+    pub clear: u8,
+    pub incremental: u8,
+    pub pad: u16,
+    pub index: u32,
+    pub buffer: u64,
+    pub count: u32,
 }

@@ -35,6 +35,8 @@ service ControlService {
     rpc ReadZoneMetrics(ReadZoneMetricsRequest) returns (ReadZoneMetricsReply);
 
     rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
+
+    rpc ReadHypervisorConsole(ReadHypervisorConsoleRequest) returns (ReadHypervisorConsoleReply);
 }
 
 message HostStatusRequest {}
@@ -252,3 +254,9 @@ message UpdateZoneResourcesRequest {
 }
 
 message UpdateZoneResourcesReply {}
+
+message ReadHypervisorConsoleRequest {}
+
+message ReadHypervisorConsoleReply {
+    string data = 1;
+}
