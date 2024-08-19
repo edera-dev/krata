@@ -36,7 +36,7 @@ service ControlService {
 
     rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsReply);
 
-    rpc ReadHypervisorConsoleRing(ReadHypervisorConsoleRingRequest) returns (ReadHypervisorConsoleRingReply);
+    rpc ReadHypervisorConsole(ReadHypervisorConsoleRequest) returns (ReadHypervisorConsoleReply);
 }
 
 message HostStatusRequest {}
@@ -255,10 +255,8 @@ message UpdateZoneResourcesRequest {
 
 message UpdateZoneResourcesReply {}
 
-message ReadHypervisorConsoleRingRequest {
-    bool clear = 1;
-}
+message ReadHypervisorConsoleRequest {}
 
-message ReadHypervisorConsoleRingReply {
+message ReadHypervisorConsoleReply {
     string data = 1;
 }

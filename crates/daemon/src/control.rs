@@ -28,7 +28,7 @@ use krata::{
             ReadZoneMetricsReply, ReadZoneMetricsRequest, ResolveZoneIdReply, ResolveZoneIdRequest,
             SnoopIdmReply, SnoopIdmRequest, UpdateZoneResourcesReply, UpdateZoneResourcesRequest,
             WatchEventsReply, WatchEventsRequest, ZoneConsoleReply, ZoneConsoleRequest,
-            ReadHypervisorConsoleRingRequest, ReadHypervisorConsoleRingReply,
+            ReadHypervisorConsoleRequest, ReadHypervisorConsoleReply,
         },
     },
 };
@@ -712,14 +712,13 @@ impl ControlService for DaemonControlService {
         Ok(Response::new(UpdateZoneResourcesReply {}))
     }
 
-    async fn read_hypervisor_console_ring(
+    async fn read_hypervisor_console(
         &self,
-        request: Request<ReadHypervisorConsoleRingRequest>,
-    ) -> Result<Response<ReadHypervisorConsoleRingReply>, Status> {
-        let request = request.into_inner();
-        let data = self.runtime.read_hypervisor_console(request.clear).await.map_err(|error| ApiError {
+        _request: Request<ReadHypervisorConsoleRequest>,
+    ) -> Result<Response<ReadHypervisorConsoleReply>, Status> {
+        let data = self.runtime.read_hypervisor_console(false).await.map_err(|error| ApiError {
             message: error.to_string(),
         })?;
-        Ok(Response::new(ReadHypervisorConsoleRingReply { data: data.to_string() }))
+        Ok(Response::new(ReadHypervisorConsoleReply { data: data.to_string() }))
     }
 }
