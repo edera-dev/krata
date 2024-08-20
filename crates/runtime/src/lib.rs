@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use krataloopdev::LoopControl;
+use log::debug;
 use std::{fs, path::PathBuf, str::FromStr, sync::Arc};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -168,6 +169,13 @@ pub struct Runtime {
 impl Runtime {
     pub async fn new() -> Result<Self> {
         let context = RuntimeContext::new().await?;
+        debug!("testing for hypervisor presence");
+        context
+            .xen
+            .call
+            .get_version_capabilities()
+            .await
+            .map_err(|_| anyhow!("hypervisor is not present"))?;
         Ok(Self {
             context,
             launch_semaphore: Arc::new(Semaphore::new(10)),
