@@ -184,10 +184,19 @@ impl ZoneCreator<'_> {
             initial_resources.max_cpus = initial_resources.target_cpus;
         }
         spec.initial_resources = Some(initial_resources);
+        let kernel_options = spec.kernel_options.clone().unwrap_or_default();
         let info = self
             .runtime
             .launch(ZoneLaunchRequest {
-                format: LaunchPackedFormat::Squashfs,
+                format: match image.format {
+                    OciPackedFormat::Squashfs => LaunchPackedFormat::Squashfs,
+                    OciPackedFormat::Erofs => LaunchPackedFormat::Erofs,
+                    _ => {
+                        return Err(anyhow!(
+                            "oci image is in an invalid format, which isn't compatible with launch"
+                        ));
+                    }
+                },
                 uuid: Some(uuid),
                 name: if spec.name.is_empty() {
                     None
@@ -208,7 +217,8 @@ impl ZoneCreator<'_> {
                     .map(|x| (x.key.clone(), x.value.clone()))
                     .collect::<HashMap<_, _>>(),
                 run: empty_vec_optional(task.command.clone()),
-                debug: false,
+                kernel_verbose: kernel_options.verbose,
+                kernel_cmdline_append: kernel_options.cmdline_append,
                 addons_image: Some(self.addons_path.to_path_buf()),
                 network: ZoneLaunchNetwork {
                     ipv4: reservation.ipv4.to_string(),

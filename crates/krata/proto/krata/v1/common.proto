@@ -25,6 +25,7 @@ message ZoneSpec {
     ZoneTaskSpec task = 6;
     repeated ZoneSpecAnnotation annotations = 7;
     repeated ZoneSpecDevice devices = 8;
+    ZoneKernelOptionsSpec kernel_options = 9;
 }
 
 message ZoneResourceSpec {
@@ -38,6 +39,11 @@ message ZoneImageSpec {
     oneof image {
         ZoneOciImageSpec oci = 1;
     }
+}
+
+message ZoneKernelOptionsSpec {
+    bool verbose = 1;
+    string cmdline_append = 2;
 }
 
 enum OciImageFormat {

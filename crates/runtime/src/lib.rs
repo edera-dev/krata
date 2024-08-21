@@ -307,11 +307,13 @@ impl Runtime {
     }
 
     pub async fn read_hypervisor_console(&self, clear: bool) -> Result<Arc<str>> {
-        let index = 0 as u32;
-        let (rawbuf, newindex) = self.context
-                                     .xen
-                                     .call
-                                     .read_console_ring_raw(clear, index).await?;
+        let index = 0_u32;
+        let (rawbuf, newindex) = self
+            .context
+            .xen
+            .call
+            .read_console_ring_raw(clear, index)
+            .await?;
         let buf = std::str::from_utf8(&rawbuf[..newindex as usize])?;
         Ok(Arc::from(buf))
     }
