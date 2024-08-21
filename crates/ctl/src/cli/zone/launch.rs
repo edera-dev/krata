@@ -6,8 +6,8 @@ use krata::{
     events::EventStream,
     v1::{
         common::{
-            zone_image_spec::Image, OciImageFormat, ZoneImageSpec, ZoneOciImageSpec,
-            ZoneResourceSpec, ZoneSpec, ZoneSpecDevice, ZoneState, ZoneTaskSpec,
+            zone_image_spec::Image, OciImageFormat, ZoneImageSpec, ZoneKernelOptionsSpec,
+            ZoneOciImageSpec, ZoneResourceSpec, ZoneSpec, ZoneSpecDevice, ZoneState, ZoneTaskSpec,
             ZoneTaskSpecEnvVar,
         },
         control::{
@@ -91,6 +91,10 @@ pub struct ZoneLaunchCommand {
     initrd: Option<String>,
     #[arg(short = 'w', long, help = "Working directory")]
     working_directory: Option<String>,
+    #[arg(long, help = "Enable verbose logging on the kernel")]
+    kernel_verbose: bool,
+    #[arg(long, help = "Additional kernel cmdline options")]
+    kernel_cmdline_append: Option<String>,
     #[arg(help = "Container image for zone to use")]
     oci: String,
     #[arg(
@@ -166,6 +170,10 @@ impl ZoneLaunchCommand {
                     .iter()
                     .map(|name| ZoneSpecDevice { name: name.clone() })
                     .collect(),
+                kernel_options: Some(ZoneKernelOptionsSpec {
+                    verbose: self.kernel_verbose,
+                    cmdline_append: self.kernel_cmdline_append.clone().unwrap_or_default(),
+                }),
             }),
         };
         let response = client

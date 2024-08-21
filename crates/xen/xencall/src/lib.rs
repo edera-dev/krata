@@ -26,8 +26,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use sys::{
     CpuId, E820Entry, ForeignMemoryMap, PhysdevMapPirq, Sysctl, SysctlCputopo, SysctlCputopoinfo,
-    SysctlPhysinfo, SysctlPmOp, SysctlPmOpValue, SysctlSetCpuFreqGov, SysctlValue, SysctlReadconsole,
-    VcpuGuestContextAny, HYPERVISOR_PHYSDEV_OP, HYPERVISOR_SYSCTL, PHYSDEVOP_MAP_PIRQ,
+    SysctlPhysinfo, SysctlPmOp, SysctlPmOpValue, SysctlReadconsole, SysctlSetCpuFreqGov,
+    SysctlValue, VcpuGuestContextAny, HYPERVISOR_PHYSDEV_OP, HYPERVISOR_SYSCTL, PHYSDEVOP_MAP_PIRQ,
     XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION, XEN_MEM_SET_MEMORY_MAP,
     XEN_SYSCTL_CPUTOPOINFO, XEN_SYSCTL_MAX_INTERFACE_VERSION, XEN_SYSCTL_MIN_INTERFACE_VERSION,
     XEN_SYSCTL_PHYSINFO, XEN_SYSCTL_PM_OP, XEN_SYSCTL_PM_OP_DISABLE_TURBO,
@@ -1088,7 +1088,11 @@ impl XenCall {
         Ok(())
     }
 
-    pub async fn read_console_ring_raw(&self, clear: bool, index: u32) -> Result<([u8; 16384], u32)> {
+    pub async fn read_console_ring_raw(
+        &self,
+        clear: bool,
+        index: u32,
+    ) -> Result<([u8; 16384], u32)> {
         let mut u8buf = [0u8; 16384];
         let mut sysctl = Sysctl {
             cmd: XEN_SYSCTL_READCONSOLE,
@@ -1098,7 +1102,7 @@ impl XenCall {
                     clear: clear as u8,
                     incremental: 1,
                     pad: 0,
-                    index: index,
+                    index,
                     buffer: addr_of_mut!(u8buf) as u64,
                     count: 16384,
                 },
@@ -1109,9 +1113,7 @@ impl XenCall {
         // Safety: We are passing a SysctlReadconsole struct as part of the hypercall, and
         // calling the hypercall is known to not change the underlying value outside changing
         // the values on some SysctlReadconsole fields.
-        let newindex = unsafe {
-            sysctl.value.console.index
-        };
+        let newindex = unsafe { sysctl.value.console.index };
         Ok((u8buf, newindex))
     }
 }

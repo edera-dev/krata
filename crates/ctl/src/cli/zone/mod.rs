@@ -26,7 +26,7 @@ pub mod logs;
 pub mod metrics;
 pub mod resolve;
 pub mod top;
-mod update_resources;
+pub mod update_resources;
 pub mod watch;
 
 #[derive(Parser)]
@@ -46,6 +46,7 @@ impl ZoneCommand {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 pub enum ZoneCommands {
     Attach(ZoneAttachCommand),

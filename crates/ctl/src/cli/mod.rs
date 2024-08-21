@@ -31,6 +31,7 @@ pub struct ControlCommand {
     command: ControlCommands,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Parser)]
 pub enum ControlCommands {
     Zone(ZoneCommand),
@@ -48,7 +49,11 @@ impl ControlCommand {
 }
 
 impl ControlCommands {
-    pub async fn run(self, client: ControlServiceClient<Channel>, events: EventStream) -> Result<()> {
+    pub async fn run(
+        self,
+        client: ControlServiceClient<Channel>,
+        events: EventStream,
+    ) -> Result<()> {
         match self {
             ControlCommands::Zone(zone) => zone.run(client, events).await,
 

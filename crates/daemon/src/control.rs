@@ -25,10 +25,10 @@ use krata::{
             ExecInsideZoneRequest, GetHostCpuTopologyReply, GetHostCpuTopologyRequest,
             HostCpuTopologyInfo, HostStatusReply, HostStatusRequest, ListDevicesReply,
             ListDevicesRequest, ListZonesReply, ListZonesRequest, PullImageReply, PullImageRequest,
-            ReadZoneMetricsReply, ReadZoneMetricsRequest, ResolveZoneIdReply, ResolveZoneIdRequest,
-            SnoopIdmReply, SnoopIdmRequest, UpdateZoneResourcesReply, UpdateZoneResourcesRequest,
+            ReadHypervisorConsoleReply, ReadHypervisorConsoleRequest, ReadZoneMetricsReply,
+            ReadZoneMetricsRequest, ResolveZoneIdReply, ResolveZoneIdRequest, SnoopIdmReply,
+            SnoopIdmRequest, UpdateZoneResourcesReply, UpdateZoneResourcesRequest,
             WatchEventsReply, WatchEventsRequest, ZoneConsoleReply, ZoneConsoleRequest,
-            ReadHypervisorConsoleRequest, ReadHypervisorConsoleReply,
         },
     },
 };
@@ -716,9 +716,15 @@ impl ControlService for DaemonControlService {
         &self,
         _request: Request<ReadHypervisorConsoleRequest>,
     ) -> Result<Response<ReadHypervisorConsoleReply>, Status> {
-        let data = self.runtime.read_hypervisor_console(false).await.map_err(|error| ApiError {
-            message: error.to_string(),
-        })?;
-        Ok(Response::new(ReadHypervisorConsoleReply { data: data.to_string() }))
+        let data = self
+            .runtime
+            .read_hypervisor_console(false)
+            .await
+            .map_err(|error| ApiError {
+                message: error.to_string(),
+            })?;
+        Ok(Response::new(ReadHypervisorConsoleReply {
+            data: data.to_string(),
+        }))
     }
 }

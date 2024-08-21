@@ -6,14 +6,14 @@ use krata::events::EventStream;
 use krata::v1::control::control_service_client::ControlServiceClient;
 
 use crate::cli::host::cpu_topology::HostCpuTopologyCommand;
+use crate::cli::host::hv_console::HostHvConsoleCommand;
 use crate::cli::host::identify::HostStatusCommand;
 use crate::cli::host::idm_snoop::HostIdmSnoopCommand;
-use crate::cli::host::hv_console::HostHvConsoleCommand;
 
 pub mod cpu_topology;
+pub mod hv_console;
 pub mod identify;
 pub mod idm_snoop;
-pub mod hv_console;
 
 #[derive(Parser)]
 #[command(about = "Manage the host of the isolation engine")]

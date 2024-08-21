@@ -7,9 +7,8 @@ use krata::v1::control::{
 use tonic::{transport::Channel, Request};
 
 #[derive(Parser)]
-#[command(about = "Display hypervisor diagnostic messages")]
-pub struct HostHvConsoleCommand {
-}
+#[command(about = "Display hypervisor console output")]
+pub struct HostHvConsoleCommand {}
 
 impl HostHvConsoleCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {

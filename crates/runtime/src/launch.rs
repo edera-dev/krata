@@ -37,7 +37,8 @@ pub struct ZoneLaunchRequest {
     pub env: HashMap<String, String>,
     pub run: Option<Vec<String>>,
     pub pcis: Vec<PciDevice>,
-    pub debug: bool,
+    pub kernel_verbose: bool,
+    pub kernel_cmdline_append: String,
     pub image: OciPackedImage,
     pub addons_image: Option<PathBuf>,
     pub network: ZoneLaunchNetwork,
@@ -139,9 +140,14 @@ impl ZoneLauncher {
             None
         };
         let mut cmdline_options = ["console=hvc0"].to_vec();
-        if !request.debug {
+        if !request.kernel_verbose {
             cmdline_options.push("quiet");
         }
+
+        if !request.kernel_cmdline_append.is_empty() {
+            cmdline_options.push(&request.kernel_cmdline_append);
+        }
+
         let cmdline = cmdline_options.join(" ");
 
         let zone_mac_string = request.network.zone_mac.to_string().replace('-', ":");

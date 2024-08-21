@@ -26,9 +26,8 @@ jobs:
         rustup component add rustfmt
     - name: install linux dependencies
       run: ./hack/ci/install-linux-deps.sh
-    # Temporarily ignored: https://github.com/edera-dev/krata/issues/206
     - name: cargo fmt
-      run: ./hack/build/cargo.sh fmt --all -- --check || true
+      run: ./hack/build/cargo.sh fmt --all -- --check
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
