@@ -15,7 +15,7 @@ use kratad::command::DaemonCommand;
 async fn main() -> Result<()> {
     let mut builder = env_logger::Builder::new();
     builder
-        .filter_level(LevelFilter::Trace)
+        .filter_level(LevelFilter::Info)
         .parse_default_env()
         .filter(Some("backhand::filesystem::writer"), LevelFilter::Warn);
 
