@@ -380,9 +380,9 @@ pub fn ip_reservation_to_network_status(ip: &IpReservation) -> ZoneNetworkStatus
     ZoneNetworkStatus {
         zone_ipv4: format!("{}/{}", ip.ipv4, ip.ipv4_prefix),
         zone_ipv6: format!("{}/{}", ip.ipv6, ip.ipv6_prefix),
-        zone_mac: ip.mac.to_string().replace('-', ":"),
+        zone_mac: ip.mac.to_string().to_lowercase().replace('-', ":"),
         gateway_ipv4: format!("{}/{}", ip.gateway_ipv4, ip.ipv4_prefix),
         gateway_ipv6: format!("{}/{}", ip.gateway_ipv6, ip.ipv6_prefix),
-        gateway_mac: ip.gateway_mac.to_string().replace('-', ":"),
+        gateway_mac: ip.gateway_mac.to_string().to_lowercase().replace('-', ":"),
     }
 }

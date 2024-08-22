@@ -1,17 +1,21 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, str::FromStr, time::Duration};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use autonet::{AutoNetworkChangeset, AutoNetworkWatcher, NetworkMetadata};
 use futures::{future::join_all, TryFutureExt};
 use hbridge::HostBridge;
 use krata::{
     client::ControlClientProvider,
     dial::ControlDialAddress,
-    v1::{common::Zone, control::control_service_client::ControlServiceClient},
+    v1::{
+        common::Zone,
+        control::{control_service_client::ControlServiceClient, HostStatusRequest},
+    },
 };
 use log::warn;
+use smoltcp::wire::{EthernetAddress, Ipv4Cidr, Ipv6Cidr};
 use tokio::{task::JoinHandle, time::sleep};
-use tonic::transport::Channel;
+use tonic::{transport::Channel, Request};
 use uuid::Uuid;
 use vbridge::VirtualBridge;
 
@@ -41,10 +45,27 @@ pub struct NetworkService {
 
 impl NetworkService {
     pub async fn new(control_address: ControlDialAddress) -> Result<NetworkService> {
-        let control = ControlClientProvider::dial(control_address).await?;
+        let mut control = ControlClientProvider::dial(control_address).await?;
+        let host_status = control
+            .host_status(Request::new(HostStatusRequest {}))
+            .await?
+            .into_inner();
+        let host_ipv4 = Ipv4Cidr::from_str(&host_status.host_ipv4)
+            .map_err(|_| anyhow!("failed to parse host ipv4 cidr"))?;
+        let host_ipv6 = Ipv6Cidr::from_str(&host_status.host_ipv6)
+            .map_err(|_| anyhow!("failed to parse host ipv6 cidr"))?;
+        let host_mac = EthernetAddress::from_str(&host_status.host_mac)
+            .map_err(|_| anyhow!("failed to parse host mac address"))?;
         let bridge = VirtualBridge::new()?;
-        let hbridge =
-            HostBridge::new(HOST_BRIDGE_MTU + EXTRA_MTU, "krata0".to_string(), &bridge).await?;
+        let hbridge = HostBridge::new(
+            HOST_BRIDGE_MTU + EXTRA_MTU,
+            "krata0".to_string(),
+            &bridge,
+            host_ipv4,
+            host_ipv6,
+            host_mac,
+        )
+        .await?;
         Ok(NetworkService {
             control,
             zones: HashMap::new(),

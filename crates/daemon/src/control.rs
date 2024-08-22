@@ -1,4 +1,5 @@
 use crate::db::zone::ZoneStore;
+use crate::ip::assignment::IpAssignment;
 use crate::{
     command::DaemonCommand, console::DaemonConsoleHandle, devices::DaemonDeviceManager,
     event::DaemonEventContext, idm::DaemonIdmHandle, metrics::idm_metric_to_api,
@@ -68,12 +69,13 @@ impl From<ApiError> for Status {
 
 #[derive(Clone)]
 pub struct DaemonControlService {
-    glt: ZoneLookupTable,
+    zlt: ZoneLookupTable,
     devices: DaemonDeviceManager,
     events: DaemonEventContext,
     console: DaemonConsoleHandle,
     idm: DaemonIdmHandle,
     zones: ZoneStore,
+    ip: IpAssignment,
     zone_reconciler_notify: Sender<Uuid>,
     packer: OciPackerService,
     runtime: Runtime,
@@ -82,23 +84,25 @@ pub struct DaemonControlService {
 impl DaemonControlService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        glt: ZoneLookupTable,
+        zlt: ZoneLookupTable,
         devices: DaemonDeviceManager,
         events: DaemonEventContext,
         console: DaemonConsoleHandle,
         idm: DaemonIdmHandle,
         zones: ZoneStore,
+        ip: IpAssignment,
         zone_reconciler_notify: Sender<Uuid>,
         packer: OciPackerService,
         runtime: Runtime,
     ) -> Self {
         Self {
-            glt,
+            zlt,
             devices,
             events,
             console,
             idm,
             zones,
+            ip,
             zone_reconciler_notify,
             packer,
             runtime,
@@ -138,10 +142,29 @@ impl ControlService for DaemonControlService {
         request: Request<HostStatusRequest>,
     ) -> Result<Response<HostStatusReply>, Status> {
         let _ = request.into_inner();
+        let host_reservation =
+            self.ip
+                .retrieve(self.zlt.host_uuid())
+                .await
+                .map_err(|x| ApiError {
+                    message: x.to_string(),
+                })?;
         Ok(Response::new(HostStatusReply {
-            host_domid: self.glt.host_domid(),
-            host_uuid: self.glt.host_uuid().to_string(),
+            host_domid: self.zlt.host_domid(),
+            host_uuid: self.zlt.host_uuid().to_string(),
             krata_version: DaemonCommand::version(),
+            host_ipv4: host_reservation
+                .as_ref()
+                .map(|x| format!("{}/{}", x.ipv4, x.ipv4_prefix))
+                .unwrap_or_default(),
+            host_ipv6: host_reservation
+                .as_ref()
+                .map(|x| format!("{}/{}", x.ipv6, x.ipv6_prefix))
+                .unwrap_or_default(),
+            host_mac: host_reservation
+                .as_ref()
+                .map(|x| x.mac.to_string().to_lowercase().replace('-', ":"))
+                .unwrap_or_default(),
         }))
     }
 
@@ -168,7 +191,7 @@ impl ControlService for DaemonControlService {
                         exit_status: None,
                         error_status: None,
                         resource_status: None,
-                        host: self.glt.host_uuid().to_string(),
+                        host: self.zlt.host_uuid().to_string(),
                         domid: u32::MAX,
                     }),
                     spec: Some(spec),
@@ -531,13 +554,13 @@ impl ControlService for DaemonControlService {
     ) -> Result<Response<Self::SnoopIdmStream>, Status> {
         let _ = request.into_inner();
         let mut messages = self.idm.snoop();
-        let glt = self.glt.clone();
+        let zlt = self.zlt.clone();
         let output = try_stream! {
             while let Ok(event) = messages.recv().await {
-                let Some(from_uuid) = glt.lookup_uuid_by_domid(event.from).await else {
+                let Some(from_uuid) = zlt.lookup_uuid_by_domid(event.from).await else {
                     continue;
                 };
-                let Some(to_uuid) = glt.lookup_uuid_by_domid(event.to).await else {
+                let Some(to_uuid) = zlt.lookup_uuid_by_domid(event.to).await else {
                     continue;
                 };
                 yield SnoopIdmReply { from: from_uuid.to_string(), to: to_uuid.to_string(), packet: Some(event.packet) };

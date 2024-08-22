@@ -24,7 +24,7 @@ type BufferMap = Arc<Mutex<HashMap<u32, ConsoleBuffer>>>;
 
 #[derive(Clone)]
 pub struct DaemonConsoleHandle {
-    glt: ZoneLookupTable,
+    zlt: ZoneLookupTable,
     listeners: ListenerMap,
     buffers: BufferMap,
     sender: Sender<(u32, Vec<u8>)>,
@@ -57,7 +57,7 @@ impl DaemonConsoleHandle {
         uuid: Uuid,
         sender: Sender<Vec<u8>>,
     ) -> Result<DaemonConsoleAttachHandle> {
-        let Some(domid) = self.glt.lookup_domid_by_uuid(&uuid).await else {
+        let Some(domid) = self.zlt.lookup_domid_by_uuid(&uuid).await else {
             return Err(anyhow!("unable to find domain {}", uuid));
         };
         let buffers = self.buffers.lock().await;
@@ -84,7 +84,7 @@ impl Drop for DaemonConsoleHandle {
 }
 
 pub struct DaemonConsole {
-    glt: ZoneLookupTable,
+    zlt: ZoneLookupTable,
     listeners: ListenerMap,
     buffers: BufferMap,
     receiver: Receiver<(u32, Option<Vec<u8>>)>,
@@ -93,14 +93,14 @@ pub struct DaemonConsole {
 }
 
 impl DaemonConsole {
-    pub async fn new(glt: ZoneLookupTable) -> Result<DaemonConsole> {
+    pub async fn new(zlt: ZoneLookupTable) -> Result<DaemonConsole> {
         let (service, sender, receiver) =
             ChannelService::new("krata-console".to_string(), Some(0)).await?;
         let task = service.launch().await?;
         let listeners = Arc::new(Mutex::new(HashMap::new()));
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         Ok(DaemonConsole {
-            glt,
+            zlt,
             listeners,
             buffers,
             receiver,
@@ -110,7 +110,7 @@ impl DaemonConsole {
     }
 
     pub async fn launch(mut self) -> Result<DaemonConsoleHandle> {
-        let glt = self.glt.clone();
+        let zlt = self.zlt.clone();
         let listeners = self.listeners.clone();
         let buffers = self.buffers.clone();
         let sender = self.sender.clone();
@@ -120,7 +120,7 @@ impl DaemonConsole {
             }
         });
         Ok(DaemonConsoleHandle {
-            glt,
+            zlt,
             listeners,
             buffers,
             sender,
