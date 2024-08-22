@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.18](https://github.com/edera-dev/krata/compare/v0.0.17...v0.0.18) - 2024-08-22
+
+### Added
+- *(zone)* kernel command line control on launch ([#351](https://github.com/edera-dev/krata/pull/351))
+- *(xen-preflight)* test for hypervisor presence explicitly and error if missing ([#347](https://github.com/edera-dev/krata/pull/347))
+
+### Fixed
+- *(network)* allocate host ip from allocation pool ([#353](https://github.com/edera-dev/krata/pull/353))
+- *(daemon)* turn off trace logging ([#352](https://github.com/edera-dev/krata/pull/352))
+
+### Other
+- Add support for reading hypervisor console ([#344](https://github.com/edera-dev/krata/pull/344))
+- *(ctl)* move logic for branching ctl run steps into ControlCommands ([#342](https://github.com/edera-dev/krata/pull/342))
+- update Cargo.toml dependencies
+
 ## [0.0.17](https://github.com/edera-dev/krata/compare/v0.0.16...v0.0.17) - 2024-08-15
 
 ### Added
