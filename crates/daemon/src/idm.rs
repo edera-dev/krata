@@ -31,7 +31,7 @@ type ClientMap = Arc<Mutex<HashMap<u32, IdmInternalClient>>>;
 
 #[derive(Clone)]
 pub struct DaemonIdmHandle {
-    glt: ZoneLookupTable,
+    zlt: ZoneLookupTable,
     clients: ClientMap,
     feeds: BackendFeedMap,
     tx_sender: Sender<(u32, IdmTransportPacket)>,
@@ -45,7 +45,7 @@ impl DaemonIdmHandle {
     }
 
     pub async fn client(&self, uuid: Uuid) -> Result<IdmInternalClient> {
-        let Some(domid) = self.glt.lookup_domid_by_uuid(&uuid).await else {
+        let Some(domid) = self.zlt.lookup_domid_by_uuid(&uuid).await else {
             return Err(anyhow!("unable to find domain {}", uuid));
         };
         self.client_by_domid(domid).await
@@ -72,7 +72,7 @@ pub struct DaemonIdmSnoopPacket {
 }
 
 pub struct DaemonIdm {
-    glt: ZoneLookupTable,
+    zlt: ZoneLookupTable,
     clients: ClientMap,
     feeds: BackendFeedMap,
     tx_sender: Sender<(u32, IdmTransportPacket)>,
@@ -84,7 +84,7 @@ pub struct DaemonIdm {
 }
 
 impl DaemonIdm {
-    pub async fn new(glt: ZoneLookupTable) -> Result<DaemonIdm> {
+    pub async fn new(zlt: ZoneLookupTable) -> Result<DaemonIdm> {
         debug!("allocating channel service for idm");
         let (service, tx_raw_sender, rx_receiver) =
             ChannelService::new("krata-channel".to_string(), None).await?;
@@ -98,7 +98,7 @@ impl DaemonIdm {
         let feeds = Arc::new(Mutex::new(HashMap::new()));
 
         Ok(DaemonIdm {
-            glt,
+            zlt,
             rx_receiver,
             tx_receiver,
             tx_sender,
@@ -111,7 +111,7 @@ impl DaemonIdm {
     }
 
     pub async fn launch(mut self) -> Result<DaemonIdmHandle> {
-        let glt = self.glt.clone();
+        let zlt = self.zlt.clone();
         let clients = self.clients.clone();
         let feeds = self.feeds.clone();
         let tx_sender = self.tx_sender.clone();
@@ -124,7 +124,7 @@ impl DaemonIdm {
             }
         });
         Ok(DaemonIdmHandle {
-            glt,
+            zlt,
             clients,
             feeds,
             tx_sender,

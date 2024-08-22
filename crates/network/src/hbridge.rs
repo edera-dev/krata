@@ -1,20 +1,14 @@
-use std::{
-    io::ErrorKind,
-    net::{IpAddr, Ipv4Addr},
-};
+use std::{io::ErrorKind, net::IpAddr};
 
-use advmac::MacAddr6;
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
 use futures::TryStreamExt;
 use log::error;
-use smoltcp::wire::EthernetAddress;
+use smoltcp::wire::{EthernetAddress, Ipv4Cidr, Ipv6Cidr};
 use tokio::{select, task::JoinHandle};
 use tokio_tun::Tun;
 
 use crate::vbridge::{BridgeJoinHandle, VirtualBridge};
-
-const HOST_IPV4_ADDR: Ipv4Addr = Ipv4Addr::new(10, 75, 0, 1);
 
 #[derive(Debug)]
 enum HostBridgeProcessSelect {
@@ -27,7 +21,14 @@ pub struct HostBridge {
 }
 
 impl HostBridge {
-    pub async fn new(mtu: usize, interface: String, bridge: &VirtualBridge) -> Result<HostBridge> {
+    pub async fn new(
+        mtu: usize,
+        interface: String,
+        bridge: &VirtualBridge,
+        ipv4: Ipv4Cidr,
+        ipv6: Ipv6Cidr,
+        mac: EthernetAddress,
+    ) -> Result<HostBridge> {
         let tun = Tun::builder()
             .name(&interface)
             .tap(true)
@@ -37,10 +38,6 @@ impl HostBridge {
 
         let (connection, handle, _) = rtnetlink::new_connection()?;
         tokio::spawn(connection);
-
-        let mut mac = MacAddr6::random();
-        mac.set_local(true);
-        mac.set_multicast(false);
 
         let mut links = handle.link().get().match_name(interface.clone()).execute();
         let link = links.try_next().await?;
@@ -54,25 +51,32 @@ impl HostBridge {
 
         handle
             .address()
-            .add(link.header.index, IpAddr::V4(HOST_IPV4_ADDR), 16)
+            .add(
+                link.header.index,
+                IpAddr::V4(ipv4.address().into()),
+                ipv4.prefix_len(),
+            )
             .execute()
             .await?;
 
         handle
             .address()
-            .add(link.header.index, IpAddr::V6(mac.to_link_local_ipv6()), 10)
+            .add(
+                link.header.index,
+                IpAddr::V6(ipv6.address().into()),
+                ipv6.prefix_len(),
+            )
             .execute()
             .await?;
 
         handle
             .link()
             .set(link.header.index)
-            .address(mac.to_array().to_vec())
+            .address(mac.0.to_vec())
             .up()
             .execute()
             .await?;
 
-        let mac = EthernetAddress(mac.to_array());
         let bridge_handle = bridge.join(mac).await?;
 
         let task = tokio::task::spawn(async move {

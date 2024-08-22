@@ -45,6 +45,9 @@ message HostStatusReply {
     string host_uuid = 1;
     uint32 host_domid = 2;
     string krata_version = 3;
+    string host_ipv4 = 4;
+    string host_ipv6 = 5;
+    string host_mac = 6;
 }
 
 message CreateZoneRequest {

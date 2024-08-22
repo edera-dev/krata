@@ -127,7 +127,8 @@ impl NetworkBackend {
         let (tx_sender, tx_receiver) = channel::<BytesMut>(TX_CHANNEL_BUFFER_LEN);
         let mut udev = ChannelDevice::new(mtu, Medium::Ethernet, tx_sender.clone());
         let mac = self.metadata.gateway.mac;
-        let nat = Nat::new(mtu, proxy, mac, addresses.clone(), tx_sender.clone())?;
+        let local_cidrs = addresses.clone();
+        let nat = Nat::new(mtu, proxy, mac, local_cidrs, tx_sender.clone())?;
         let hardware_addr = HardwareAddress::Ethernet(mac);
         let config = Config::new(hardware_addr);
         let mut iface = Interface::new(config, &mut udev, Instant::now());

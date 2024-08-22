@@ -17,6 +17,9 @@ impl HostStatusCommand {
         println!("Host UUID: {}", response.host_uuid);
         println!("Host Domain: {}", response.host_domid);
         println!("Krata Version: {}", response.krata_version);
+        println!("Host IPv4: {}", response.host_ipv4);
+        println!("Host IPv6: {}", response.host_ipv6);
+        println!("Host Ethernet Address: {}", response.host_mac);
         Ok(())
     }
 }

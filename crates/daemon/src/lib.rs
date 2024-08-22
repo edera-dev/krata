@@ -45,9 +45,10 @@ pub mod zlt;
 pub struct Daemon {
     store: String,
     _config: Arc<DaemonConfig>,
-    glt: ZoneLookupTable,
+    zlt: ZoneLookupTable,
     devices: DaemonDeviceManager,
     zones: ZoneStore,
+    ip: IpAssignment,
     events: DaemonEventContext,
     zone_reconciler_task: JoinHandle<()>,
     zone_reconciler_notify: Sender<Uuid>,
@@ -127,7 +128,7 @@ impl Daemon {
         let ipv4_network = Ipv4Network::from_str(&config.network.ipv4.subnet)?;
         let ipv6_network = Ipv6Network::from_str(&config.network.ipv6.subnet)?;
         let ip_reservation_store = IpReservationStore::open(database)?;
-        let ip_assignment =
+        let ip =
             IpAssignment::new(host_uuid, ipv4_network, ipv6_network, ip_reservation_store).await?;
         debug!("initializing zone reconciler");
         let zone_reconciler = ZoneReconciler::new(
@@ -141,7 +142,7 @@ impl Daemon {
             kernel_path,
             initrd_path,
             addons_path,
-            ip_assignment,
+            ip.clone(),
             config.clone(),
         )?;
 
@@ -161,9 +162,10 @@ impl Daemon {
         Ok(Self {
             store,
             _config: config,
-            glt: zlt,
+            zlt,
             devices,
             zones,
+            ip,
             events,
             zone_reconciler_task,
             zone_reconciler_notify,
@@ -178,12 +180,13 @@ impl Daemon {
     pub async fn listen(&mut self, addr: ControlDialAddress) -> Result<()> {
         debug!("starting control service");
         let control_service = DaemonControlService::new(
-            self.glt.clone(),
+            self.zlt.clone(),
             self.devices.clone(),
             self.events.clone(),
             self.console.clone(),
             self.idm.clone(),
             self.zones.clone(),
+            self.ip.clone(),
             self.zone_reconciler_notify.clone(),
             self.packer.clone(),
             self.runtime.clone(),

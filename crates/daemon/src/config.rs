@@ -97,7 +97,7 @@ fn default_network_ipv4() -> DaemonIpv4NetworkConfig {
 }
 
 fn default_network_ipv4_subnet() -> String {
-    "10.75.80.0/24".to_string()
+    "10.75.0.0/16".to_string()
 }
 
 fn default_network_ipv6() -> DaemonIpv6NetworkConfig {

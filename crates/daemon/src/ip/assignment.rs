@@ -36,13 +36,13 @@ impl IpAssignment {
         store: IpReservationStore,
     ) -> Result<Self> {
         let mut state = IpAssignment::fetch_current_state(&store).await?;
-        let reservation = if let Some(reservation) = store.read(host_uuid).await? {
+        let gateway_reservation = if let Some(reservation) = store.read(Uuid::nil()).await? {
             reservation
         } else {
             IpAssignment::allocate(
                 &mut state,
                 &store,
-                host_uuid,
+                Uuid::nil(),
                 ipv4_network,
                 ipv6_network,
                 None,
@@ -51,12 +51,27 @@ impl IpAssignment {
             )
             .await?
         };
+
+        if store.read(host_uuid).await?.is_none() {
+            let _ = IpAssignment::allocate(
+                &mut state,
+                &store,
+                host_uuid,
+                ipv4_network,
+                ipv6_network,
+                Some(gateway_reservation.gateway_ipv4),
+                Some(gateway_reservation.gateway_ipv6),
+                Some(gateway_reservation.gateway_mac),
+            )
+            .await?;
+        }
+
         let assignment = IpAssignment {
             ipv4_network,
             ipv6_network,
-            gateway_ipv4: reservation.ipv4,
-            gateway_ipv6: reservation.ipv6,
-            gateway_mac: reservation.gateway_mac,
+            gateway_ipv4: gateway_reservation.ipv4,
+            gateway_ipv6: gateway_reservation.ipv6,
+            gateway_mac: gateway_reservation.mac,
             store,
             state: Arc::new(RwLock::new(state)),
         };
@@ -92,13 +107,17 @@ impl IpAssignment {
             .filter(|ip| {
                 let last = ip.octets()[3];
                 // filter for IPs ending in .1 to .250 because .250+ can have special meaning
-                last > 0 && last < 250
+                (1..250).contains(&last)
             })
             .find(|ip| !state.ipv4.contains_key(ip));
 
         let found_ipv6: Option<Ipv6Addr> = ipv6_network
             .iter()
             .filter(|ip| !ip.is_loopback() && !ip.is_multicast())
+            .filter(|ip| {
+                let last = ip.octets()[15];
+                last > 0
+            })
             .find(|ip| !state.ipv6.contains_key(ip));
 
         let Some(ipv4) = found_ipv4 else {
@@ -114,7 +133,7 @@ impl IpAssignment {
         };
 
         let mut mac = MacAddr6::random();
-        mac.set_local(false);
+        mac.set_local(true);
         mac.set_multicast(false);
 
         let reservation = IpReservation {
