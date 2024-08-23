@@ -29,7 +29,7 @@ enum ZoneListFormat {
 }
 
 #[derive(Parser)]
-#[command(about = "List the zones on the isolation engine")]
+#[command(about = "List zone information")]
 pub struct ZoneListCommand {
     #[arg(short, long, default_value = "table", help = "Output format")]
     format: ZoneListFormat,
