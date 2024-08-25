@@ -23,7 +23,7 @@ impl ZoneAttachCommand {
         events: EventStream,
     ) -> Result<()> {
         let zone_id: String = resolve_zone(&mut client, &self.zone).await?;
-        let input = StdioConsoleStream::stdin_stream(zone_id.clone()).await;
+        let input = StdioConsoleStream::stdin_stream(zone_id.clone(), false).await;
         let output = client.attach_zone_console(input).await?.into_inner();
         let stdout_handle =
             tokio::task::spawn(async move { StdioConsoleStream::stdout(output, true).await });
