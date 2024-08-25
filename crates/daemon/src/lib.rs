@@ -41,7 +41,6 @@ pub mod metrics;
 pub mod oci;
 pub mod reconcile;
 pub mod zlt;
-
 pub struct Daemon {
     store: String,
     _config: Arc<DaemonConfig>,
