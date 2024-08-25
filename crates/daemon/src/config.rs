@@ -112,13 +112,13 @@ fn default_network_ipv6_subnet() -> String {
 
 impl DaemonConfig {
     pub async fn load(path: &Path) -> Result<DaemonConfig> {
-        if path.exists() {
-            let content = fs::read_to_string(path).await?;
-            let config: DaemonConfig = toml::from_str(&content)?;
-            Ok(config)
-        } else {
-            fs::write(&path, "").await?;
-            Ok(DaemonConfig::default())
+        if !path.exists() {
+            let config: DaemonConfig = toml::from_str("")?;
+            let content = toml::to_string_pretty(&config)?;
+            fs::write(&path, content).await?;
         }
+        let content = fs::read_to_string(path).await?;
+        let config: DaemonConfig = toml::from_str(&content)?;
+        Ok(config)
     }
 }
