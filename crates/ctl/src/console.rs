@@ -23,10 +23,13 @@ use tonic::Streaming;
 pub struct StdioConsoleStream;
 
 impl StdioConsoleStream {
-    pub async fn stdin_stream(zone: String) -> impl Stream<Item = ZoneConsoleRequest> {
+    pub async fn stdin_stream(
+        zone: String,
+        replay_history: bool,
+    ) -> impl Stream<Item = ZoneConsoleRequest> {
         let mut stdin = stdin();
         stream! {
-            yield ZoneConsoleRequest { zone_id: zone, data: vec![] };
+            yield ZoneConsoleRequest { zone_id: zone, replay_history, data: vec![] };
 
             let mut buffer = vec![0u8; 60];
             loop {
@@ -41,7 +44,7 @@ impl StdioConsoleStream {
                 if size == 1 && buffer[0] == 0x1d {
                     break;
                 }
-                yield ZoneConsoleRequest { zone_id: String::default(), data };
+                yield ZoneConsoleRequest { zone_id: String::default(), replay_history, data };
             }
         }
     }

@@ -104,6 +104,7 @@ message ExecInsideZoneReply {
 message ZoneConsoleRequest {
     string zone_id = 1;
     bytes data = 2;
+    bool replay_history = 3;
 }
 
 message ZoneConsoleReply {

@@ -46,7 +46,9 @@ impl AttachZoneConsoleRpc {
             .map_err(|error| anyhow!("failed to attach to console: {}", error))?;
 
         let output = try_stream! {
-            yield ZoneConsoleReply { data: console.initial.clone(), };
+            if request.replay_history {
+                yield ZoneConsoleReply { data: console.initial.clone(), };
+            }
             loop {
                 let what = select! {
                     x = receiver.recv() => ConsoleDataSelect::Read(x),

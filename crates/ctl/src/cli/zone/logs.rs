@@ -33,7 +33,7 @@ impl ZoneLogsCommand {
         let zone_id_stream = zone_id.clone();
         let follow = self.follow;
         let input = stream! {
-            yield ZoneConsoleRequest { zone_id: zone_id_stream, data: Vec::new() };
+            yield ZoneConsoleRequest { zone_id: zone_id_stream, replay_history: true, data: Vec::new() };
             if follow {
                 let mut pending = pending::<ZoneConsoleRequest>();
                 while let Some(x) = pending.next().await {
