@@ -10,7 +10,7 @@ import "krata/idm/transport.proto";
 import "krata/v1/common.proto";
 
 service ControlService {
-    rpc HostStatus(HostStatusRequest) returns (HostStatusReply);
+    rpc GetHostStatus(GetHostStatusRequest) returns (GetHostStatusReply);
     rpc SnoopIdm(SnoopIdmRequest) returns (stream SnoopIdmReply);
     rpc GetHostCpuTopology(GetHostCpuTopologyRequest) returns (GetHostCpuTopologyReply);
     rpc SetHostPowerManagementPolicy(SetHostPowerManagementPolicyRequest) returns (SetHostPowerManagementPolicyReply);
@@ -39,9 +39,9 @@ service ControlService {
     rpc ReadHypervisorConsole(ReadHypervisorConsoleRequest) returns (ReadHypervisorConsoleReply);
 }
 
-message HostStatusRequest {}
+message GetHostStatusRequest {}
 
-message HostStatusReply {
+message GetHostStatusReply {
     string host_uuid = 1;
     uint32 host_domid = 2;
     string krata_version = 3;
