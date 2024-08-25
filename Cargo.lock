@@ -1622,6 +1622,7 @@ dependencies = [
  "sys-mount",
  "sysinfo",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
