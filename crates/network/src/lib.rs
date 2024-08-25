@@ -9,7 +9,7 @@ use krata::{
     dial::ControlDialAddress,
     v1::{
         common::Zone,
-        control::{control_service_client::ControlServiceClient, HostStatusRequest},
+        control::{control_service_client::ControlServiceClient, GetHostStatusRequest},
     },
 };
 use log::warn;
@@ -47,7 +47,7 @@ impl NetworkService {
     pub async fn new(control_address: ControlDialAddress) -> Result<NetworkService> {
         let mut control = ControlClientProvider::dial(control_address).await?;
         let host_status = control
-            .host_status(Request::new(HostStatusRequest {}))
+            .get_host_status(Request::new(GetHostStatusRequest {}))
             .await?
             .into_inner();
         let host_ipv4 = Ipv4Cidr::from_str(&host_status.host_ipv4)

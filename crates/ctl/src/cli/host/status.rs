@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use krata::v1::control::{control_service_client::ControlServiceClient, HostStatusRequest};
+use krata::v1::control::{control_service_client::ControlServiceClient, GetHostStatusRequest};
 
 use crate::format::{kv2line, proto2dynamic, proto2kv};
 use tonic::{transport::Channel, Request};
@@ -24,7 +24,7 @@ pub struct HostStatusCommand {
 impl HostStatusCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let response = client
-            .host_status(Request::new(HostStatusRequest {}))
+            .get_host_status(Request::new(GetHostStatusRequest {}))
             .await?
             .into_inner();
         match self.format {

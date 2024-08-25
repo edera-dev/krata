@@ -9,7 +9,7 @@ use uuid::Uuid;
 use krata::v1::control::{
     control_service_server::ControlService, CreateZoneReply, CreateZoneRequest, DestroyZoneReply,
     DestroyZoneRequest, ExecInsideZoneReply, ExecInsideZoneRequest, GetHostCpuTopologyReply,
-    GetHostCpuTopologyRequest, HostStatusReply, HostStatusRequest, ListDevicesReply,
+    GetHostCpuTopologyRequest, GetHostStatusReply, GetHostStatusRequest, ListDevicesReply,
     ListDevicesRequest, ListZonesReply, ListZonesRequest, PullImageReply, PullImageRequest,
     ReadHypervisorConsoleReply, ReadHypervisorConsoleRequest, ReadZoneMetricsReply,
     ReadZoneMetricsRequest, ResolveZoneIdReply, ResolveZoneIdRequest, SnoopIdmReply,
@@ -28,8 +28,8 @@ use crate::control::create_zone::CreateZoneRpc;
 use crate::control::destroy_zone::DestroyZoneRpc;
 use crate::control::exec_inside_zone::ExecInsideZoneRpc;
 use crate::control::get_host_cpu_topology::GetHostCpuTopologyRpc;
+use crate::control::get_host_status::GetHostStatusRpc;
 use crate::control::get_zone::GetZoneRpc;
-use crate::control::host_status::HostStatusRpc;
 use crate::control::list_devices::ListDevicesRpc;
 use crate::control::list_zones::ListZonesRpc;
 use crate::control::pull_image::PullImageRpc;
@@ -52,8 +52,8 @@ pub mod create_zone;
 pub mod destroy_zone;
 pub mod exec_inside_zone;
 pub mod get_host_cpu_topology;
+pub mod get_host_status;
 pub mod get_zone;
-pub mod host_status;
 pub mod list_devices;
 pub mod list_zones;
 pub mod pull_image;
@@ -128,13 +128,13 @@ impl DaemonControlService {
 
 #[tonic::async_trait]
 impl ControlService for DaemonControlService {
-    async fn host_status(
+    async fn get_host_status(
         &self,
-        request: Request<HostStatusRequest>,
-    ) -> Result<Response<HostStatusReply>, Status> {
+        request: Request<GetHostStatusRequest>,
+    ) -> Result<Response<GetHostStatusReply>, Status> {
         let request = request.into_inner();
         adapt(
-            HostStatusRpc::new(self.ip.clone(), self.zlt.clone())
+            GetHostStatusRpc::new(self.ip.clone(), self.zlt.clone())
                 .process(request)
                 .await,
         )
