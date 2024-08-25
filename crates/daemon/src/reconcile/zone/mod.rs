@@ -27,7 +27,7 @@ use tokio::{
     select,
     sync::{
         mpsc::{channel, Receiver, Sender},
-        Mutex, RwLock,
+        RwLock,
     },
     task::JoinHandle,
     time::sleep,
@@ -45,14 +45,7 @@ enum ZoneReconcilerResult {
 }
 
 struct ZoneReconcilerEntry {
-    task: JoinHandle<()>,
     sender: Sender<()>,
-}
-
-impl Drop for ZoneReconcilerEntry {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
 }
 
 #[derive(Clone)]
@@ -66,7 +59,7 @@ pub struct ZoneReconciler {
     kernel_path: PathBuf,
     initrd_path: PathBuf,
     addons_path: PathBuf,
-    tasks: Arc<Mutex<HashMap<Uuid, ZoneReconcilerEntry>>>,
+    tasks: Arc<RwLock<HashMap<Uuid, ZoneReconcilerEntry>>>,
     zone_reconciler_notify: Sender<Uuid>,
     zone_reconcile_lock: Arc<RwLock<()>>,
     ip_assignment: IpAssignment,
@@ -99,7 +92,7 @@ impl ZoneReconciler {
             kernel_path,
             initrd_path,
             addons_path: modules_path,
-            tasks: Arc::new(Mutex::new(HashMap::new())),
+            tasks: Arc::new(RwLock::new(HashMap::new())),
             zone_reconciler_notify,
             zone_reconcile_lock: Arc::new(RwLock::with_max_readers((), PARALLEL_LIMIT)),
             ip_assignment,
@@ -125,7 +118,7 @@ impl ZoneReconciler {
                                 error!("failed to start zone reconciler task {}: {}", uuid, error);
                             }
 
-                            let map = self.tasks.lock().await;
+                            let map = self.tasks.read().await;
                             if let Some(entry) = map.get(&uuid) {
                                 if let Err(error) = entry.sender.send(()).await {
                                     error!("failed to notify zone reconciler task {}: {}", uuid, error);
@@ -271,7 +264,7 @@ impl ZoneReconciler {
 
             if destroyed {
                 self.zones.remove(uuid).await?;
-                let mut map = self.tasks.lock().await;
+                let mut map = self.tasks.write().await;
                 map.remove(&uuid);
             } else {
                 self.zones.update(uuid, zone.clone()).await?;
@@ -337,7 +330,7 @@ impl ZoneReconciler {
     }
 
     async fn launch_task_if_needed(&self, uuid: Uuid) -> Result<()> {
-        let mut map = self.tasks.lock().await;
+        let mut map = self.tasks.write().await;
         match map.entry(uuid) {
             Entry::Occupied(_) => {}
             Entry::Vacant(entry) => {
@@ -350,7 +343,7 @@ impl ZoneReconciler {
     async fn launch_task(&self, uuid: Uuid) -> Result<ZoneReconcilerEntry> {
         let this = self.clone();
         let (sender, mut receiver) = channel(10);
-        let task = tokio::task::spawn(async move {
+        tokio::task::spawn(async move {
             'notify_loop: loop {
                 if receiver.recv().await.is_none() {
                     break 'notify_loop;
@@ -372,7 +365,7 @@ impl ZoneReconciler {
                 }
             }
         });
-        Ok(ZoneReconcilerEntry { task, sender })
+        Ok(ZoneReconcilerEntry { sender })
     }
 }
 

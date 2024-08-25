@@ -70,16 +70,21 @@ impl ZoneExecTask {
         if start.tty {
             let pty = Pty::new().map_err(|error| anyhow!("unable to allocate pty: {}", error))?;
             pty.resize(Size::new(24, 80))?;
-            let mut child = ChildDropGuard {
-                inner: pty_process::Command::new(exe)
+            let pts = pty
+                .pts()
+                .map_err(|error| anyhow!("unable to allocate pts: {}", error))?;
+            let child = std::panic::catch_unwind(move || {
+                let pts = pts;
+                pty_process::Command::new(exe)
                     .args(cmd)
                     .envs(env)
                     .current_dir(dir)
-                    .spawn(
-                        &pty.pts()
-                            .map_err(|error| anyhow!("unable to allocate pts: {}", error))?,
-                    )
-                    .map_err(|error| anyhow!("failed to spawn: {}", error))?,
+                    .spawn(&pts)
+            })
+            .map_err(|_| anyhow!("internal error"))
+            .map_err(|error| anyhow!("failed to spawn: {}", error))??;
+            let mut child = ChildDropGuard {
+                inner: child,
                 kill: true,
             };
             let pid = child
@@ -148,16 +153,19 @@ impl ZoneExecTask {
             let _ = join!(pty_read_task);
             stdin_task.abort();
         } else {
-            let mut child = Command::new(exe)
-                .args(cmd)
-                .envs(env)
-                .current_dir(dir)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true)
-                .spawn()
-                .map_err(|error| anyhow!("failed to spawn: {}", error))?;
+            let mut child = std::panic::catch_unwind(|| {
+                Command::new(exe)
+                    .args(cmd)
+                    .envs(env)
+                    .current_dir(dir)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .kill_on_drop(true)
+                    .spawn()
+            })
+            .map_err(|_| anyhow!("internal error"))
+            .map_err(|error| anyhow!("failed to spawn: {}", error))??;
 
             let pid = child.id().ok_or_else(|| anyhow!("pid is not provided"))?;
             let mut stdin = child

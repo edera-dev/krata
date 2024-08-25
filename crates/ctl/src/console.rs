@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_stream::stream;
 use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, is_raw_mode_enabled},
@@ -115,7 +115,12 @@ impl StdioConsoleStream {
                 return if reply.error.is_empty() {
                     Ok(reply.exit_code)
                 } else {
-                    Err(anyhow!("exec failed: {}", reply.error))
+                    StdioConsoleStream::restore_terminal_mode();
+                    stderr
+                        .write_all(format!("Error: exec failed: {}\n", reply.error).as_bytes())
+                        .await?;
+                    stderr.flush().await?;
+                    Ok(-1)
                 };
             }
         }
