@@ -495,6 +495,7 @@ impl<R: IdmRequest, E: IdmSerializable> IdmClient<R, E> {
                             IdmTransportPacketForm::StreamRequestClosed => {
                                 let mut update_streams = request_update_streams.lock().await;
                                 update_streams.remove(&packet.id);
+                                println!("stream request closed: {}", packet.id);
                             }
 
                             IdmTransportPacketForm::StreamResponseUpdate => {

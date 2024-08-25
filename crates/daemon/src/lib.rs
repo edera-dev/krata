@@ -16,6 +16,7 @@ use kratart::Runtime;
 use log::{debug, info};
 use reconcile::zone::ZoneReconciler;
 use std::path::Path;
+use std::time::Duration;
 use std::{net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
 use tokio::{
     fs,
@@ -207,6 +208,8 @@ impl Daemon {
             }
             server = server.tls_config(tls_config)?;
         }
+
+        server = server.http2_keepalive_interval(Some(Duration::from_secs(10)));
 
         let server = server.add_service(ControlServiceServer::new(control_service));
         info!("listening on address {}", addr);

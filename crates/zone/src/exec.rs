@@ -1,5 +1,6 @@
 use std::{collections::HashMap, process::Stdio};
 
+use crate::childwait::ChildWait;
 use anyhow::{anyhow, Result};
 use krata::idm::{
     client::IdmClientStreamResponseHandle,
@@ -16,9 +17,9 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     join,
     process::Command,
+    select,
 };
-
-use crate::childwait::ChildWait;
+use tokio_util::sync::CancellationToken;
 
 pub struct ZoneExecTask {
     pub wait: ChildWait,
@@ -111,9 +112,12 @@ impl ZoneExecTask {
                 }
             });
 
+            let cancel = CancellationToken::new();
+            let stdin_cancel = cancel.clone();
             let stdin_task = tokio::task::spawn(async move {
                 loop {
                     let Some(request) = receiver.recv().await else {
+                        stdin_cancel.cancel();
                         break;
                     };
 
@@ -136,14 +140,27 @@ impl ZoneExecTask {
             });
 
             code = loop {
-                if let Ok(event) = wait_subscription.recv().await {
-                    if event.pid.as_raw() as u32 == pid {
-                        break event.status;
+                select! {
+                    result = wait_subscription.recv() => match result {
+                        Ok(event) => {
+                            if event.pid.as_raw() as u32 == pid {
+                                child.kill = false;
+                                break event.status;
+                            }
+                        }
+                        _ => {
+                            child.inner.start_kill()?;
+                            child.kill = false;
+                            break -1;
+                        }
+                    },
+                    _ = cancel.cancelled() => {
+                        child.inner.start_kill()?;
+                        child.kill = false;
+                        break -1;
                     }
                 }
             };
-
-            child.kill = false;
 
             let _ = join!(pty_read_task);
             stdin_task.abort();
@@ -221,9 +238,12 @@ impl ZoneExecTask {
                 }
             });
 
+            let cancel = CancellationToken::new();
+            let stdin_cancel = cancel.clone();
             let stdin_task = tokio::task::spawn(async move {
                 loop {
                     let Some(request) = receiver.recv().await else {
+                        stdin_cancel.cancel();
                         break;
                     };
 
@@ -247,9 +267,21 @@ impl ZoneExecTask {
             });
 
             code = loop {
-                if let Ok(event) = wait_subscription.recv().await {
-                    if event.pid.as_raw() as u32 == pid {
-                        break event.status;
+                select! {
+                    result = wait_subscription.recv() => match result {
+                        Ok(event) => {
+                            if event.pid.as_raw() as u32 == pid {
+                                break event.status;
+                            }
+                        }
+                        _ => {
+                            child.start_kill()?;
+                            break -1;
+                        }
+                    },
+                    _ = cancel.cancelled() => {
+                        child.start_kill()?;
+                        break -1;
                     }
                 }
             };
