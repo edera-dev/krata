@@ -16,4 +16,4 @@ fi
 
 export TARGET_ARCH
 TARGET_ARCH="" TARGET_LIBC="" RUST_TARGET="${HOST_RUST_TARGET}" ./hack/build/cargo.sh build -q --bin build-fetch-kernel
-exec "target/${HOST_RUST_TARGET}/debug/build-fetch-kernel" "ghcr.io/edera-dev/kernels:latest"
+exec "target/${HOST_RUST_TARGET}/debug/build-fetch-kernel" "ghcr.io/edera-dev/linux-kernel:latest"
