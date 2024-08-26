@@ -17,6 +17,8 @@ service ControlService {
 
     rpc ListDevices(ListDevicesRequest) returns (ListDevicesReply);
 
+    rpc ListNetworkReservations(ListNetworkReservationsRequest) returns (ListNetworkReservationsReply);
+
     rpc PullImage(PullImageRequest) returns (stream PullImageReply);
 
     rpc CreateZone(CreateZoneRequest) returns (CreateZoneReply);
@@ -264,4 +266,10 @@ message ReadHypervisorConsoleRequest {}
 
 message ReadHypervisorConsoleReply {
     string data = 1;
+}
+
+message ListNetworkReservationsRequest {}
+
+message ListNetworkReservationsReply {
+    repeated krata.v1.common.NetworkReservation reservations = 1;
 }

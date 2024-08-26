@@ -1,21 +1,21 @@
 use crate::command::DaemonCommand;
-use crate::ip::assignment::IpAssignment;
+use crate::network::assignment::NetworkAssignment;
 use crate::zlt::ZoneLookupTable;
 use anyhow::Result;
 use krata::v1::control::{GetHostStatusReply, GetHostStatusRequest};
 
 pub struct GetHostStatusRpc {
-    ip: IpAssignment,
+    network: NetworkAssignment,
     zlt: ZoneLookupTable,
 }
 
 impl GetHostStatusRpc {
-    pub fn new(ip: IpAssignment, zlt: ZoneLookupTable) -> Self {
-        Self { ip, zlt }
+    pub fn new(ip: NetworkAssignment, zlt: ZoneLookupTable) -> Self {
+        Self { network: ip, zlt }
     }
 
     pub async fn process(self, _request: GetHostStatusRequest) -> Result<GetHostStatusReply> {
-        let host_reservation = self.ip.retrieve(self.zlt.host_uuid()).await?;
+        let host_reservation = self.network.retrieve(self.zlt.host_uuid()).await?;
         Ok(GetHostStatusReply {
             host_domid: self.zlt.host_domid(),
             host_uuid: self.zlt.host_uuid().to_string(),

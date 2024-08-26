@@ -9,37 +9,37 @@ use std::{
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::db::ip::{IpReservation, IpReservationStore};
+use crate::db::network::{NetworkReservation, NetworkReservationStore};
 
 #[derive(Default, Clone)]
-pub struct IpAssignmentState {
-    pub ipv4: HashMap<Ipv4Addr, IpReservation>,
-    pub ipv6: HashMap<Ipv6Addr, IpReservation>,
+pub struct NetworkAssignmentState {
+    pub ipv4: HashMap<Ipv4Addr, NetworkReservation>,
+    pub ipv6: HashMap<Ipv6Addr, NetworkReservation>,
 }
 
 #[derive(Clone)]
-pub struct IpAssignment {
+pub struct NetworkAssignment {
     ipv4_network: Ipv4Network,
     ipv6_network: Ipv6Network,
     gateway_ipv4: Ipv4Addr,
     gateway_ipv6: Ipv6Addr,
     gateway_mac: MacAddr6,
-    store: IpReservationStore,
-    state: Arc<RwLock<IpAssignmentState>>,
+    store: NetworkReservationStore,
+    state: Arc<RwLock<NetworkAssignmentState>>,
 }
 
-impl IpAssignment {
+impl NetworkAssignment {
     pub async fn new(
         host_uuid: Uuid,
         ipv4_network: Ipv4Network,
         ipv6_network: Ipv6Network,
-        store: IpReservationStore,
+        store: NetworkReservationStore,
     ) -> Result<Self> {
-        let mut state = IpAssignment::fetch_current_state(&store).await?;
+        let mut state = NetworkAssignment::fetch_current_state(&store).await?;
         let gateway_reservation = if let Some(reservation) = store.read(Uuid::nil()).await? {
             reservation
         } else {
-            IpAssignment::allocate(
+            NetworkAssignment::allocate(
                 &mut state,
                 &store,
                 Uuid::nil(),
@@ -53,7 +53,7 @@ impl IpAssignment {
         };
 
         if store.read(host_uuid).await?.is_none() {
-            let _ = IpAssignment::allocate(
+            let _ = NetworkAssignment::allocate(
                 &mut state,
                 &store,
                 host_uuid,
@@ -66,7 +66,7 @@ impl IpAssignment {
             .await?;
         }
 
-        let assignment = IpAssignment {
+        let assignment = NetworkAssignment {
             ipv4_network,
             ipv6_network,
             gateway_ipv4: gateway_reservation.ipv4,
@@ -78,9 +78,11 @@ impl IpAssignment {
         Ok(assignment)
     }
 
-    async fn fetch_current_state(store: &IpReservationStore) -> Result<IpAssignmentState> {
+    async fn fetch_current_state(
+        store: &NetworkReservationStore,
+    ) -> Result<NetworkAssignmentState> {
         let reservations = store.list().await?;
-        let mut state = IpAssignmentState::default();
+        let mut state = NetworkAssignmentState::default();
         for reservation in reservations.values() {
             state.ipv4.insert(reservation.ipv4, reservation.clone());
             state.ipv6.insert(reservation.ipv6, reservation.clone());
@@ -90,15 +92,15 @@ impl IpAssignment {
 
     #[allow(clippy::too_many_arguments)]
     async fn allocate(
-        state: &mut IpAssignmentState,
-        store: &IpReservationStore,
+        state: &mut NetworkAssignmentState,
+        store: &NetworkReservationStore,
         uuid: Uuid,
         ipv4_network: Ipv4Network,
         ipv6_network: Ipv6Network,
         gateway_ipv4: Option<Ipv4Addr>,
         gateway_ipv6: Option<Ipv6Addr>,
         gateway_mac: Option<MacAddr6>,
-    ) -> Result<IpReservation> {
+    ) -> Result<NetworkReservation> {
         let found_ipv4: Option<Ipv4Addr> = ipv4_network
             .iter()
             .filter(|ip| {
@@ -136,7 +138,7 @@ impl IpAssignment {
         mac.set_local(true);
         mac.set_multicast(false);
 
-        let reservation = IpReservation {
+        let reservation = NetworkReservation {
             uuid: uuid.to_string(),
             ipv4,
             ipv6,
@@ -153,9 +155,9 @@ impl IpAssignment {
         Ok(reservation)
     }
 
-    pub async fn assign(&self, uuid: Uuid) -> Result<IpReservation> {
+    pub async fn assign(&self, uuid: Uuid) -> Result<NetworkReservation> {
         let mut state = self.state.write().await;
-        let reservation = IpAssignment::allocate(
+        let reservation = NetworkAssignment::allocate(
             &mut state,
             &self.store,
             uuid,
@@ -181,18 +183,22 @@ impl IpAssignment {
         Ok(())
     }
 
-    pub async fn retrieve(&self, uuid: Uuid) -> Result<Option<IpReservation>> {
+    pub async fn retrieve(&self, uuid: Uuid) -> Result<Option<NetworkReservation>> {
         self.store.read(uuid).await
     }
 
     pub async fn reload(&self) -> Result<()> {
         let mut state = self.state.write().await;
-        let intermediate = IpAssignment::fetch_current_state(&self.store).await?;
+        let intermediate = NetworkAssignment::fetch_current_state(&self.store).await?;
         *state = intermediate;
         Ok(())
     }
 
-    pub async fn read(&self) -> Result<IpAssignmentState> {
+    pub async fn read(&self) -> Result<NetworkAssignmentState> {
         Ok(self.state.read().await.clone())
+    }
+
+    pub async fn read_reservations(&self) -> Result<HashMap<Uuid, NetworkReservation>> {
+        self.store.list().await
     }
 }

@@ -3,7 +3,7 @@ use redb::Database;
 use std::path::Path;
 use std::sync::Arc;
 
-pub mod ip;
+pub mod network;
 pub mod zone;
 
 #[derive(Clone)]
