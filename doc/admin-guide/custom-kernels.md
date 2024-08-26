@@ -94,10 +94,10 @@ It is possible to copy these options into a `.config` file and then use
 `make olddefconfig` to build the rest of the kernel configuration, which
 you can then use to build a kernel as desired.
 
-The [kernels][edera-kernels] repository provides some example configurations
+The [linux-kernel-oci][edera-linux-kernel-oci] repository provides some example configurations
 and can generate a Dockerfile which will build a kernel image.
 
-   [edera-kernels]: https://github.com/edera-dev/kernels
+   [edera-linux-kernel-oci]: https://github.com/edera-dev/linux-kernel-oci
 
 Minimum requirements for a host kernel
 --------------------------------------
