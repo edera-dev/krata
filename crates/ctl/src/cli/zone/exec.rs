@@ -3,11 +3,13 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use clap::Parser;
+use crossterm::tty::IsTty;
 use krata::v1::{
-    common::{ZoneTaskSpec, ZoneTaskSpecEnvVar},
+    common::{TerminalSize, ZoneTaskSpec, ZoneTaskSpecEnvVar},
     control::{control_service_client::ControlServiceClient, ExecInsideZoneRequest},
 };
 
+use tokio::io::stdin;
 use tonic::{transport::Channel, Request};
 
 use crate::console::StdioConsoleStream;
@@ -36,6 +38,7 @@ pub struct ZoneExecCommand {
 impl ZoneExecCommand {
     pub async fn run(self, mut client: ControlServiceClient<Channel>) -> Result<()> {
         let zone_id: String = resolve_zone(&mut client, &self.zone).await?;
+        let should_map_tty = self.tty && stdin().is_tty();
         let initial = ExecInsideZoneRequest {
             zone_id,
             task: Some(ZoneTaskSpec {
@@ -52,16 +55,25 @@ impl ZoneExecCommand {
             }),
             stdin: vec![],
             stdin_closed: false,
+            terminal_size: if should_map_tty {
+                let size = crossterm::terminal::size().ok();
+                size.map(|(columns, rows)| TerminalSize {
+                    rows: rows as u32,
+                    columns: columns as u32,
+                })
+            } else {
+                None
+            },
         };
 
-        let stream = StdioConsoleStream::stdin_stream_exec(initial).await;
+        let stream = StdioConsoleStream::input_stream_exec(initial, should_map_tty).await;
 
         let response = client
             .exec_inside_zone(Request::new(stream))
             .await?
             .into_inner();
 
-        let code = StdioConsoleStream::exec_output(response, self.tty).await?;
+        let code = StdioConsoleStream::exec_output(response, should_map_tty).await?;
         std::process::exit(code);
     }
 }

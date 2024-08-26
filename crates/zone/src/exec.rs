@@ -70,7 +70,11 @@ impl ZoneExecTask {
         let code: c_int;
         if start.tty {
             let pty = Pty::new().map_err(|error| anyhow!("unable to allocate pty: {}", error))?;
-            pty.resize(Size::new(24, 80))?;
+            let size = start
+                .terminal_size
+                .map(|x| Size::new(x.rows as u16, x.columns as u16))
+                .unwrap_or_else(|| Size::new(24, 80));
+            pty.resize(size)?;
             let pts = pty
                 .pts()
                 .map_err(|error| anyhow!("unable to allocate pts: {}", error))?;
@@ -130,16 +134,24 @@ impl ZoneExecTask {
                         continue;
                     };
 
-                    let Some(Update::Stdin(update)) = update.update else {
-                        continue;
-                    };
+                    match update.update {
+                        Some(Update::Stdin(update)) => {
+                            if !update.data.is_empty()
+                                && write.write_all(&update.data).await.is_err()
+                            {
+                                break;
+                            }
 
-                    if !update.data.is_empty() && write.write_all(&update.data).await.is_err() {
-                        break;
-                    }
-
-                    if update.closed {
-                        break;
+                            if update.closed {
+                                break;
+                            }
+                        }
+                        Some(Update::TerminalResize(size)) => {
+                            let _ = write.resize(Size::new(size.rows as u16, size.columns as u16));
+                        }
+                        _ => {
+                            continue;
+                        }
                     }
                 }
             });

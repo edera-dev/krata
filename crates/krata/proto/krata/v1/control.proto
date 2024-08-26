@@ -91,6 +91,7 @@ message ExecInsideZoneRequest {
     krata.v1.common.ZoneTaskSpec task = 2;
     bytes stdin = 3;
     bool stdin_closed = 4;
+    krata.v1.common.TerminalSize terminal_size = 5;
 }
 
 message ExecInsideZoneReply {

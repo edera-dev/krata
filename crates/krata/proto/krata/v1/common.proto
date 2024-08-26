@@ -134,3 +134,8 @@ enum ZoneMetricFormat {
     ZONE_METRIC_FORMAT_INTEGER = 2;
     ZONE_METRIC_FORMAT_DURATION_SECONDS = 3;
 }
+
+message TerminalSize {
+    uint32 rows = 1;
+    uint32 columns = 2;
+}
