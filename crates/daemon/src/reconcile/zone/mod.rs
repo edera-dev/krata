@@ -7,8 +7,8 @@ use std::{
 
 use self::create::ZoneCreator;
 use crate::config::DaemonConfig;
-use crate::db::ip::IpReservation;
-use crate::ip::assignment::IpAssignment;
+use crate::db::network::NetworkReservation;
+use crate::network::assignment::NetworkAssignment;
 use crate::{
     db::zone::ZoneStore,
     devices::DaemonDeviceManager,
@@ -62,7 +62,7 @@ pub struct ZoneReconciler {
     tasks: Arc<RwLock<HashMap<Uuid, ZoneReconcilerEntry>>>,
     zone_reconciler_notify: Sender<Uuid>,
     zone_reconcile_lock: Arc<RwLock<()>>,
-    ip_assignment: IpAssignment,
+    ip_assignment: NetworkAssignment,
     config: Arc<DaemonConfig>,
 }
 
@@ -79,7 +79,7 @@ impl ZoneReconciler {
         kernel_path: PathBuf,
         initrd_path: PathBuf,
         modules_path: PathBuf,
-        ip_assignment: IpAssignment,
+        ip_assignment: NetworkAssignment,
         config: Arc<DaemonConfig>,
     ) -> Result<Self> {
         Ok(Self {
@@ -195,7 +195,7 @@ impl ZoneReconciler {
 
                     if let Some(reservation) = self.ip_assignment.retrieve(uuid).await? {
                         status.network_status =
-                            Some(ip_reservation_to_network_status(&reservation));
+                            Some(network_reservation_to_network_status(&reservation));
                     }
                     stored_zone.status = Some(status);
                 }
@@ -286,7 +286,7 @@ impl ZoneReconciler {
             initrd_path: &self.initrd_path,
             addons_path: &self.addons_path,
             packer: &self.packer,
-            ip_assignment: &self.ip_assignment,
+            network_assignment: &self.ip_assignment,
             zlt: &self.zlt,
             runtime: &self.runtime,
             config: &self.config,
@@ -369,7 +369,7 @@ impl ZoneReconciler {
     }
 }
 
-pub fn ip_reservation_to_network_status(ip: &IpReservation) -> ZoneNetworkStatus {
+pub fn network_reservation_to_network_status(ip: &NetworkReservation) -> ZoneNetworkStatus {
     ZoneNetworkStatus {
         zone_ipv4: format!("{}/{}", ip.ipv4, ip.ipv4_prefix),
         zone_ipv6: format!("{}/{}", ip.ipv6, ip.ipv6_prefix),

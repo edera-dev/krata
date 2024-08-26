@@ -1,6 +1,7 @@
 pub mod device;
 pub mod host;
 pub mod image;
+pub mod network;
 pub mod zone;
 
 use crate::cli::device::DeviceCommand;
@@ -14,6 +15,7 @@ use krata::{
     events::EventStream,
     v1::control::{control_service_client::ControlServiceClient, ResolveZoneIdRequest},
 };
+use network::NetworkCommand;
 use tonic::{transport::Channel, Request};
 
 #[derive(Parser)]
@@ -36,6 +38,7 @@ pub struct ControlCommand {
 pub enum ControlCommands {
     Zone(ZoneCommand),
     Image(ImageCommand),
+    Network(NetworkCommand),
     Device(DeviceCommand),
     Host(HostCommand),
 }
@@ -56,6 +59,8 @@ impl ControlCommands {
     ) -> Result<()> {
         match self {
             ControlCommands::Zone(zone) => zone.run(client, events).await,
+
+            ControlCommands::Network(network) => network.run(client, events).await,
 
             ControlCommands::Image(image) => image.run(client, events).await,
 

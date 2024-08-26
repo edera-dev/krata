@@ -1,7 +1,7 @@
-use crate::db::ip::IpReservationStore;
+use crate::db::network::NetworkReservationStore;
 use crate::db::zone::ZoneStore;
 use crate::db::KrataDatabase;
-use crate::ip::assignment::IpAssignment;
+use crate::network::assignment::NetworkAssignment;
 use anyhow::{anyhow, Result};
 use config::DaemonConfig;
 use console::{DaemonConsole, DaemonConsoleHandle};
@@ -37,18 +37,19 @@ pub mod db;
 pub mod devices;
 pub mod event;
 pub mod idm;
-pub mod ip;
 pub mod metrics;
+pub mod network;
 pub mod oci;
 pub mod reconcile;
 pub mod zlt;
+
 pub struct Daemon {
     store: String,
     _config: Arc<DaemonConfig>,
     zlt: ZoneLookupTable,
     devices: DaemonDeviceManager,
     zones: ZoneStore,
-    ip: IpAssignment,
+    network: NetworkAssignment,
     events: DaemonEventContext,
     zone_reconciler_task: JoinHandle<()>,
     zone_reconciler_notify: Sender<Uuid>,
@@ -127,9 +128,14 @@ impl Daemon {
         let runtime_for_reconciler = runtime.dupe().await?;
         let ipv4_network = Ipv4Network::from_str(&config.network.ipv4.subnet)?;
         let ipv6_network = Ipv6Network::from_str(&config.network.ipv6.subnet)?;
-        let ip_reservation_store = IpReservationStore::open(database)?;
-        let ip =
-            IpAssignment::new(host_uuid, ipv4_network, ipv6_network, ip_reservation_store).await?;
+        let network_reservation_store = NetworkReservationStore::open(database)?;
+        let network = NetworkAssignment::new(
+            host_uuid,
+            ipv4_network,
+            ipv6_network,
+            network_reservation_store,
+        )
+        .await?;
         debug!("initializing zone reconciler");
         let zone_reconciler = ZoneReconciler::new(
             devices.clone(),
@@ -142,7 +148,7 @@ impl Daemon {
             kernel_path,
             initrd_path,
             addons_path,
-            ip.clone(),
+            network.clone(),
             config.clone(),
         )?;
 
@@ -165,7 +171,7 @@ impl Daemon {
             zlt,
             devices,
             zones,
-            ip,
+            network,
             events,
             zone_reconciler_task,
             zone_reconciler_notify,
@@ -186,7 +192,7 @@ impl Daemon {
             self.console.clone(),
             self.idm.clone(),
             self.zones.clone(),
-            self.ip.clone(),
+            self.network.clone(),
             self.zone_reconciler_notify.clone(),
             self.packer.clone(),
             self.runtime.clone(),

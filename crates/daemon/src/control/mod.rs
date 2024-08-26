@@ -2,6 +2,7 @@ use std::pin::Pin;
 
 use anyhow::Error;
 use futures::Stream;
+use list_network_reservations::ListNetworkReservationsRpc;
 use tokio::sync::mpsc::Sender;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
@@ -17,8 +18,8 @@ use krata::v1::control::{
     WatchEventsRequest, ZoneConsoleReply, ZoneConsoleRequest,
 };
 use krata::v1::control::{
-    GetZoneReply, GetZoneRequest, SetHostPowerManagementPolicyReply,
-    SetHostPowerManagementPolicyRequest,
+    GetZoneReply, GetZoneRequest, ListNetworkReservationsReply, ListNetworkReservationsRequest,
+    SetHostPowerManagementPolicyReply, SetHostPowerManagementPolicyRequest,
 };
 use krataoci::packer::service::OciPackerService;
 use kratart::Runtime;
@@ -41,7 +42,7 @@ use crate::control::snoop_idm::SnoopIdmRpc;
 use crate::control::update_zone_resources::UpdateZoneResourcesRpc;
 use crate::control::watch_events::WatchEventsRpc;
 use crate::db::zone::ZoneStore;
-use crate::ip::assignment::IpAssignment;
+use crate::network::assignment::NetworkAssignment;
 use crate::{
     console::DaemonConsoleHandle, devices::DaemonDeviceManager, event::DaemonEventContext,
     idm::DaemonIdmHandle, zlt::ZoneLookupTable,
@@ -55,6 +56,7 @@ pub mod get_host_cpu_topology;
 pub mod get_host_status;
 pub mod get_zone;
 pub mod list_devices;
+pub mod list_network_reservations;
 pub mod list_zones;
 pub mod pull_image;
 pub mod read_hypervisor_console;
@@ -91,7 +93,7 @@ pub struct DaemonControlService {
     console: DaemonConsoleHandle,
     idm: DaemonIdmHandle,
     zones: ZoneStore,
-    ip: IpAssignment,
+    network: NetworkAssignment,
     zone_reconciler_notify: Sender<Uuid>,
     packer: OciPackerService,
     runtime: Runtime,
@@ -106,7 +108,7 @@ impl DaemonControlService {
         console: DaemonConsoleHandle,
         idm: DaemonIdmHandle,
         zones: ZoneStore,
-        ip: IpAssignment,
+        network: NetworkAssignment,
         zone_reconciler_notify: Sender<Uuid>,
         packer: OciPackerService,
         runtime: Runtime,
@@ -118,7 +120,7 @@ impl DaemonControlService {
             console,
             idm,
             zones,
-            ip,
+            network,
             zone_reconciler_notify,
             packer,
             runtime,
@@ -134,7 +136,7 @@ impl ControlService for DaemonControlService {
     ) -> Result<Response<GetHostStatusReply>, Status> {
         let request = request.into_inner();
         adapt(
-            GetHostStatusRpc::new(self.ip.clone(), self.zlt.clone())
+            GetHostStatusRpc::new(self.network.clone(), self.zlt.clone())
                 .process(request)
                 .await,
         )
@@ -186,6 +188,18 @@ impl ControlService for DaemonControlService {
         let request = request.into_inner();
         adapt(
             ListDevicesRpc::new(self.devices.clone())
+                .process(request)
+                .await,
+        )
+    }
+
+    async fn list_network_reservations(
+        &self,
+        request: Request<ListNetworkReservationsRequest>,
+    ) -> Result<Response<ListNetworkReservationsReply>, Status> {
+        let request = request.into_inner();
+        adapt(
+            ListNetworkReservationsRpc::new(self.network.clone())
                 .process(request)
                 .await,
         )

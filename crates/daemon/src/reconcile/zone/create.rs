@@ -14,8 +14,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::config::{DaemonConfig, DaemonPciDeviceRdmReservePolicy};
 use crate::devices::DaemonDeviceManager;
-use crate::ip::assignment::IpAssignment;
-use crate::reconcile::zone::ip_reservation_to_network_status;
+use crate::network::assignment::NetworkAssignment;
+use crate::reconcile::zone::network_reservation_to_network_status;
 use crate::{reconcile::zone::ZoneReconcilerResult, zlt::ZoneLookupTable};
 use krata::v1::common::zone_image_spec::Image;
 use tokio::fs::{self, File};
@@ -29,7 +29,7 @@ pub struct ZoneCreator<'a> {
     pub initrd_path: &'a Path,
     pub addons_path: &'a Path,
     pub packer: &'a OciPackerService,
-    pub ip_assignment: &'a IpAssignment,
+    pub network_assignment: &'a NetworkAssignment,
     pub zlt: &'a ZoneLookupTable,
     pub runtime: &'a Runtime,
     pub config: &'a DaemonConfig,
@@ -174,7 +174,7 @@ impl ZoneCreator<'_> {
             }
         }
 
-        let reservation = self.ip_assignment.assign(uuid).await?;
+        let reservation = self.network_assignment.assign(uuid).await?;
 
         let mut initial_resources = spec.initial_resources.unwrap_or_default();
         if initial_resources.target_cpus < 1 {
@@ -236,7 +236,7 @@ impl ZoneCreator<'_> {
         info!("created zone {}", uuid);
         zone.status = Some(ZoneStatus {
             state: ZoneState::Created.into(),
-            network_status: Some(ip_reservation_to_network_status(&reservation)),
+            network_status: Some(network_reservation_to_network_status(&reservation)),
             exit_status: None,
             error_status: None,
             resource_status: Some(ZoneResourceStatus {

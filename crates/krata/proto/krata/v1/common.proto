@@ -139,3 +139,13 @@ message TerminalSize {
     uint32 rows = 1;
     uint32 columns = 2;
 }
+
+message NetworkReservation {
+    string uuid = 1;
+    string ipv4 = 2;
+    string ipv6 = 3;
+    string mac = 4;
+    string gateway_ipv4 = 5;
+    string gateway_ipv6 = 6;
+    string gateway_mac = 7;
+}
