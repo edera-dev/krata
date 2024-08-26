@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.19](https://github.com/edera-dev/krata/compare/v0.0.18...v0.0.19) - 2024-08-25
+
+### Added
+- *(config)* write default config to config.toml on startup ([#356](https://github.com/edera-dev/krata/pull/356))
+- *(ctl)* add --format option to host status and improve cpu topology format ([#355](https://github.com/edera-dev/krata/pull/355))
+
+### Fixed
+- *(zone-exec)* ensure that the underlying process is killed when rpc is closed ([#361](https://github.com/edera-dev/krata/pull/361))
+- *(rpc)* rename HostStatus to GetHostStatus ([#360](https://github.com/edera-dev/krata/pull/360))
+- *(console)* don't replay history when attaching to the console ([#358](https://github.com/edera-dev/krata/pull/358))
+- *(zone-exec)* catch panic errors and show all errors immediately ([#359](https://github.com/edera-dev/krata/pull/359))
+
+### Other
+- *(control)* split out all of the rpc calls into their own files ([#357](https://github.com/edera-dev/krata/pull/357))
+
 ## [0.0.18](https://github.com/edera-dev/krata/compare/v0.0.17...v0.0.18) - 2024-08-22
 
 ### Added
