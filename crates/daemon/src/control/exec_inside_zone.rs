@@ -13,7 +13,8 @@ use krata::{
     idm::internal::{
         exec_stream_request_update::Update, request::Request as IdmRequestType,
         response::Response as IdmResponseType, ExecEnvVar, ExecStreamRequestStart,
-        ExecStreamRequestStdin, ExecStreamRequestUpdate, Request as IdmRequest,
+        ExecStreamRequestStdin, ExecStreamRequestTerminalSize, ExecStreamRequestUpdate,
+        Request as IdmRequest,
     },
     v1::control::{ExecInsideZoneReply, ExecInsideZoneRequest},
 };
@@ -61,6 +62,12 @@ impl ExecInsideZoneRpc {
                     command: task.command,
                     working_directory: task.working_directory,
                     tty: task.tty,
+                    terminal_size: request.terminal_size.map(|size| {
+                        ExecStreamRequestTerminalSize {
+                            rows: size.rows,
+                            columns: size.columns,
+                        }
+                    }),
                 })),
             })),
         };
@@ -84,6 +91,16 @@ impl ExecInsideZoneRpc {
                                         update: Some(Update::Stdin(ExecStreamRequestStdin {
                                             data: update.stdin,
                                             closed: update.stdin_closed,
+                                        })),
+                                    }))}).await;
+                            }
+
+                            if let Some(ref terminal_size) = update.terminal_size {
+                                let _ = handle.update(IdmRequest {
+                                    request: Some(IdmRequestType::ExecStream(ExecStreamRequestUpdate {
+                                        update: Some(Update::TerminalResize(ExecStreamRequestTerminalSize {
+                                            rows: terminal_size.rows,
+                                            columns: terminal_size.columns,
                                         })),
                                     }))}).await;
                             }

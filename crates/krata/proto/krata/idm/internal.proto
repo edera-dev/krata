@@ -46,6 +46,7 @@ message ExecStreamRequestStart {
     repeated string command = 2;
     string working_directory = 3;
     bool tty = 4;
+    ExecStreamRequestTerminalSize terminal_size = 5;
 }
 
 message ExecStreamRequestStdin {
@@ -53,10 +54,16 @@ message ExecStreamRequestStdin {
     bool closed = 2;
 }
 
+message ExecStreamRequestTerminalSize {
+    uint32 rows = 1;
+    uint32 columns = 2;
+}
+
 message ExecStreamRequestUpdate {
     oneof update {
         ExecStreamRequestStart start = 1;
         ExecStreamRequestStdin stdin = 2;
+        ExecStreamRequestTerminalSize terminal_resize = 3;
     }
 }
 
