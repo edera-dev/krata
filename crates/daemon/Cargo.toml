@@ -19,9 +19,9 @@ clap = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
 ipnetwork = { workspace = true }
-krata = { path = "../krata", version = "^0.0.19" }
-krata-oci = { path = "../oci", version = "^0.0.19" }
-krata-runtime = { path = "../runtime", version = "^0.0.19" }
+krata = { path = "../krata", version = "^0.0.20" }
+krata-oci = { path = "../oci", version = "^0.0.20" }
+krata-runtime = { path = "../runtime", version = "^0.0.20" }
 log = { workspace = true }
 prost = { workspace = true }
 redb = { workspace = true }

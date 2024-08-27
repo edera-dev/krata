@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.20](https://github.com/edera-dev/krata/compare/v0.0.19...v0.0.20) - 2024-08-27
+
+### Added
+- *(krata)* implement network reservation list ([#366](https://github.com/edera-dev/krata/pull/366))
+- *(zone-exec)* implement terminal resize support ([#363](https://github.com/edera-dev/krata/pull/363))
+
+### Other
+- update Cargo.toml dependencies
+
 ## [0.0.19](https://github.com/edera-dev/krata/compare/v0.0.18...v0.0.19) - 2024-08-25
 
 ### Added
