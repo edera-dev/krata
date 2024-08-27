@@ -87,7 +87,7 @@ thiserror = "1.0"
 tokio-tun = "0.11.5"
 tokio-util = "0.7.11"
 toml = "0.8.19"
-tonic-build = "0.12.1"
+tonic-build = "0.12.2"
 tower = "0.5.0"
 udp-stream = "0.0.12"
 url = "2.5.2"
@@ -124,7 +124,7 @@ version = "0.1"
 features = ["io-util", "net"]
 
 [workspace.dependencies.tonic]
-version = "0.12.1"
+version = "0.12.2"
 features = ["tls"]
 
 [workspace.dependencies.uuid]
