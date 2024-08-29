@@ -16,7 +16,7 @@ oci-spec = { workspace = true }
 scopeguard = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
-krata-oci = { path = "../oci", version = "^0.0.19" }
+krata-oci = { path = "../oci", version = "^0.0.20" }
 krata-tokio-tar = { workspace = true }
 uuid = { workspace = true }
 

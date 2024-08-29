@@ -12,20 +12,20 @@ resolver = "2"
 anyhow = { workspace = true }
 backhand = { workspace = true }
 ipnetwork = { workspace = true }
-krata = { path = "../krata", version = "^0.0.19" }
+krata = { path = "../krata", version = "^0.0.20" }
 krata-advmac = { workspace = true }
-krata-oci = { path = "../oci", version = "^0.0.19" }
+krata-oci = { path = "../oci", version = "^0.0.20" }
 log = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }
-krata-loopdev = { path = "../loopdev", version = "^0.0.19" }
-krata-xencall = { path = "../xen/xencall", version = "^0.0.19" }
-krata-xenclient = { path = "../xen/xenclient", version = "^0.0.19" }
-krata-xenevtchn = { path = "../xen/xenevtchn", version = "^0.0.19" }
-krata-xengnt = { path = "../xen/xengnt", version = "^0.0.19" }
-krata-xenplatform = { path = "../xen/xenplatform", version = "^0.0.19" }
-krata-xenstore = { path = "../xen/xenstore", version = "^0.0.19" }
+krata-loopdev = { path = "../loopdev", version = "^0.0.20" }
+krata-xencall = { path = "../xen/xencall", version = "^0.0.20" }
+krata-xenclient = { path = "../xen/xenclient", version = "^0.0.20" }
+krata-xenevtchn = { path = "../xen/xenevtchn", version = "^0.0.20" }
+krata-xengnt = { path = "../xen/xengnt", version = "^0.0.20" }
+krata-xenplatform = { path = "../xen/xenplatform", version = "^0.0.20" }
+krata-xenstore = { path = "../xen/xenstore", version = "^0.0.20" }
 walkdir = { workspace = true }
 indexmap = { workspace = true }
 
