@@ -37,8 +37,9 @@ use tokio::sync::Semaphore;
 use tokio::time::sleep;
 
 use std::fs::{File, OpenOptions};
+use std::mem::MaybeUninit;
 use std::os::fd::AsRawFd;
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 use std::slice;
 
 #[derive(Clone)]
@@ -68,18 +69,18 @@ impl XenCall {
 
     fn detect_domctl_interface_version(handle: &File, current_domid: u32) -> Result<u32> {
         for version in XEN_DOMCTL_MIN_INTERFACE_VERSION..XEN_DOMCTL_MAX_INTERFACE_VERSION + 1 {
-            let mut domctl = DomCtl {
+            let mut domctl = MaybeUninit::new(DomCtl {
                 cmd: XEN_DOMCTL_GETDOMAININFO,
                 interface_version: version,
                 domid: current_domid,
                 value: DomCtlValue {
                     get_domain_info: GetDomainInfo::default(),
                 },
-            };
+            });
             unsafe {
                 let mut call = Hypercall {
                     op: HYPERVISOR_DOMCTL,
-                    arg: [addr_of_mut!(domctl) as u64, 0, 0, 0, 0],
+                    arg: [domctl.as_mut_ptr() as u64, 0, 0, 0, 0],
                 };
                 let result = sys::hypercall(handle.as_raw_fd(), &mut call).unwrap_or(-1);
                 if result == 0 {
@@ -92,7 +93,7 @@ impl XenCall {
 
     fn detect_sysctl_interface_version(handle: &File) -> Result<u32> {
         for version in XEN_SYSCTL_MIN_INTERFACE_VERSION..XEN_SYSCTL_MAX_INTERFACE_VERSION + 1 {
-            let mut sysctl = Sysctl {
+            let mut sysctl = MaybeUninit::new(Sysctl {
                 cmd: XEN_SYSCTL_CPUTOPOINFO,
                 interface_version: version,
                 value: SysctlValue {
@@ -101,11 +102,11 @@ impl XenCall {
                         handle: 0,
                     },
                 },
-            };
+            });
             unsafe {
                 let mut call = Hypercall {
                     op: HYPERVISOR_SYSCTL,
-                    arg: [addr_of_mut!(sysctl) as u64, 0, 0, 0, 0],
+                    arg: [sysctl.as_mut_ptr() as u64, 0, 0, 0, 0],
                 };
                 let result = sys::hypercall(handle.as_raw_fd(), &mut call).unwrap_or(-1);
                 if result == 0 {
@@ -337,16 +338,16 @@ impl XenCall {
             "call fd={} get_version_capabilities",
             self.handle.as_raw_fd()
         );
-        let mut info = XenCapabilitiesInfo {
+        let mut info = MaybeUninit::new(XenCapabilitiesInfo {
             capabilities: [0; 1024],
-        };
+        });
         self.hypercall2(
             HYPERVISOR_XEN_VERSION,
             XENVER_CAPABILITIES,
-            addr_of_mut!(info) as c_ulong,
+            info.as_mut_ptr() as c_ulong,
         )
         .await?;
-        Ok(info)
+        Ok(unsafe { info.assume_init() })
     }
 
     pub async fn evtchn_op(&self, cmd: c_int, arg: u64) -> Result<()> {
@@ -356,13 +357,14 @@ impl XenCall {
     }
 
     pub async fn evtchn_alloc_unbound(&self, domid: u32, remote_domid: u32) -> Result<u32> {
-        let mut alloc_unbound = EvtChnAllocUnbound {
+        let mut alloc_unbound = MaybeUninit::new(EvtChnAllocUnbound {
             dom: domid as u16,
             remote_dom: remote_domid as u16,
             port: 0,
-        };
-        self.evtchn_op(6, addr_of_mut!(alloc_unbound) as c_ulong)
+        });
+        self.evtchn_op(6, alloc_unbound.as_mut_ptr() as c_ulong)
             .await?;
+        let alloc_unbound = unsafe { alloc_unbound.assume_init() };
         Ok(alloc_unbound.port)
     }
 
@@ -372,17 +374,19 @@ impl XenCall {
             self.handle.as_raw_fd(),
             domid
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_GETDOMAININFO,
             interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 get_domain_info: GetDomainInfo::default(),
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
-        Ok(unsafe { domctl.value.get_domain_info })
+        let domctl = unsafe { domctl.assume_init() };
+        let get_domain_info = unsafe { domctl.value.get_domain_info };
+        Ok(get_domain_info)
     }
 
     pub async fn create_domain(&self, create_domain: CreateDomain) -> Result<u32> {
@@ -391,15 +395,15 @@ impl XenCall {
             self.handle.as_raw_fd(),
             create_domain
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_CREATEDOMAIN,
             interface_version: self.domctl_interface_version,
             domid: 0,
             value: DomCtlValue { create_domain },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
-        Ok(domctl.domid)
+        Ok(unsafe { domctl.assume_init() }.domid)
     }
 
     pub async fn pause_domain(&self, domid: u32) -> Result<()> {
@@ -408,14 +412,15 @@ impl XenCall {
             self.handle.as_raw_fd(),
             domid,
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_PAUSEDOMAIN,
             interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue { pad: [0; 128] },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
@@ -425,14 +430,15 @@ impl XenCall {
             self.handle.as_raw_fd(),
             domid,
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_UNPAUSEDOMAIN,
             interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue { pad: [0; 128] },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
@@ -443,16 +449,17 @@ impl XenCall {
             domid,
             memkb
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_MAX_MEM,
             interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 max_mem: MaxMem { max_memkb: memkb },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
@@ -463,16 +470,17 @@ impl XenCall {
             domid,
             max_vcpus
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_MAX_VCPUS,
             interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 max_cpus: MaxVcpus { max_vcpus },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
@@ -483,16 +491,17 @@ impl XenCall {
             domid,
             size,
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_SET_ADDRESS_SIZE,
             interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 address_size: AddressSize { size },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
@@ -500,7 +509,7 @@ impl XenCall {
         &self,
         domid: u32,
         vcpu: u32,
-        mut context: VcpuGuestContextAny,
+        context: VcpuGuestContextAny,
     ) -> Result<()> {
         trace!(
             "domctl fd={} set_vcpu_context domid={} context={:?}",
@@ -509,25 +518,28 @@ impl XenCall {
             unsafe { context.value }
         );
 
-        let mut domctl = DomCtl {
+        let mut context = MaybeUninit::new(context);
+
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_SETVCPUCONTEXT,
             interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 vcpu_context: DomCtlVcpuContext {
                     vcpu,
-                    ctx: addr_of_mut!(context) as c_ulong,
+                    ctx: context.as_mut_ptr() as c_ulong,
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
     pub async fn get_page_frame_info(&self, domid: u32, frames: &[u64]) -> Result<Vec<u64>> {
         let mut buffer: Vec<u64> = frames.to_vec();
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_GETPAGEFRAMEINFO3,
             interface_version: self.domctl_interface_version,
             domid,
@@ -537,9 +549,10 @@ impl XenCall {
                     array: buffer.as_mut_ptr() as c_ulong,
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        let domctl = unsafe { domctl.assume_init() };
         let slice = unsafe {
             slice::from_raw_parts_mut(
                 domctl.value.get_page_frame_info.array as *mut u64,
@@ -556,16 +569,17 @@ impl XenCall {
             domid,
             gmfn
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_HYPERCALL_INIT,
             interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 hypercall_init: HypercallInit { gmfn },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
@@ -575,31 +589,32 @@ impl XenCall {
             self.handle.as_raw_fd(),
             domid
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_DESTROYDOMAIN,
             interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue { pad: [0; 128] },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
     pub async fn get_memory_map(&self, max_entries: u32) -> Result<Vec<E820Entry>> {
-        let mut memory_map = MemoryMap {
-            count: max_entries,
-            buffer: 0,
-        };
         let mut entries = vec![E820Entry::default(); max_entries as usize];
-        memory_map.buffer = entries.as_mut_ptr() as c_ulong;
+        let mut memory_map = MaybeUninit::new(MemoryMap {
+            count: max_entries,
+            buffer: entries.as_mut_ptr() as c_ulong,
+        });
         self.hypercall2(
             HYPERVISOR_MEMORY_OP,
             XEN_MEM_MEMORY_MAP as c_ulong,
-            addr_of_mut!(memory_map) as c_ulong,
+            memory_map.as_mut_ptr() as c_ulong,
         )
         .await?;
-        entries.truncate(memory_map.count as usize);
+        unsafe { memory_map.assume_init() };
+        entries.truncate(max_entries as usize);
         Ok(entries)
     }
 
@@ -614,19 +629,20 @@ impl XenCall {
             domid,
             entries
         );
-        let mut memory_map = ForeignMemoryMap {
+        let mut memory_map = MaybeUninit::new(ForeignMemoryMap {
             domid: domid as u16,
             map: MemoryMap {
                 count: entries.len() as u32,
                 buffer: entries.as_ptr() as u64,
             },
-        };
+        });
         self.hypercall2(
             HYPERVISOR_MEMORY_OP,
             XEN_MEM_SET_MEMORY_MAP as c_ulong,
-            addr_of_mut!(memory_map) as c_ulong,
+            memory_map.as_mut_ptr() as c_ulong,
         )
         .await?;
+        unsafe { memory_map.assume_init() };
         Ok(entries)
     }
 
@@ -642,24 +658,25 @@ impl XenCall {
         let mut extent_starts = extent_starts.to_vec();
         let ptr = extent_starts.as_mut_ptr();
 
-        let mut reservation = MemoryReservation {
+        let mut reservation = MaybeUninit::new(MemoryReservation {
             extent_start: ptr as c_ulong,
             nr_extents,
             extent_order,
             mem_flags,
             domid: domid as u16,
-        };
+        });
 
         let code = self
             .hypercall2(
                 HYPERVISOR_MEMORY_OP,
                 XEN_MEM_POPULATE_PHYSMAP as c_ulong,
-                addr_of_mut!(reservation) as c_ulong,
+                reservation.as_mut_ptr() as c_ulong,
             )
             .await?;
         if code as usize != extent_starts.len() {
             return Err(Error::PopulatePhysmapFailed);
         }
+        unsafe { reservation.assume_init() };
         let extents = extent_starts[0..code as usize].to_vec();
         Ok(extents)
     }
@@ -671,19 +688,20 @@ impl XenCall {
             domid,
             pages
         );
-        let mut reservation = MemoryReservation {
+        let mut reservation = MaybeUninit::new(MemoryReservation {
             extent_start: 0,
             nr_extents: pages,
             extent_order: 0,
             mem_flags: 0,
             domid: domid as u16,
-        };
+        });
         self.hypercall2(
             HYPERVISOR_MEMORY_OP,
             XEN_MEM_CLAIM_PAGES as c_ulong,
-            addr_of_mut!(reservation) as c_ulong,
+            reservation.as_mut_ptr() as c_ulong,
         )
         .await?;
+        unsafe { reservation.assume_init() };
         Ok(())
     }
 
@@ -696,34 +714,36 @@ impl XenCall {
             idx,
             pfn,
         );
-        let mut add = AddToPhysmap {
+        let mut add = MaybeUninit::new(AddToPhysmap {
             domid: domid as u16,
             size: 0,
             space,
             idx,
             gpfn: pfn,
-        };
+        });
         self.hypercall2(
             HYPERVISOR_MEMORY_OP,
             XEN_MEM_ADD_TO_PHYSMAP as c_ulong,
-            addr_of_mut!(add) as c_ulong,
+            add.as_mut_ptr() as c_ulong,
         )
         .await?;
+        unsafe { add.assume_init() };
         Ok(())
     }
 
     pub async fn mmuext(&self, domid: u32, cmd: c_uint, arg1: u64, arg2: u64) -> Result<()> {
-        let mut ops = MmuExtOp { cmd, arg1, arg2 };
+        let mut ops = MaybeUninit::new(MmuExtOp { cmd, arg1, arg2 });
 
         self.hypercall4(
             HYPERVISOR_MMUEXT_OP,
-            addr_of_mut!(ops) as c_ulong,
+            ops.as_mut_ptr() as c_ulong,
             1,
             0,
             domid as c_ulong,
         )
-        .await
-        .map(|_| ())
+        .await?;
+        unsafe { ops.assume_init() };
+        Ok(())
     }
 
     pub async fn iomem_permission(
@@ -741,7 +761,7 @@ impl XenCall {
             nr_mfns,
             allow,
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_IOMEM_PERMISSION,
             interface_version: self.domctl_interface_version,
             domid,
@@ -752,9 +772,10 @@ impl XenCall {
                     allow: if allow { 1 } else { 0 },
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
@@ -773,7 +794,7 @@ impl XenCall {
             nr_ports,
             allow,
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_IOPORT_PERMISSION,
             interface_version: self.domctl_interface_version,
             domid,
@@ -784,9 +805,10 @@ impl XenCall {
                     allow: if allow { 1 } else { 0 },
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
@@ -798,7 +820,7 @@ impl XenCall {
             irq,
             allow,
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_IRQ_PERMISSION,
             interface_version: self.domctl_interface_version,
             domid,
@@ -809,9 +831,10 @@ impl XenCall {
                     pad: [0; 3],
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
@@ -824,23 +847,20 @@ impl XenCall {
             index,
             pirq,
         );
-        let mut physdev = PhysdevMapPirq {
+        let mut physdev = MaybeUninit::new(PhysdevMapPirq {
             domid: domid as u16,
             typ: 0x1,
             index: index as c_int,
             pirq: pirq.map(|x| x as c_int).unwrap_or(index as c_int),
             ..Default::default()
-        };
-        physdev.domid = domid as u16;
-        physdev.typ = 0x1;
-        physdev.index = index as c_int;
-        physdev.pirq = pirq.map(|x| x as c_int).unwrap_or(index as c_int);
+        });
         self.hypercall2(
             HYPERVISOR_PHYSDEV_OP,
             PHYSDEVOP_MAP_PIRQ,
-            addr_of_mut!(physdev) as c_ulong,
+            physdev.as_mut_ptr() as c_ulong,
         )
         .await?;
+        let physdev = unsafe { physdev.assume_init() };
         Ok(physdev.pirq as u32)
     }
 
@@ -852,7 +872,7 @@ impl XenCall {
             sbdf,
             flags,
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_ASSIGN_DEVICE,
             interface_version: self.domctl_interface_version,
             domid,
@@ -863,9 +883,10 @@ impl XenCall {
                     pci_assign_device: PciAssignDevice { sbdf, padding: 0 },
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
@@ -878,12 +899,11 @@ impl XenCall {
             index,
             value,
         );
-        let mut param = HvmParam::default();
-        param.domid = domid as u16;
-        param.index = index;
-        param.value = value;
-        self.hypercall2(HYPERVISOR_HVM_OP, 0, addr_of_mut!(param) as c_ulong)
+
+        let mut param = MaybeUninit::new(HvmParam::new(domid as u16, index, value));
+        self.hypercall2(HYPERVISOR_HVM_OP, 0, param.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { param.assume_init() };
         Ok(())
     }
 
@@ -893,7 +913,7 @@ impl XenCall {
             self.handle.as_raw_fd(),
             domid,
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_GETHVMCONTEXT,
             interface_version: self.domctl_interface_version,
             domid,
@@ -903,9 +923,10 @@ impl XenCall {
                     buffer: buffer.map(|x| x.as_mut_ptr()).unwrap_or(null_mut()) as u64,
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        let domctl = unsafe { domctl.assume_init() };
         Ok(unsafe { domctl.value.hvm_context.size })
     }
 
@@ -915,7 +936,7 @@ impl XenCall {
             self.handle.as_raw_fd(),
             domid,
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_SETHVMCONTEXT,
             interface_version: self.domctl_interface_version,
             domid,
@@ -925,9 +946,10 @@ impl XenCall {
                     buffer: buffer.as_ptr() as u64,
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        let domctl = unsafe { domctl.assume_init() };
         Ok(unsafe { domctl.value.hvm_context.size })
     }
 
@@ -938,21 +960,22 @@ impl XenCall {
             domid,
             size,
         );
-        let mut domctl = DomCtl {
+        let mut domctl = MaybeUninit::new(DomCtl {
             cmd: XEN_DOMCTL_SET_PAGING_MEMPOOL_SIZE,
             interface_version: self.domctl_interface_version,
             domid,
             value: DomCtlValue {
                 paging_mempool: PagingMempool { size },
             },
-        };
-        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_DOMCTL, domctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { domctl.assume_init() };
         Ok(())
     }
 
     pub async fn cpu_topology(&self) -> Result<Vec<SysctlCputopo>> {
-        let mut sysctl = Sysctl {
+        let mut sysctl = MaybeUninit::new(Sysctl {
             cmd: XEN_SYSCTL_CPUTOPOINFO,
             interface_version: self.sysctl_interface_version,
             value: SysctlValue {
@@ -961,9 +984,10 @@ impl XenCall {
                     handle: 0,
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_SYSCTL, sysctl.as_mut_ptr() as c_ulong)
             .await?;
+        let sysctl = unsafe { sysctl.assume_init() };
         let cpus = unsafe { sysctl.value.cputopoinfo.num_cpus };
         let mut topos = vec![
             SysctlCputopo {
@@ -973,7 +997,7 @@ impl XenCall {
             };
             cpus as usize
         ];
-        let mut sysctl = Sysctl {
+        let mut sysctl = MaybeUninit::new(Sysctl {
             cmd: XEN_SYSCTL_CPUTOPOINFO,
             interface_version: self.sysctl_interface_version,
             value: SysctlValue {
@@ -982,22 +1006,24 @@ impl XenCall {
                     handle: topos.as_mut_ptr() as c_ulong,
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_SYSCTL, sysctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { sysctl.assume_init() };
         Ok(topos)
     }
 
     pub async fn phys_info(&self) -> Result<SysctlPhysinfo> {
-        let mut sysctl = Sysctl {
+        let mut sysctl = MaybeUninit::new(Sysctl {
             cmd: XEN_SYSCTL_PHYSINFO,
             interface_version: self.sysctl_interface_version,
             value: SysctlValue {
                 phys_info: SysctlPhysinfo::default(),
             },
-        };
-        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_SYSCTL, sysctl.as_mut_ptr() as c_ulong)
             .await?;
+        let sysctl = unsafe { sysctl.assume_init() };
         Ok(unsafe { sysctl.value.phys_info })
     }
 
@@ -1033,7 +1059,7 @@ impl XenCall {
             scaling_governor[i] = governor[i];
         }
 
-        let mut sysctl = Sysctl {
+        let mut sysctl = MaybeUninit::new(Sysctl {
             cmd: XEN_SYSCTL_PM_OP,
             interface_version: self.sysctl_interface_version,
             value: SysctlValue {
@@ -1045,9 +1071,10 @@ impl XenCall {
                     },
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_SYSCTL, sysctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { sysctl.assume_init() };
         Ok(())
     }
 
@@ -1068,7 +1095,7 @@ impl XenCall {
     }
 
     async fn do_set_turbo_mode(&self, cpuid: u32, enable: bool) -> Result<()> {
-        let mut sysctl = Sysctl {
+        let mut sysctl = MaybeUninit::new(Sysctl {
             cmd: XEN_SYSCTL_PM_OP,
             interface_version: self.sysctl_interface_version,
             value: SysctlValue {
@@ -1082,9 +1109,10 @@ impl XenCall {
                     value: SysctlPmOpValue { pad: [0u8; 128] },
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_SYSCTL, sysctl.as_mut_ptr() as c_ulong)
             .await?;
+        unsafe { sysctl.assume_init() };
         Ok(())
     }
 
@@ -1093,8 +1121,8 @@ impl XenCall {
         clear: bool,
         index: u32,
     ) -> Result<([u8; 16384], u32)> {
-        let mut u8buf = [0u8; 16384];
-        let mut sysctl = Sysctl {
+        let mut u8buf = MaybeUninit::new([0u8; 16384]);
+        let mut sysctl = MaybeUninit::new(Sysctl {
             cmd: XEN_SYSCTL_READCONSOLE,
             interface_version: self.sysctl_interface_version,
             value: SysctlValue {
@@ -1103,16 +1131,18 @@ impl XenCall {
                     incremental: 1,
                     pad: 0,
                     index,
-                    buffer: addr_of_mut!(u8buf) as u64,
+                    buffer: u8buf.as_mut_ptr() as u64,
                     count: 16384,
                 },
             },
-        };
-        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+        });
+        self.hypercall1(HYPERVISOR_SYSCTL, sysctl.as_mut_ptr() as c_ulong)
             .await?;
+        let sysctl = unsafe { sysctl.assume_init() };
         // Safety: We are passing a SysctlReadconsole struct as part of the hypercall, and
         // calling the hypercall is known to not change the underlying value outside changing
         // the values on some SysctlReadconsole fields.
+        let u8buf = unsafe { u8buf.assume_init() };
         let newindex = unsafe { sysctl.value.console.index };
         Ok((u8buf, newindex))
     }

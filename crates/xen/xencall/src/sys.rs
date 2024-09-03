@@ -700,6 +700,17 @@ pub struct HvmParam {
     pub value: u64,
 }
 
+impl HvmParam {
+    pub fn new(domid: u16, index: u32, value: u64) -> Self {
+        Self {
+            domid,
+            pad: 0,
+            index,
+            value,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct HvmContext {

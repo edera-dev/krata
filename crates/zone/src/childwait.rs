@@ -5,7 +5,7 @@ use nix::unistd::Pid;
 use std::thread::sleep;
 use std::time::Duration;
 use std::{
-    ptr::addr_of_mut,
+    mem::MaybeUninit,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -65,8 +65,8 @@ struct ChildWaitTask {
 impl ChildWaitTask {
     fn process(&mut self) -> Result<()> {
         loop {
-            let mut status: c_int = 0;
-            let pid = unsafe { waitpid(-1, addr_of_mut!(status), 0) };
+            let mut status = MaybeUninit::<c_int>::new(0);
+            let pid = unsafe { waitpid(-1, status.as_mut_ptr(), 0) };
             // pid being -1 indicates an error occurred, wait 100 microseconds to avoid
             // overloading the channel. Right now we don't consider any other errors
             // but that is fine for now, as waitpid shouldn't ever stop anyway.
@@ -74,6 +74,7 @@ impl ChildWaitTask {
                 sleep(Duration::from_micros(100));
                 continue;
             }
+            let status = unsafe { status.assume_init() };
             if WIFEXITED(status) {
                 let event = ChildEvent {
                     pid: Pid::from_raw(pid),

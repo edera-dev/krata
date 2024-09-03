@@ -1,6 +1,6 @@
 use std::{
+    mem::MaybeUninit,
     os::fd::{AsRawFd, FromRawFd, OwnedFd},
-    ptr::addr_of_mut,
 };
 
 use anyhow::Result;
@@ -70,9 +70,10 @@ impl EthtoolHandle {
 
     fn set_value(&mut self, interface: &str, cmd: u32, value: u32) -> Result<()> {
         let mut ifreq = EthtoolIfreq::new(interface);
-        let mut value = EthtoolValue { cmd, data: value };
-        ifreq.set_value(addr_of_mut!(value) as *mut libc::c_void);
-        let result = unsafe { ioctl(self.fd.as_raw_fd(), SIOCETHTOOL, addr_of_mut!(ifreq) as u64) };
+        let mut value = MaybeUninit::new(EthtoolValue { cmd, data: value });
+        ifreq.set_value(value.as_mut_ptr() as *mut libc::c_void);
+        let mut ifreq = MaybeUninit::new(ifreq);
+        let result = unsafe { ioctl(self.fd.as_raw_fd(), SIOCETHTOOL, ifreq.as_mut_ptr() as u64) };
         if result == -1 {
             return Err(std::io::Error::last_os_error().into());
         }
