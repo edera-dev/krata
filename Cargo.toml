@@ -18,7 +18,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.21"
+version = "0.0.22"
 homepage = "https://krata.dev"
 license = "Apache-2.0"
 repository = "https://github.com/edera-dev/krata"
