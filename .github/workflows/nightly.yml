@@ -20,7 +20,7 @@ jobs:
     name: nightly full build linux-${{ matrix.arch }}
     steps:
     - name: harden runner
-      uses: step-security/harden-runner@5c7944e73c4c2a096b17a9cb74d65b6c2bbafbde # v2.9.1
+      uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # v2.10.1
       with:
         egress-policy: audit
     - name: checkout repository
@@ -37,7 +37,7 @@ jobs:
     - name: build systemd bundle
       run: ./hack/dist/bundle.sh
     - name: upload systemd bundle
-      uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+      uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
       with:
         name: krata-bundle-systemd-${{ matrix.arch }}
         path: "target/dist/bundle-systemd-${{ matrix.arch }}.tgz"
@@ -45,7 +45,7 @@ jobs:
     - name: build deb package
       run: ./hack/dist/deb.sh
     - name: upload deb package
-      uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+      uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
       with:
         name: krata-debian-${{ matrix.arch }}
         path: "target/dist/*.deb"
@@ -53,7 +53,7 @@ jobs:
     - name: build apk package
       run: ./hack/dist/apk.sh
     - name: upload apk package
-      uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+      uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
       with:
         name: krata-alpine-${{ matrix.arch }}
         path: "target/dist/*_${{ matrix.arch }}.apk"
@@ -79,7 +79,7 @@ jobs:
         shell: bash
     steps:
     - name: harden runner
-      uses: step-security/harden-runner@5c7944e73c4c2a096b17a9cb74d65b6c2bbafbde # v2.9.1
+      uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # v2.10.1
       with:
         egress-policy: audit
     - name: configure git line endings
@@ -104,13 +104,13 @@ jobs:
     - name: cargo build kratactl
       run: ./hack/build/cargo.sh build --release --bin kratactl
     - name: upload kratactl
-      uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+      uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
       with:
         name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
         path: "target/*/release/kratactl"
       if: ${{ matrix.platform.os != 'windows' }}
     - name: upload kratactl
-      uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+      uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
       with:
         name: kratactl-${{ matrix.platform.os }}-${{ matrix.platform.arch }}
         path: "target/*/release/kratactl.exe"
@@ -132,7 +132,7 @@ jobs:
       packages: write
     steps:
     - name: harden runner
-      uses: step-security/harden-runner@5c7944e73c4c2a096b17a9cb74d65b6c2bbafbde # v2.9.1
+      uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # v2.10.1
       with:
         egress-policy: audit
     - name: checkout repository
