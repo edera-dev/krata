@@ -12,7 +12,7 @@ resolver = "2"
 [workspace.package]
 version = "0.0.21"
 homepage = "https://krata.dev"
-license = "Apache-2.0"
+license = "GPL-2.0-or-later"
 repository = "https://github.com/edera-dev/krata"
 
 [workspace.dependencies]
