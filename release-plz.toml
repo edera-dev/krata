@@ -4,7 +4,7 @@ git_tag_enable = false
 changelog_update = false
 
 [[package]]
-name = "krata-runtime"
+name = "krata-xenclient"
 git_release_name = "v{{ version }}"
 git_tag_name = "v{{ version }}"
 git_tag_enable = true
@@ -12,7 +12,6 @@ git_release_enable = true
 changelog_update = true
 changelog_path = "./CHANGELOG.md"
 changelog_include = [
-    "krata-runtime",
     "krata-xencall",
     "krata-xenclient",
     "krata-xenevtchn",
