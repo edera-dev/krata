@@ -5,10 +5,10 @@ updates:
   schedule:
     interval: "daily"
   groups:
-    dep-updates:
+    actions-updates:
       dependency-type: "production"
       applies-to: "version-updates"
-    dev-updates:
+    actions-dev-updates:
       dependency-type: "development"
       applies-to: "version-updates"
 - package-ecosystem: "cargo"
@@ -27,9 +27,9 @@ updates:
   schedule:
     interval: "daily"
   groups:
-    dep-updates:
+    docker-updates:
       dependency-type: "production"
       applies-to: "version-updates"
-    dev-updates:
+    docker-dev-updates:
       dependency-type: "development"
       applies-to: "version-updates"

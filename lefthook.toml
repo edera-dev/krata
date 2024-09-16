@@ -13,8 +13,5 @@ run = "./hack/build/cargo.sh clippy"
 [pre-commit.commands.fmt]
 run = "./hack/build/cargo.sh fmt --all -- --check"
 
-[pre-commit.commands.initrd]
-run = "./hack/initrd/build.sh"
-
 [pre-commit.commands.shellcheck]
 run = "./hack/code/shellcheck.sh"

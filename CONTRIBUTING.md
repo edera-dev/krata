@@ -30,5 +30,4 @@ While it's totally fine to simply bring it up on our Discord, we encourage openi
 
 [Code of Conduct]: ./CODE_OF_CONDUCT.md
 [Security Policy]: ./SECURITY.md
-[Development Guide]: ./DEV.md
 [good-first-issues]: https://github.com/edera-dev/krata/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22
