@@ -41,7 +41,7 @@ version = "1.40.0"
 features = ["full"]
 
 [workspace.dependencies.uuid]
-version = "1.10.0"
+version = "1.11.0"
 features = ["v4"]
 
 [profile.release]
