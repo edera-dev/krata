@@ -287,7 +287,6 @@ impl X86PvPlatform {
         &self,
         mut source: Vec<E820Entry>,
         map_limit_kb: u64,
-        balloon_kb: u64,
     ) -> Result<Vec<E820Entry>> {
         let mut e820 = vec![E820Entry::default(); E820_MAX as usize];
 
@@ -323,111 +322,10 @@ impl X86PvPlatform {
             }
         }
 
-        let start_kb = if lowest > 1024 { lowest >> 10 } else { 0 };
+        e820[0].addr = 0;
+        e820[0].size = map_limit_kb << 10;
+        e820[0].typ = E820_RAM;
 
-        let mut idx: usize = 0;
-
-        e820[idx].addr = 0;
-        e820[idx].size = map_limit_kb << 10;
-        e820[idx].typ = E820_RAM;
-
-        let mut delta_kb = 0u64;
-
-        if start_kb > 0 && map_limit_kb > start_kb {
-            delta_kb = map_limit_kb - start_kb;
-            if delta_kb > 0 {
-                e820[idx].size -= delta_kb << 10;
-            }
-        }
-
-        let ram_end = source[0].addr + source[0].size;
-        idx += 1;
-
-        for src in &mut source {
-            let end = src.addr + src.size;
-            if src.typ == E820_UNUSABLE || end < ram_end {
-                src.typ = 0;
-                continue;
-            }
-
-            if src.typ != E820_RAM {
-                continue;
-            }
-
-            if src.addr >= (1 << 32) {
-                continue;
-            }
-
-            if src.addr < ram_end {
-                let delta = ram_end - src.addr;
-                src.typ = E820_UNUSABLE;
-
-                if src.size < delta {
-                    src.typ = 0;
-                } else {
-                    src.size -= delta;
-                    src.addr = ram_end;
-                }
-
-                if src.addr + src.size != end {
-                    src.typ = 0;
-                }
-            }
-
-            if end > ram_end {
-                src.typ = E820_UNUSABLE;
-            }
-        }
-
-        if lowest > ram_end {
-            let mut add_unusable = true;
-
-            for src in &mut source {
-                if !add_unusable {
-                    break;
-                }
-
-                if src.typ != E820_UNUSABLE {
-                    continue;
-                }
-
-                if ram_end != src.addr {
-                    continue;
-                }
-
-                if lowest != src.addr + src.size {
-                    src.size = lowest - src.addr;
-                }
-                add_unusable = false;
-            }
-
-            if add_unusable {
-                e820[1].typ = E820_UNUSABLE;
-                e820[1].addr = ram_end;
-                e820[1].size = lowest - ram_end;
-            }
-        }
-
-        for src in &source {
-            if src.typ == E820_RAM || src.typ == 0 {
-                continue;
-            }
-
-            e820[idx].typ = src.typ;
-            e820[idx].addr = src.addr;
-            e820[idx].size = src.size;
-            idx += 1;
-        }
-
-        if balloon_kb > 0 || delta_kb > 0 {
-            e820[idx].typ = E820_RAM;
-            e820[idx].addr = if (1u64 << 32u64) > highest {
-                1u64 << 32u64
-            } else {
-                highest
-            };
-            e820[idx].size = (delta_kb << 10) + (balloon_kb << 10);
-        }
         Ok(e820)
     }
 }
@@ -831,7 +729,7 @@ impl BootSetupPlatform for X86PvPlatform {
         let map = domain.call.get_memory_map(E820_MAX).await?;
         let mem_mb = domain.total_pages >> (20 - self.page_shift());
         let mem_kb = mem_mb * 1024;
-        let e820 = self.e820_sanitize(map, mem_kb, 0)?;
+        let e820 = self.e820_sanitize(map, mem_kb)?;
         domain.call.set_memory_map(domain.domid, e820).await?;
 
         domain

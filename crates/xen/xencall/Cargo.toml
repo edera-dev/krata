@@ -23,6 +23,10 @@ name = "xencall"
 env_logger = { workspace = true }
 
 [[example]]
+name = "xencall-cpu-topology"
+path = "examples/cpu_topology.rs"
+
+[[example]]
 name = "xencall-domain-info"
 path = "examples/domain_info.rs"
 

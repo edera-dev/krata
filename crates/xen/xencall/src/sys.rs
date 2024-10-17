@@ -231,6 +231,7 @@ pub struct AddressSize {
 #[derive(Copy, Clone)]
 pub union DomCtlValue {
     pub create_domain: CreateDomain,
+    pub create_domain2: CreateDomain2,
     pub get_domain_info: GetDomainInfo,
     pub max_mem: MaxMem,
     pub max_cpus: MaxVcpus,
@@ -244,6 +245,7 @@ pub union DomCtlValue {
     pub assign_device: AssignDevice,
     pub hvm_context: HvmContext,
     pub paging_mempool: PagingMempool,
+    pub set_domain_handle: SetDomainHandle,
     pub pad: [u8; 128],
 }
 
@@ -259,6 +261,24 @@ pub struct CreateDomain {
     pub max_grant_frames: i32,
     pub max_maptrack_frames: i32,
     pub grant_opts: u32,
+    pub vmtrace_size: u32,
+    pub cpupool_id: u32,
+    pub arch_domain_config: ArchDomainConfig,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct CreateDomain2 {
+    pub ssidref: u32,
+    pub handle: [u8; 16],
+    pub flags: u32,
+    pub iommu_opts: u32,
+    pub max_vcpus: u32,
+    pub max_evtchn_port: u32,
+    pub max_grant_frames: i32,
+    pub max_maptrack_frames: i32,
+    pub grant_opts: u32,
+    pub altp2m_opts: u32,
     pub vmtrace_size: u32,
     pub cpupool_id: u32,
     pub arch_domain_config: ArchDomainConfig,
@@ -281,6 +301,32 @@ impl Default for CreateDomain {
             arch_domain_config: ArchDomainConfig::default(),
         }
     }
+}
+
+impl CreateDomain {
+    pub fn to_cd_2(self) -> CreateDomain2 {
+        CreateDomain2 {
+            ssidref: self.ssidref,
+            handle: self.handle,
+            flags: self.flags,
+            iommu_opts: self.iommu_opts,
+            max_vcpus: self.max_vcpus,
+            max_evtchn_port: self.max_evtchn_port,
+            max_grant_frames: self.max_grant_frames,
+            max_maptrack_frames: self.max_maptrack_frames,
+            grant_opts: self.grant_opts,
+            altp2m_opts: 0,
+            vmtrace_size: self.vmtrace_size,
+            cpupool_id: self.cpupool_id,
+            arch_domain_config: self.arch_domain_config,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct SetDomainHandle {
+    pub handle: [u8; 16],
 }
 
 #[repr(C)]
@@ -377,7 +423,8 @@ pub struct HypercallInit {
 }
 
 pub const XEN_DOMCTL_MIN_INTERFACE_VERSION: u32 = 0x00000015;
-pub const XEN_DOMCTL_MAX_INTERFACE_VERSION: u32 = 0x00000016;
+pub const XEN_DOMCTL_MAX_INTERFACE_VERSION: u32 = 0x00000017;
+pub const XEN_DOMCTL_CREATE_DOMAIN2_INTERFACE_THRESHOLD: u32 = 0x00000017;
 
 pub const SECINITSID_DOMU: u32 = 12;
 

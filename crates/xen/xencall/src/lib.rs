@@ -10,10 +10,11 @@ use crate::sys::{
     PciAssignDevice, XenCapabilitiesInfo, DOMCTL_DEV_PCI, HYPERVISOR_DOMCTL,
     HYPERVISOR_EVENT_CHANNEL_OP, HYPERVISOR_HVM_OP, HYPERVISOR_MEMORY_OP, HYPERVISOR_MMUEXT_OP,
     HYPERVISOR_MULTICALL, HYPERVISOR_XEN_VERSION, XENVER_CAPABILITIES, XEN_DOMCTL_ASSIGN_DEVICE,
-    XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO,
-    XEN_DOMCTL_GETHVMCONTEXT, XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_HYPERCALL_INIT,
-    XEN_DOMCTL_IOMEM_PERMISSION, XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION,
-    XEN_DOMCTL_MAX_MEM, XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETHVMCONTEXT,
+    XEN_DOMCTL_CREATEDOMAIN, XEN_DOMCTL_CREATE_DOMAIN2_INTERFACE_THRESHOLD,
+    XEN_DOMCTL_DESTROYDOMAIN, XEN_DOMCTL_GETDOMAININFO, XEN_DOMCTL_GETHVMCONTEXT,
+    XEN_DOMCTL_GETPAGEFRAMEINFO3, XEN_DOMCTL_HYPERCALL_INIT, XEN_DOMCTL_IOMEM_PERMISSION,
+    XEN_DOMCTL_IOPORT_PERMISSION, XEN_DOMCTL_IRQ_PERMISSION, XEN_DOMCTL_MAX_MEM,
+    XEN_DOMCTL_MAX_VCPUS, XEN_DOMCTL_PAUSEDOMAIN, XEN_DOMCTL_SETHVMCONTEXT,
     XEN_DOMCTL_SETVCPUCONTEXT, XEN_DOMCTL_SET_ADDRESS_SIZE, XEN_DOMCTL_SET_PAGING_MEMPOOL_SIZE,
     XEN_DOMCTL_UNPAUSEDOMAIN, XEN_MEM_ADD_TO_PHYSMAP, XEN_MEM_CLAIM_PAGES, XEN_MEM_MEMORY_MAP,
     XEN_MEM_POPULATE_PHYSMAP,
@@ -25,10 +26,11 @@ use std::ffi::{c_long, c_uint, c_ulong, c_void};
 use std::sync::Arc;
 use std::time::Duration;
 use sys::{
-    CpuId, E820Entry, ForeignMemoryMap, PhysdevMapPirq, Sysctl, SysctlCputopo, SysctlCputopoinfo,
-    SysctlPhysinfo, SysctlPmOp, SysctlPmOpValue, SysctlReadconsole, SysctlSetCpuFreqGov,
-    SysctlValue, VcpuGuestContextAny, HYPERVISOR_PHYSDEV_OP, HYPERVISOR_SYSCTL, PHYSDEVOP_MAP_PIRQ,
-    XEN_DOMCTL_MAX_INTERFACE_VERSION, XEN_DOMCTL_MIN_INTERFACE_VERSION, XEN_MEM_SET_MEMORY_MAP,
+    CpuId, E820Entry, ForeignMemoryMap, PhysdevMapPirq, SetDomainHandle, Sysctl, SysctlCputopo,
+    SysctlCputopoinfo, SysctlPhysinfo, SysctlPmOp, SysctlPmOpValue, SysctlReadconsole,
+    SysctlSetCpuFreqGov, SysctlValue, VcpuGuestContextAny, HYPERVISOR_PHYSDEV_OP,
+    HYPERVISOR_SYSCTL, PHYSDEVOP_MAP_PIRQ, XEN_DOMCTL_MAX_INTERFACE_VERSION,
+    XEN_DOMCTL_MIN_INTERFACE_VERSION, XEN_DOMCTL_SETDOMAINHANDLE, XEN_MEM_SET_MEMORY_MAP,
     XEN_SYSCTL_CPUTOPOINFO, XEN_SYSCTL_MAX_INTERFACE_VERSION, XEN_SYSCTL_MIN_INTERFACE_VERSION,
     XEN_SYSCTL_PHYSINFO, XEN_SYSCTL_PM_OP, XEN_SYSCTL_PM_OP_DISABLE_TURBO,
     XEN_SYSCTL_PM_OP_ENABLE_TURBO, XEN_SYSCTL_PM_OP_SET_CPUFREQ_GOV, XEN_SYSCTL_READCONSOLE,
@@ -366,6 +368,28 @@ impl XenCall {
         Ok(alloc_unbound.port)
     }
 
+    pub async fn set_domain_handle(&self, domid: u32, domain_handle: [u8; 16]) -> Result<()> {
+        trace!(
+            "domctl fd={} set_domain_handle domid={} handle={:?}",
+            self.handle.as_raw_fd(),
+            domid,
+            domain_handle,
+        );
+        let mut domctl = DomCtl {
+            cmd: XEN_DOMCTL_SETDOMAINHANDLE,
+            interface_version: self.domctl_interface_version,
+            domid,
+            value: DomCtlValue {
+                set_domain_handle: SetDomainHandle {
+                    handle: domain_handle,
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
+            .await?;
+        Ok(())
+    }
+
     pub async fn get_domain_info(&self, domid: u32) -> Result<GetDomainInfo> {
         trace!(
             "domctl fd={} get_domain_info domid={}",
@@ -395,7 +419,14 @@ impl XenCall {
             cmd: XEN_DOMCTL_CREATEDOMAIN,
             interface_version: self.domctl_interface_version,
             domid: 0,
-            value: DomCtlValue { create_domain },
+            value: if self.domctl_interface_version >= XEN_DOMCTL_CREATE_DOMAIN2_INTERFACE_THRESHOLD
+            {
+                DomCtlValue {
+                    create_domain2: create_domain.to_cd_2(),
+                }
+            } else {
+                DomCtlValue { create_domain }
+            },
         };
         self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
             .await?;

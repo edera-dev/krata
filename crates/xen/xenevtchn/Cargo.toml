@@ -1,6 +1,6 @@
 [package]
 name = "krata-xenevtchn"
-description = "An implementation of Xen evtchn for krata"
+description = "An implementation of Xen evtchn for krata."
 license.workspace = true
 version.workspace = true
 homepage.workspace = true
