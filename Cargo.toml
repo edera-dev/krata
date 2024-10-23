@@ -37,7 +37,7 @@ version = "1.0.209"
 features = ["derive"]
 
 [workspace.dependencies.tokio]
-version = "1.40.0"
+version = "1.41.0"
 features = ["full"]
 
 [workspace.dependencies.uuid]
