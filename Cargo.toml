@@ -27,7 +27,7 @@ libc = "0.2"
 log = "0.4.22"
 memchr = "2"
 nix = "0.29.0"
-regex = "1.11.0"
+regex = "1.11.1"
 slice-copy = "0.3.0"
 thiserror = "1.0"
 xz2 = "0.1"
@@ -37,7 +37,7 @@ version = "1.0.209"
 features = ["derive"]
 
 [workspace.dependencies.tokio]
-version = "1.40.0"
+version = "1.41.1"
 features = ["full"]
 
 [workspace.dependencies.uuid]
