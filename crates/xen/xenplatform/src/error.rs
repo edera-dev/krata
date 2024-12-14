@@ -28,10 +28,14 @@ pub enum Error {
     PopulatePhysmapFailed(usize, usize, usize),
     #[error("unknown elf compression method")]
     ElfCompressionUnknown,
-    #[error("expected elf image format not found")]
-    ElfInvalidImage,
+    #[error("elf image format invalid: {0}")]
+    ElfInvalidImage(&'static str),
+    #[error("elf linux image not found")]
+    ElfNotLinux,
     #[error("provided elf image does not contain xen support")]
     ElfXenSupportMissing,
+    #[error("provided elf image does not contain xen note {0}")]
+    ElfXenNoteMissing(&'static str),
     #[error("regex error: {0}")]
     RegexError(#[from] regex::Error),
     #[error("error: {0}")]

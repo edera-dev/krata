@@ -34,6 +34,8 @@ pub enum Error {
     RegexError(#[from] regex::Error),
     #[error("error: {0}")]
     GenericError(String),
+    #[error("parameter missing: {0}")]
+    ParameterMissing(&'static str),
     #[error("failed to parse int: {0}")]
     ParseIntError(#[from] std::num::ParseIntError),
     #[error("invalid pci bdf string")]
@@ -42,6 +44,12 @@ pub enum Error {
     PciDeviceNotAssignable(PciBdf),
     #[error("xen platform error: {0}")]
     XenPlatform(#[from] xenplatform::error::Error),
+    #[error("invalid block index")]
+    InvalidBlockIdx,
+    #[error("device state wait error: {0}")]
+    DevStateWaitError(String),
+    #[error("device ids exhausted")]
+    DevIdExhausted,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

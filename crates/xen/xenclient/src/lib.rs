@@ -1,12 +1,11 @@
 pub mod error;
 
-use crate::error::{Error, Result};
+use config::{DomainConfig, DomainResult};
+use error::{Error, Result};
 use log::{debug, trace};
-use pci::PciBdf;
 use tokio::time::timeout;
-use tx::ClientTransaction;
-use xenplatform::boot::BootSetupPlatform;
-use xenplatform::domain::{BaseDomainConfig, BaseDomainManager, CreatedDomain};
+use tx::{DeviceConfig, XenTransaction};
+use xenplatform::domain::{PlatformDomainInfo, PlatformDomainManager};
 
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -15,109 +14,26 @@ use std::time::Duration;
 use xencall::XenCall;
 use xenstore::{XsdClient, XsdInterface};
 
+pub mod config;
+pub mod devalloc;
+pub mod devstate;
 pub mod pci;
 pub mod tx;
+pub mod util;
 
 #[derive(Clone)]
-pub struct XenClient<P: BootSetupPlatform> {
+pub struct XenClient {
     pub store: XsdClient,
     pub call: XenCall,
-    domain_manager: Arc<BaseDomainManager<P>>,
-}
-
-#[derive(Clone, Debug)]
-pub struct BlockDeviceRef {
-    pub path: String,
-    pub major: u32,
-    pub minor: u32,
-}
-
-#[derive(Clone, Debug)]
-pub struct DomainDisk {
-    pub vdev: String,
-    pub block: BlockDeviceRef,
-    pub writable: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct DomainFilesystem {
-    pub path: String,
-    pub tag: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct DomainNetworkInterface {
-    pub mac: String,
-    pub mtu: u32,
-    pub bridge: Option<String>,
-    pub script: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct DomainChannel {
-    pub typ: String,
-    pub initialized: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct DomainEventChannel {
-    pub name: String,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub enum DomainPciRdmReservePolicy {
-    Invalid,
-    #[default]
-    Strict,
-    Relaxed,
-}
-
-impl DomainPciRdmReservePolicy {
-    pub fn to_option_str(&self) -> &str {
-        match self {
-            DomainPciRdmReservePolicy::Invalid => "-1",
-            DomainPciRdmReservePolicy::Strict => "0",
-            DomainPciRdmReservePolicy::Relaxed => "1",
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct DomainPciDevice {
-    pub bdf: PciBdf,
-    pub permissive: bool,
-    pub msi_translate: bool,
-    pub power_management: bool,
-    pub rdm_reserve_policy: DomainPciRdmReservePolicy,
-}
-
-#[derive(Clone, Debug)]
-pub struct DomainConfig {
-    pub base: BaseDomainConfig,
-    pub backend_domid: u32,
-    pub name: String,
-    pub disks: Vec<DomainDisk>,
-    pub swap_console_backend: Option<String>,
-    pub channels: Vec<DomainChannel>,
-    pub vifs: Vec<DomainNetworkInterface>,
-    pub filesystems: Vec<DomainFilesystem>,
-    pub pcis: Vec<DomainPciDevice>,
-    pub extra_keys: Vec<(String, String)>,
-    pub extra_rw_paths: Vec<String>,
-}
-
-#[derive(Debug)]
-pub struct CreatedChannel {
-    pub ring_ref: u64,
-    pub evtchn: u32,
+    domain_manager: Arc<PlatformDomainManager>,
 }
 
 #[allow(clippy::too_many_arguments)]
-impl<P: BootSetupPlatform> XenClient<P> {
-    pub async fn new(current_domid: u32, platform: P) -> Result<XenClient<P>> {
+impl XenClient {
+    pub async fn new() -> Result<XenClient> {
         let store = XsdClient::open().await?;
-        let call: XenCall = XenCall::open(current_domid)?;
-        let domain_manager = BaseDomainManager::new(call.clone(), platform).await?;
+        let call: XenCall = XenCall::open(0)?;
+        let domain_manager = PlatformDomainManager::new(call.clone()).await?;
         Ok(XenClient {
             store,
             call,
@@ -125,29 +41,47 @@ impl<P: BootSetupPlatform> XenClient<P> {
         })
     }
 
-    pub async fn create(&self, config: &DomainConfig) -> Result<CreatedDomain> {
-        let created = self.domain_manager.create(config.base.clone()).await?;
-        match self.init(created.domid, config, &created).await {
-            Ok(_) => Ok(created),
+    pub async fn create(&self, config: DomainConfig) -> Result<DomainResult> {
+        let platform = config
+            .get_platform()
+            .as_ref()
+            .ok_or_else(|| Error::ParameterMissing("platform"))?
+            .clone();
+        let platform = self.domain_manager.create(platform).await?;
+        match self.init(platform.domid, config, &platform).await {
+            Ok(result) => Ok(result),
             Err(err) => {
                 // ignore since destroying a domain is best-effort when an error occurs
-                let _ = self.domain_manager.destroy(created.domid).await;
+                let _ = self.domain_manager.destroy(platform.domid).await;
                 Err(err)
             }
         }
     }
 
-    pub async fn transaction(&self, domid: u32, backend_domid: u32) -> Result<ClientTransaction> {
-        ClientTransaction::new(&self.store, domid, backend_domid).await
+    pub async fn transaction(&self, domid: u32, backend_domid: u32) -> Result<XenTransaction> {
+        XenTransaction::new(&self.store, domid, backend_domid).await
     }
 
-    async fn init(&self, domid: u32, config: &DomainConfig, created: &CreatedDomain) -> Result<()> {
+    async fn init(
+        &self,
+        domid: u32,
+        mut config: DomainConfig,
+        created: &PlatformDomainInfo,
+    ) -> Result<DomainResult> {
         trace!("xenclient init domid={} domain={:?}", domid, created);
-        let transaction = self.transaction(domid, config.backend_domid).await?;
-        transaction
-            .add_domain_declaration(&config.name, &config.base, created)
-            .await?;
-        transaction.commit().await?;
+        let platform_config = config
+            .get_platform()
+            .as_ref()
+            .ok_or_else(|| Error::ParameterMissing("platform"))?;
+        loop {
+            let transaction = self.transaction(domid, config.get_backend_domid()).await?;
+            transaction
+                .add_domain_declaration(config.get_name().clone(), platform_config, created)
+                .await?;
+            if transaction.maybe_commit().await? {
+                break;
+            }
+        }
         if !self
             .store
             .introduce_domain(domid, created.store_mfn, created.store_evtchn)
@@ -155,57 +89,69 @@ impl<P: BootSetupPlatform> XenClient<P> {
         {
             return Err(Error::IntroduceDomainFailed);
         }
-        let transaction = self.transaction(domid, config.backend_domid).await?;
-        transaction
-            .add_channel_device(
-                created,
-                0,
-                &DomainChannel {
-                    typ: config
-                        .swap_console_backend
-                        .clone()
-                        .unwrap_or("xenconsoled".to_string())
-                        .to_string(),
-                    initialized: true,
-                },
-            )
-            .await?;
+        config.prepare(domid, &self.call, created).await?;
+        let mut channels;
+        let mut vifs;
+        let mut vbds;
+        let mut fs9ps;
+        let mut pci_result;
+        loop {
+            let transaction = self.transaction(domid, config.get_backend_domid()).await?;
 
-        for (index, channel) in config.channels.iter().enumerate() {
-            transaction
-                .add_channel_device(created, index + 1, channel)
-                .await?;
+            channels = Vec::new();
+            for channel in config.get_channels() {
+                let result = channel.add_to_transaction(&transaction).await?;
+                channels.push(result);
+            }
+
+            vifs = Vec::new();
+            for vif in config.get_vifs() {
+                let result = vif.add_to_transaction(&transaction).await?;
+                vifs.push(result);
+            }
+
+            vbds = Vec::new();
+            for vbd in config.get_vbds() {
+                let result = vbd.add_to_transaction(&transaction).await?;
+                vbds.push(result);
+            }
+
+            fs9ps = Vec::new();
+            for fs9p in config.get_fs9ps() {
+                let result = fs9p.add_to_transaction(&transaction).await?;
+                fs9ps.push(result);
+            }
+
+            pci_result = None;
+            if let Some(pci) = config.get_pci().as_ref() {
+                pci_result = Some(pci.add_to_transaction(&transaction).await?);
+            }
+
+            for (key, value) in config.get_extra_keys() {
+                transaction.write(key, value, None).await?;
+            }
+
+            for rw_path in config.get_rw_paths() {
+                transaction.add_rw_path(rw_path).await?;
+            }
+
+            if transaction.maybe_commit().await? {
+                break;
+            }
         }
 
-        for (index, disk) in config.disks.iter().enumerate() {
-            transaction.add_vbd_device(index, disk).await?;
+        if config.get_start() {
+            self.call.unpause_domain(domid).await?;
         }
 
-        for (index, filesystem) in config.filesystems.iter().enumerate() {
-            transaction.add_9pfs_device(index, filesystem).await?;
-        }
-
-        for (index, vif) in config.vifs.iter().enumerate() {
-            transaction.add_vif_device(index, vif).await?;
-        }
-
-        for (index, pci) in config.pcis.iter().enumerate() {
-            transaction
-                .add_pci_device(&self.call, index, config.pcis.len(), pci)
-                .await?;
-        }
-
-        for (key, value) in &config.extra_keys {
-            transaction.write_key(key, value).await?;
-        }
-
-        for key in &config.extra_rw_paths {
-            transaction.add_rw_path(key).await?;
-        }
-
-        transaction.commit().await?;
-        self.call.unpause_domain(domid).await?;
-        Ok(())
+        Ok(DomainResult {
+            platform: created.clone(),
+            channels,
+            vifs,
+            vbds,
+            fs9ps,
+            pci: pci_result,
+        })
     }
 
     pub async fn destroy(&self, domid: u32) -> Result<()> {
@@ -251,39 +197,7 @@ impl<P: BootSetupPlatform> XenClient<P> {
         }
 
         for backend in &backend_paths {
-            let state_path = format!("{}/state", backend);
-            let mut watch = self.store.create_watch(&state_path).await?;
-            let online_path = format!("{}/online", backend);
-            let tx = self.store.transaction().await?;
-            let state = tx.read_string(&state_path).await?.unwrap_or(String::new());
-            if state.is_empty() {
-                break;
-            }
-            tx.write_string(&online_path, "0").await?;
-            if !state.is_empty() && u32::from_str(&state).unwrap_or(0) != 6 {
-                tx.write_string(&state_path, "5").await?;
-            }
-            self.store.bind_watch(&watch).await?;
-            tx.commit().await?;
-
-            let mut count: u32 = 0;
-            loop {
-                if count >= 3 {
-                    debug!("unable to safely destroy backend: {}", backend);
-                    break;
-                }
-                let _ = timeout(Duration::from_secs(1), watch.receiver.recv()).await;
-                let state = self
-                    .store
-                    .read_string(&state_path)
-                    .await?
-                    .unwrap_or_else(|| "6".to_string());
-                let state = i64::from_str(&state).unwrap_or(-1);
-                if state == 6 {
-                    break;
-                }
-                count += 1;
-            }
+            self.destroy_backend(backend).await?;
         }
 
         let tx = self.store.transaction().await?;
@@ -303,6 +217,74 @@ impl<P: BootSetupPlatform> XenClient<P> {
         }
         tx.rm(&dom_path).await?;
         tx.commit().await?;
+        Ok(())
+    }
+
+    async fn destroy_backend(&self, backend: &str) -> Result<()> {
+        let state_path = format!("{}/state", backend);
+        let mut watch = self.store.create_watch(&state_path).await?;
+        let online_path = format!("{}/online", backend);
+        let tx = self.store.transaction().await?;
+        let state = tx.read_string(&state_path).await?.unwrap_or(String::new());
+        if state.is_empty() {
+            return Ok(());
+        }
+        tx.write_string(&online_path, "0").await?;
+        if !state.is_empty() && u32::from_str(&state).unwrap_or(0) != 6 {
+            tx.write_string(&state_path, "5").await?;
+        }
+        self.store.bind_watch(&watch).await?;
+        tx.commit().await?;
+
+        let mut count: u32 = 0;
+        loop {
+            if count >= 3 {
+                debug!("unable to safely destroy backend: {}", backend);
+                break;
+            }
+            let _ = timeout(Duration::from_secs(1), watch.receiver.recv()).await;
+            let state = self
+                .store
+                .read_string(&state_path)
+                .await?
+                .unwrap_or_else(|| "6".to_string());
+            let state = i64::from_str(&state).unwrap_or(-1);
+            if state == 6 {
+                break;
+            }
+            count += 1;
+        }
+        self.store.rm(backend).await?;
+        Ok(())
+    }
+
+    pub async fn destroy_device(
+        &self,
+        category: &str,
+        domid: u32,
+        devid: u64,
+        blkid: Option<u32>,
+    ) -> Result<()> {
+        let dom_path = self.store.get_domain_path(domid).await?;
+        let device_path = format!("{}/device/{}/{}", dom_path, category, devid);
+        if let Some(backend_path) = self
+            .store
+            .read_string(format!("{}/backend", device_path).as_str())
+            .await?
+        {
+            self.destroy_backend(&backend_path).await?;
+        }
+        self.destroy_backend(&device_path).await?;
+        loop {
+            let tx = self.transaction(domid, 0).await?;
+            tx.release_devid(devid).await?;
+            if let Some(blkid) = blkid {
+                tx.release_blkid(blkid).await?;
+            }
+            if tx.maybe_commit().await? {
+                break;
+            }
+        }
         Ok(())
     }
 }

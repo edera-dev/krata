@@ -108,6 +108,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bit-vec"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
+
+[[package]]
 name = "bitflags"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -267,6 +273,8 @@ dependencies = [
 name = "krata-xenclient"
 version = "0.0.23"
 dependencies = [
+ "async-trait",
+ "bit-vec",
  "env_logger",
  "indexmap",
  "krata-xencall",

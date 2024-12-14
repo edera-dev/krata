@@ -19,6 +19,12 @@ use std::mem::size_of;
 use std::sync::Arc;
 use xz2::bufread::XzDecoder;
 
+const ELF_MAGIC: &[u8] = &[
+    0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const GZIP_MAGIC: &[u8] = &[0x1f, 0x8b];
+const XZ_MAGIC: &[u8] = &[0xfd, 0x37, 0x7a, 0x58];
+
 #[derive(Clone)]
 pub struct ElfImageLoader {
     data: Arc<Vec<u8>>,
@@ -60,22 +66,40 @@ fn xen_note_value_as_u64(endian: AnyEndian, value: &[u8]) -> Option<u64> {
 }
 
 impl ElfImageLoader {
-    pub fn new(data: Vec<u8>) -> ElfImageLoader {
-        ElfImageLoader {
-            data: Arc::new(data),
-        }
+    pub fn new(data: Arc<Vec<u8>>) -> ElfImageLoader {
+        ElfImageLoader { data }
     }
 
     pub fn load_gz(data: &[u8]) -> Result<ElfImageLoader> {
         let buff = BufReader::new(data);
         let image = ElfImageLoader::read_one_stream(&mut GzDecoder::new(buff))?;
-        Ok(ElfImageLoader::new(image))
+        Ok(ElfImageLoader::new(Arc::new(image)))
     }
 
     pub fn load_xz(data: &[u8]) -> Result<ElfImageLoader> {
         let buff = BufReader::new(data);
         let image = ElfImageLoader::read_one_stream(&mut XzDecoder::new(buff))?;
-        Ok(ElfImageLoader::new(image))
+        Ok(ElfImageLoader::new(Arc::new(image)))
+    }
+
+    pub fn load(data: Arc<Vec<u8>>) -> Result<ElfImageLoader> {
+        if data.len() >= 16 && find_iter(&data[0..15], ELF_MAGIC).next().is_some() {
+            return Ok(ElfImageLoader::new(data));
+        }
+
+        for start in find_iter(&data, GZIP_MAGIC) {
+            if let Ok(elf) = ElfImageLoader::load_gz(&data[start..]) {
+                return Ok(elf);
+            }
+        }
+
+        for start in find_iter(&data, XZ_MAGIC) {
+            if let Ok(elf) = ElfImageLoader::load_xz(&data[start..]) {
+                return Ok(elf);
+            }
+        }
+
+        Err(Error::ElfCompressionUnknown)
     }
 
     fn read_one_stream(read: &mut dyn Read) -> Result<Vec<u8>> {
@@ -101,36 +125,11 @@ impl ElfImageLoader {
         Ok(result)
     }
 
-    pub fn load_file_gz(path: &str) -> Result<ElfImageLoader> {
-        let file = std::fs::read(path)?;
-        ElfImageLoader::load_gz(file.as_slice())
-    }
-
-    pub fn load_file_xz(path: &str) -> Result<ElfImageLoader> {
-        let file = std::fs::read(path)?;
-        ElfImageLoader::load_xz(file.as_slice())
-    }
-
-    pub fn load_file_kernel(data: &[u8]) -> Result<ElfImageLoader> {
-        for start in find_iter(data, &[0x1f, 0x8b]) {
-            if let Ok(elf) = ElfImageLoader::load_gz(&data[start..]) {
-                return Ok(elf);
-            }
-        }
-
-        for start in find_iter(data, &[0xfd, 0x37, 0x7a, 0x58]) {
-            if let Ok(elf) = ElfImageLoader::load_xz(&data[start..]) {
-                return Ok(elf);
-            }
-        }
-
-        Err(Error::ElfCompressionUnknown)
-    }
-
     fn parse_sync(&self, hvm: bool) -> Result<BootImageInfo> {
         let elf = ElfBytes::<AnyEndian>::minimal_parse(self.data.as_slice())?;
-        let headers = elf.section_headers().ok_or(Error::ElfInvalidImage)?;
-        let mut linux_notes: HashMap<u64, Vec<u8>> = HashMap::new();
+        let headers = elf
+            .section_headers()
+            .ok_or(Error::ElfInvalidImage("section headers missing"))?;
         let mut xen_notes: HashMap<u64, ElfNoteValue> = HashMap::new();
 
         for header in headers {
@@ -140,33 +139,26 @@ impl ElfImageLoader {
 
             let notes = elf.section_data_as_notes(&header)?;
             for note in notes {
-                if let Note::Unknown(note) = note {
-                    if note.name == "Linux" {
-                        linux_notes.insert(note.n_type, note.desc.to_vec());
-                    }
+                let Note::Unknown(note) = note else {
+                    continue;
+                };
 
-                    if note.name == "Xen" {
-                        for typ in XEN_ELFNOTE_TYPES {
-                            if typ.id != note.n_type {
-                                continue;
-                            }
-
-                            let value = if !typ.is_string {
-                                xen_note_value_as_u64(elf.ehdr.endianness, note.desc).unwrap_or(0)
-                            } else {
-                                0
-                            };
-
-                            xen_notes.insert(typ.id, ElfNoteValue { value });
+                if note.name == "Xen" {
+                    for typ in XEN_ELFNOTE_TYPES {
+                        if typ.id != note.n_type {
+                            continue;
                         }
-                        continue;
+
+                        let value = if !typ.is_string {
+                            xen_note_value_as_u64(elf.ehdr.endianness, note.desc).unwrap_or(0)
+                        } else {
+                            0
+                        };
+
+                        xen_notes.insert(typ.id, ElfNoteValue { value });
                     }
                 }
             }
-        }
-
-        if linux_notes.is_empty() {
-            return Err(Error::ElfInvalidImage);
         }
 
         if xen_notes.is_empty() {
@@ -175,27 +167,27 @@ impl ElfImageLoader {
 
         let paddr_offset = xen_notes
             .get(&XEN_ELFNOTE_PADDR_OFFSET)
-            .ok_or(Error::ElfInvalidImage)?
+            .ok_or(Error::ElfXenNoteMissing("PADDR_OFFSET"))?
             .value;
         let virt_base = xen_notes
             .get(&XEN_ELFNOTE_VIRT_BASE)
-            .ok_or(Error::ElfInvalidImage)?
+            .ok_or(Error::ElfXenNoteMissing("VIRT_BASE"))?
             .value;
         let entry = xen_notes
             .get(&XEN_ELFNOTE_ENTRY)
-            .ok_or(Error::ElfInvalidImage)?
+            .ok_or(Error::ElfXenNoteMissing("ENTRY"))?
             .value;
         let virt_hypercall = xen_notes
             .get(&XEN_ELFNOTE_HYPERCALL_PAGE)
-            .ok_or(Error::ElfInvalidImage)?
+            .ok_or(Error::ElfXenNoteMissing("HYPERCALL_PAGE"))?
             .value;
         let init_p2m = xen_notes
             .get(&XEN_ELFNOTE_INIT_P2M)
-            .ok_or(Error::ElfInvalidImage)?
+            .ok_or(Error::ElfXenNoteMissing("INIT_P2M"))?
             .value;
         let mod_start_pfn = xen_notes
             .get(&XEN_ELFNOTE_MOD_START_PFN)
-            .ok_or(Error::ElfInvalidImage)?
+            .ok_or(Error::ElfXenNoteMissing("MOD_START_PFN"))?
             .value;
 
         let phys32_entry = xen_notes.get(&XEN_ELFNOTE_PHYS32_ENTRY).map(|x| x.value);
@@ -203,7 +195,9 @@ impl ElfImageLoader {
         let mut start: u64 = u64::MAX;
         let mut end: u64 = 0;
 
-        let segments = elf.segments().ok_or(Error::ElfInvalidImage)?;
+        let segments = elf
+            .segments()
+            .ok_or(Error::ElfInvalidImage("segments missing"))?;
 
         for header in segments {
             if (header.p_type != PT_LOAD) || (header.p_flags & (PF_R | PF_W | PF_X)) == 0 {
@@ -221,7 +215,9 @@ impl ElfImageLoader {
         }
 
         if paddr_offset != u64::MAX && virt_base == u64::MAX {
-            return Err(Error::ElfInvalidImage);
+            return Err(Error::ElfInvalidImage(
+                "paddr_offset specified, but virt_base is not specified",
+            ));
         }
 
         let virt_offset = virt_base - paddr_offset;
@@ -247,8 +243,13 @@ impl ElfImageLoader {
         };
         Ok(image_info)
     }
+
+    pub fn into_elf_bytes(self) -> Arc<Vec<u8>> {
+        self.data
+    }
 }
 
+#[derive(Debug)]
 struct ElfNoteValue {
     value: u64,
 }
@@ -262,7 +263,9 @@ impl BootImageLoader for ElfImageLoader {
 
     async fn load(&self, image_info: &BootImageInfo, dst: &mut [u8]) -> Result<()> {
         let elf = ElfBytes::<AnyEndian>::minimal_parse(self.data.as_slice())?;
-        let segments = elf.segments().ok_or(Error::ElfInvalidImage)?;
+        let segments = elf
+            .segments()
+            .ok_or(Error::ElfInvalidImage("segments missing"))?;
 
         debug!(
             "load dst={:#x} segments={}",
