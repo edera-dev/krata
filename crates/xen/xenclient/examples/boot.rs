@@ -24,10 +24,15 @@ async fn main() -> Result<()> {
     let initrd_path = args.get(2).expect("argument not specified");
     let client = XenClient::new().await?;
 
+    #[cfg(target_arch = "x86_64")]
+    let runtime_platform = RuntimePlatformType::Pv;
+    #[cfg(not(target_arch = "x86_64"))]
+    let runtime_platform = RuntimePlatformType::Unsupported;
+
     let mut config = DomainConfig::new();
     config.platform(PlatformDomainConfig {
         uuid: Uuid::new_v4(),
-        platform: RuntimePlatformType::Pv,
+        platform: runtime_platform,
         kernel: PlatformKernelConfig {
             data: Arc::new(fs::read(&kernel_image_path).await?),
             format: KernelFormat::ElfCompressed,
