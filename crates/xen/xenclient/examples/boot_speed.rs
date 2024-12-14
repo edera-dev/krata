@@ -42,7 +42,7 @@ async fn create_domain(client: &XenClient, kernel: Arc<Vec<u8>>, i: u32) -> Resu
     let mut config = DomainConfig::new();
     config.platform(PlatformDomainConfig {
         uuid: Uuid::new_v4(),
-        platform: RuntimePlatformType::Pv,
+        platform: RuntimePlatformType::supported(),
         kernel: PlatformKernelConfig {
             data: kernel,
             format: KernelFormat::ElfUncompressed,

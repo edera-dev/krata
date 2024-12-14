@@ -54,6 +54,14 @@ impl RuntimePlatformType {
             RuntimePlatformType::Pv => RuntimePlatform::Pv(x86pv::X86PvPlatform::new()),
         }
     }
+
+    pub fn supported() -> RuntimePlatformType {
+        if cfg!(target_arch = "x86_64") {
+            RuntimePlatformType::Pv
+        } else {
+            RuntimePlatformType::Unsupported
+        }
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
