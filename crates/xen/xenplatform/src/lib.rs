@@ -56,11 +56,10 @@ impl RuntimePlatformType {
     }
 
     pub fn supported() -> RuntimePlatformType {
-        if cfg!(target_arch = "x86_64") {
-            RuntimePlatformType::Pv
-        } else {
-            RuntimePlatformType::Unsupported
-        }
+        #[cfg(target_arch = "x86_64")]
+        return RuntimePlatformType::Pv;
+        #[cfg(not(target_arch = "x86_64"))]
+        return RuntimePlatformType::Unsupported;
     }
 }
 
