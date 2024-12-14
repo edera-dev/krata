@@ -18,7 +18,7 @@ repository = "https://github.com/edera-dev/krata"
 [workspace.dependencies]
 async-trait = "0.1.83"
 byteorder = "1"
-c2rust-bitfields = "0.18.0"
+c2rust-bitfields = "0.19.0"
 elf = "0.7.4"
 env_logger = "0.11.5"
 flate2 = "1.0"
@@ -29,12 +29,8 @@ memchr = "2"
 nix = "0.29.0"
 regex = "1.11.1"
 slice-copy = "0.3.0"
-thiserror = "1.0"
+thiserror = "2.0.7"
 xz2 = "0.1"
-
-[workspace.dependencies.serde]
-version = "1.0.209"
-features = ["derive"]
 
 [workspace.dependencies.tokio]
 version = "1.41.1"

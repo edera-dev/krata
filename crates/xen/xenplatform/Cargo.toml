@@ -10,10 +10,8 @@ resolver = "2"
 
 [dependencies]
 async-trait = { workspace = true }
-c2rust-bitfields = { workspace = true }
 elf = { workspace = true }
 flate2 = { workspace = true }
-indexmap = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 krata-xencall = { path = "../xencall", version = "^0.0.23" }
@@ -27,7 +25,6 @@ uuid = { workspace = true }
 xz2 = { workspace = true }
 
 [dev-dependencies]
-env_logger = { workspace = true }
 tokio = { workspace = true }
 
 [lib]

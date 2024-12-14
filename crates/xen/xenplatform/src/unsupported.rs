@@ -44,23 +44,19 @@ impl BootSetupPlatform for UnsupportedPlatform {
         panic!("unsupported platform")
     }
 
-    async fn alloc_p2m_segment(&mut self, _: &mut BootDomain) -> Result<Option<DomainSegment>> {
-        panic!("unsupported platform")
-    }
-
     async fn alloc_page_tables(&mut self, _: &mut BootDomain) -> Result<Option<DomainSegment>> {
         panic!("unsupported platform")
     }
 
-    async fn setup_page_tables(&mut self, _: &mut BootDomain) -> Result<()> {
-        panic!("unsupported platform")
-    }
-
-    async fn setup_hypercall_page(&mut self, _: &mut BootDomain) -> Result<()> {
+    async fn alloc_p2m_segment(&mut self, _: &mut BootDomain) -> Result<Option<DomainSegment>> {
         panic!("unsupported platform")
     }
 
     async fn alloc_magic_pages(&mut self, _: &mut BootDomain) -> Result<()> {
+        panic!("unsupported platform")
+    }
+
+    async fn setup_page_tables(&mut self, _: &mut BootDomain) -> Result<()> {
         panic!("unsupported platform")
     }
 
@@ -76,11 +72,15 @@ impl BootSetupPlatform for UnsupportedPlatform {
         panic!("unsupported platform")
     }
 
+    async fn gnttab_seed(&mut self, _: &mut BootDomain) -> Result<()> {
+        panic!("unsupported platform")
+    }
+
     async fn vcpu(&mut self, _: &mut BootDomain) -> Result<()> {
         panic!("unsupported platform")
     }
 
-    async fn gnttab_seed(&mut self, _: &mut BootDomain) -> Result<()> {
+    async fn setup_hypercall_page(&mut self, _: &mut BootDomain) -> Result<()> {
         panic!("unsupported platform")
     }
 }
