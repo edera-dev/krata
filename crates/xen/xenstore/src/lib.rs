@@ -55,6 +55,27 @@ impl Drop for XsdWatchHandle {
     }
 }
 
+pub struct XsdMultiWatchHandle {
+    pub paths: Vec<String>,
+    pub id: u32,
+    unwatch_sender: Sender<(u32, String)>,
+    pub receiver: Receiver<String>,
+}
+
+impl XsdMultiWatchHandle {
+    pub fn add_path(&mut self, path: impl AsRef<str>) {
+        self.paths.push(path.as_ref().to_string());
+    }
+}
+
+impl Drop for XsdMultiWatchHandle {
+    fn drop(&mut self) {
+        for path in &self.paths {
+            let _ = self.unwatch_sender.try_send((self.id, path.clone()));
+        }
+    }
+}
+
 #[allow(async_fn_in_trait)]
 pub trait XsdInterface {
     async fn list<P: AsRef<str>>(&self, path: P) -> Result<Vec<String>>;
@@ -141,7 +162,7 @@ impl XsdClient {
             }
             return Err(error);
         }
-        result.unwrap().parse_bool()
+        result?.parse_bool()
     }
 
     async fn set_perms<P: AsRef<str>>(
@@ -195,6 +216,16 @@ impl XsdClient {
             )
             .await?;
         response.parse_bool()
+    }
+
+    pub async fn create_multi_watch(&self) -> Result<XsdMultiWatchHandle> {
+        let (id, receiver, unwatch_sender) = self.socket.add_watch().await?;
+        Ok(XsdMultiWatchHandle {
+            paths: vec![],
+            id,
+            receiver,
+            unwatch_sender,
+        })
     }
 
     pub async fn create_watch<P: AsRef<str>>(&self, path: P) -> Result<XsdWatchHandle> {
@@ -317,6 +348,20 @@ impl XsdTransaction {
             .send(self.tx, XSD_TRANSACTION_END, &[abort_str])
             .await?
             .parse_bool()
+    }
+
+    pub async fn maybe_commit(&self) -> Result<bool> {
+        match self.end(false).await {
+            Ok(result) => Ok(result),
+
+            Err(error) => {
+                if error.is_again_response() {
+                    Ok(false)
+                } else {
+                    Err(error)
+                }
+            }
+        }
     }
 
     pub async fn commit(&self) -> Result<bool> {

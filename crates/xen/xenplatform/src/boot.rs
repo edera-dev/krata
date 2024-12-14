@@ -63,7 +63,7 @@ impl BootDomain {
         }
 
         let local_page_size: u32 = (1i64 << XEN_PAGE_SHIFT) as u32;
-        let pages = (size + local_page_size as u64 - 1) / local_page_size as u64;
+        let pages = size.div_ceil(local_page_size as u64);
         let start = self.virt_alloc_end;
 
         let mut segment = DomainSegment {
