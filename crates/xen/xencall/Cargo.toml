@@ -14,7 +14,6 @@ log = { workspace = true }
 nix = { workspace = true, features = ["ioctl"] }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-uuid = { workspace = true }
 
 [lib]
 name = "xencall"

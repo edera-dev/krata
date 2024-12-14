@@ -474,31 +474,6 @@ impl BootSetupPlatform for X86PvPlatform {
         Ok(())
     }
 
-    async fn alloc_p2m_segment(
-        &mut self,
-        domain: &mut BootDomain,
-    ) -> Result<Option<DomainSegment>> {
-        let mut p2m_alloc_size =
-            ((domain.phys.p2m_size() * 8) + X86_PAGE_SIZE - 1) & !(X86_PAGE_SIZE - 1);
-        let from = domain.image_info.virt_p2m_base;
-        let to = from + p2m_alloc_size - 1;
-        let m = self.count_page_tables(domain, from, to, domain.pfn_alloc_end)?;
-
-        let pgtables: usize;
-        {
-            let map = &mut self.table.mappings[m];
-            map.area.pfn = domain.pfn_alloc_end;
-            for lvl_idx in 0..4 {
-                map.levels[lvl_idx].pfn += p2m_alloc_size >> X86_PAGE_SHIFT;
-            }
-            pgtables = map.area.pgtables;
-        }
-        self.table.mappings_count += 1;
-        p2m_alloc_size += (pgtables << X86_PAGE_SHIFT) as u64;
-        let p2m_segment = domain.alloc_segment(0, p2m_alloc_size).await?;
-        Ok(Some(p2m_segment))
-    }
-
     async fn alloc_page_tables(
         &mut self,
         domain: &mut BootDomain,
@@ -531,6 +506,61 @@ impl BootSetupPlatform for X86PvPlatform {
             self.table, segment
         );
         Ok(Some(segment))
+    }
+
+    async fn alloc_p2m_segment(
+        &mut self,
+        domain: &mut BootDomain,
+    ) -> Result<Option<DomainSegment>> {
+        let mut p2m_alloc_size =
+            ((domain.phys.p2m_size() * 8) + X86_PAGE_SIZE - 1) & !(X86_PAGE_SIZE - 1);
+        let from = domain.image_info.virt_p2m_base;
+        let to = from + p2m_alloc_size - 1;
+        let m = self.count_page_tables(domain, from, to, domain.pfn_alloc_end)?;
+
+        let pgtables: usize;
+        {
+            let map = &mut self.table.mappings[m];
+            map.area.pfn = domain.pfn_alloc_end;
+            for lvl_idx in 0..4 {
+                map.levels[lvl_idx].pfn += p2m_alloc_size >> X86_PAGE_SHIFT;
+            }
+            pgtables = map.area.pgtables;
+        }
+        self.table.mappings_count += 1;
+        p2m_alloc_size += (pgtables << X86_PAGE_SHIFT) as u64;
+        let p2m_segment = domain.alloc_segment(0, p2m_alloc_size).await?;
+        Ok(Some(p2m_segment))
+    }
+
+    async fn alloc_magic_pages(&mut self, domain: &mut BootDomain) -> Result<()> {
+        if domain.image_info.virt_p2m_base >= domain.image_info.virt_base
+            || (domain.image_info.virt_p2m_base & ((1 << self.page_shift()) - 1)) != 0
+        {
+            self.p2m_segment = self.alloc_p2m_segment(domain).await?;
+        }
+        self.start_info_segment = Some(domain.alloc_page()?);
+        self.xenstore_segment = Some(domain.alloc_page()?);
+        domain.store_mfn = domain.phys.p2m[self.xenstore_segment.as_ref().unwrap().pfn as usize];
+        let evtchn = domain.call.evtchn_alloc_unbound(domain.domid, 0).await?;
+        let page = domain.alloc_page()?;
+        domain.console_evtchn = evtchn;
+        domain.console_mfn = domain.phys.p2m[page.pfn as usize];
+        self.page_table_segment = self.alloc_page_tables(domain).await?;
+        self.boot_stack_segment = Some(domain.alloc_page()?);
+
+        if domain.virt_pgtab_end > 0 {
+            domain.alloc_padding_pages(domain.virt_pgtab_end)?;
+        }
+
+        if self.p2m_segment.is_none() {
+            if let Some(mut p2m_segment) = self.alloc_p2m_segment(domain).await? {
+                p2m_segment.vstart = domain.image_info.virt_p2m_base;
+                self.p2m_segment = Some(p2m_segment);
+            }
+        }
+
+        Ok(())
     }
 
     async fn setup_page_tables(&mut self, domain: &mut BootDomain) -> Result<()> {
@@ -591,47 +621,6 @@ impl BootSetupPlatform for X86PvPlatform {
                 }
             }
         }
-        Ok(())
-    }
-
-    async fn setup_hypercall_page(&mut self, domain: &mut BootDomain) -> Result<()> {
-        if domain.image_info.virt_hypercall == u64::MAX {
-            return Ok(());
-        }
-        let pfn =
-            (domain.image_info.virt_hypercall - domain.image_info.virt_base) >> self.page_shift();
-        let mfn = domain.phys.p2m[pfn as usize];
-        domain.call.hypercall_init(domain.domid, mfn).await?;
-        Ok(())
-    }
-
-    async fn alloc_magic_pages(&mut self, domain: &mut BootDomain) -> Result<()> {
-        if domain.image_info.virt_p2m_base >= domain.image_info.virt_base
-            || (domain.image_info.virt_p2m_base & ((1 << self.page_shift()) - 1)) != 0
-        {
-            self.p2m_segment = self.alloc_p2m_segment(domain).await?;
-        }
-        self.start_info_segment = Some(domain.alloc_page()?);
-        self.xenstore_segment = Some(domain.alloc_page()?);
-        domain.store_mfn = domain.phys.p2m[self.xenstore_segment.as_ref().unwrap().pfn as usize];
-        let evtchn = domain.call.evtchn_alloc_unbound(domain.domid, 0).await?;
-        let page = domain.alloc_page()?;
-        domain.console_evtchn = evtchn;
-        domain.console_mfn = domain.phys.p2m[page.pfn as usize];
-        self.page_table_segment = self.alloc_page_tables(domain).await?;
-        self.boot_stack_segment = Some(domain.alloc_page()?);
-
-        if domain.virt_pgtab_end > 0 {
-            domain.alloc_padding_pages(domain.virt_pgtab_end)?;
-        }
-
-        if self.p2m_segment.is_none() {
-            if let Some(mut p2m_segment) = self.alloc_p2m_segment(domain).await? {
-                p2m_segment.vstart = domain.image_info.virt_p2m_base;
-                self.p2m_segment = Some(p2m_segment);
-            }
-        }
-
         Ok(())
     }
 
@@ -739,6 +728,39 @@ impl BootSetupPlatform for X86PvPlatform {
         Ok(())
     }
 
+    async fn gnttab_seed(&mut self, domain: &mut BootDomain) -> Result<()> {
+        let xenstore_segment = self
+            .xenstore_segment
+            .as_ref()
+            .ok_or(Error::MemorySetupFailed("xenstore_segment missing"))?;
+
+        let console_gfn = domain.console_mfn as usize;
+        let xenstore_gfn = domain.phys.p2m[xenstore_segment.pfn as usize];
+        let addr = domain
+            .call
+            .mmap(0, 1 << XEN_PAGE_SHIFT)
+            .await
+            .ok_or(Error::MmapFailed)?;
+        domain
+            .call
+            .map_resource(domain.domid, 1, 0, 0, 1, addr)
+            .await?;
+        let entries = unsafe { slice::from_raw_parts_mut(addr as *mut GrantEntry, 2) };
+        entries[0].flags = 1 << 0;
+        entries[0].domid = 0;
+        entries[0].frame = console_gfn as u32;
+        entries[1].flags = 1 << 0;
+        entries[1].domid = 0;
+        entries[1].frame = xenstore_gfn as u32;
+        unsafe {
+            let result = munmap(addr as *mut c_void, 1 << XEN_PAGE_SHIFT);
+            if result != 0 {
+                return Err(Error::UnmapFailed(Errno::from_raw(result)));
+            }
+        }
+        Ok(())
+    }
+
     async fn vcpu(&mut self, domain: &mut BootDomain) -> Result<()> {
         let page_table_segment = self
             .page_table_segment
@@ -783,36 +805,14 @@ impl BootSetupPlatform for X86PvPlatform {
         Ok(())
     }
 
-    async fn gnttab_seed(&mut self, domain: &mut BootDomain) -> Result<()> {
-        let xenstore_segment = self
-            .xenstore_segment
-            .as_ref()
-            .ok_or(Error::MemorySetupFailed("xenstore_segment missing"))?;
-
-        let console_gfn = domain.console_mfn as usize;
-        let xenstore_gfn = domain.phys.p2m[xenstore_segment.pfn as usize];
-        let addr = domain
-            .call
-            .mmap(0, 1 << XEN_PAGE_SHIFT)
-            .await
-            .ok_or(Error::MmapFailed)?;
-        domain
-            .call
-            .map_resource(domain.domid, 1, 0, 0, 1, addr)
-            .await?;
-        let entries = unsafe { slice::from_raw_parts_mut(addr as *mut GrantEntry, 2) };
-        entries[0].flags = 1 << 0;
-        entries[0].domid = 0;
-        entries[0].frame = console_gfn as u32;
-        entries[1].flags = 1 << 0;
-        entries[1].domid = 0;
-        entries[1].frame = xenstore_gfn as u32;
-        unsafe {
-            let result = munmap(addr as *mut c_void, 1 << XEN_PAGE_SHIFT);
-            if result != 0 {
-                return Err(Error::UnmapFailed(Errno::from_raw(result)));
-            }
+    async fn setup_hypercall_page(&mut self, domain: &mut BootDomain) -> Result<()> {
+        if domain.image_info.virt_hypercall == u64::MAX {
+            return Ok(());
         }
+        let pfn =
+            (domain.image_info.virt_hypercall - domain.image_info.virt_base) >> self.page_shift();
+        let mfn = domain.phys.p2m[pfn as usize];
+        domain.call.hypercall_init(domain.domid, mfn).await?;
         Ok(())
     }
 }

@@ -9,9 +9,7 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-async-trait = { workspace = true }
 indexmap = { workspace = true }
-libc = { workspace = true }
 log = { workspace = true }
 krata-xencall = { path = "../xencall", version = "^0.0.23" }
 krata-xenplatform = { path = "../xenplatform", version = "^0.0.23" }
