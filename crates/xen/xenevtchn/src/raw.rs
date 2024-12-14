@@ -32,13 +32,13 @@ impl RawEventChannelService {
 
     pub fn bind_virq(&self, virq: u32) -> Result<u32> {
         let handle = self.handle.lock().map_err(|_| Error::LockAcquireFailed)?;
-        let mut request = sys::BindVirq { virq };
+        let mut request = sys::BindVirqRequest { virq };
         Ok(unsafe { sys::bind_virq(handle.as_raw_fd(), &mut request)? as u32 })
     }
 
     pub fn bind_interdomain(&self, domid: u32, port: u32) -> Result<u32> {
         let handle = self.handle.lock().map_err(|_| Error::LockAcquireFailed)?;
-        let mut request = sys::BindInterdomain {
+        let mut request = sys::BindInterdomainRequest {
             remote_domain: domid,
             remote_port: port,
         };
@@ -47,7 +47,7 @@ impl RawEventChannelService {
 
     pub fn bind_unbound_port(&self, domid: u32) -> Result<u32> {
         let handle = self.handle.lock().map_err(|_| Error::LockAcquireFailed)?;
-        let mut request = sys::BindUnboundPort {
+        let mut request = sys::BindUnboundPortRequest {
             remote_domain: domid,
         };
         Ok(unsafe { sys::bind_unbound_port(handle.as_raw_fd(), &mut request)? as u32 })
@@ -55,13 +55,13 @@ impl RawEventChannelService {
 
     pub fn unbind(&self, port: u32) -> Result<u32> {
         let handle = self.handle.lock().map_err(|_| Error::LockAcquireFailed)?;
-        let mut request = sys::UnbindPort { port };
+        let mut request = sys::UnbindPortRequest { port };
         Ok(unsafe { sys::unbind(handle.as_raw_fd(), &mut request)? as u32 })
     }
 
     pub fn notify(&self, port: u32) -> Result<u32> {
         let handle = self.handle.lock().map_err(|_| Error::LockAcquireFailed)?;
-        let mut request = sys::Notify { port };
+        let mut request = sys::NotifyRequest { port };
         Ok(unsafe { sys::notify(handle.as_raw_fd(), &mut request)? as u32 })
     }
 
