@@ -9,8 +9,8 @@ use log::{debug, trace};
 use nix::errno::Errno;
 use slice_copy::copy;
 use xencall::sys::{
-    x8664VcpuGuestContext, CreateDomain, E820Entry, VcpuGuestContextAny, E820_MAX, E820_RAM,
-    E820_UNUSABLE, MMUEXT_PIN_L4_TABLE, XEN_DOMCTL_CDF_IOMMU,
+    x8664VcpuGuestContext, CreateDomain, VcpuGuestContextAny, MMUEXT_PIN_L4_TABLE,
+    XEN_DOMCTL_CDF_IOMMU,
 };
 
 use crate::{
@@ -281,52 +281,6 @@ impl X86PvPlatform {
         }
         self.table.mappings[m] = map;
         Ok(m)
-    }
-
-    fn e820_sanitize(
-        &self,
-        mut source: Vec<E820Entry>,
-        map_limit_kb: u64,
-    ) -> Result<Vec<E820Entry>> {
-        let mut e820 = vec![E820Entry::default(); E820_MAX as usize];
-
-        for entry in &mut source {
-            if entry.addr > 0x100000 {
-                continue;
-            }
-
-            // entries under 1MB should be removed.
-            entry.typ = 0;
-            entry.size = 0;
-            entry.addr = u64::MAX;
-        }
-
-        let mut lowest = u64::MAX;
-        let mut highest = 0;
-
-        for entry in &source {
-            if entry.typ == E820_RAM || entry.typ == E820_UNUSABLE || entry.typ == 0 {
-                continue;
-            }
-
-            lowest = if entry.addr < lowest {
-                entry.addr
-            } else {
-                lowest
-            };
-
-            highest = if entry.addr + entry.size > highest {
-                entry.addr + entry.size
-            } else {
-                highest
-            }
-        }
-
-        e820[0].addr = 0;
-        e820[0].size = map_limit_kb << 10;
-        e820[0].typ = E820_RAM;
-
-        Ok(e820)
     }
 }
 
@@ -690,8 +644,10 @@ impl BootSetupPlatform for X86PvPlatform {
             (*info).store_mfn = domain.phys.p2m[xenstore_segment.pfn as usize];
             (*info).console.mfn = domain.console_mfn;
             (*info).console.evtchn = domain.console_evtchn;
-            (*info).mod_start = domain.initrd_segment.vstart;
-            (*info).mod_len = domain.initrd_segment.size;
+            if let Some(ref initrd_segment) = domain.initrd_segment {
+                (*info).mod_start = initrd_segment.vstart;
+                (*info).mod_len = initrd_segment.size;
+            }
             for (i, c) in domain.cmdline.chars().enumerate() {
                 (*info).cmdline[i] = c as c_char;
             }
@@ -714,12 +670,6 @@ impl BootSetupPlatform for X86PvPlatform {
         let pg_mfn = domain.phys.p2m[pg_pfn as usize];
         domain.phys.unmap(pg_pfn)?;
         domain.phys.unmap(p2m_segment.pfn)?;
-
-        let map = domain.call.get_memory_map(E820_MAX).await?;
-        let mem_mb = domain.total_pages >> (20 - self.page_shift());
-        let mem_kb = mem_mb * 1024;
-        let e820 = self.e820_sanitize(map, mem_kb)?;
-        domain.call.set_memory_map(domain.domid, e820).await?;
 
         domain
             .call

@@ -8,15 +8,8 @@ use crate::{
     error::{Error, Result},
     mem::PhysicalPages,
     sys::XEN_PAGE_SHIFT,
+    ImageLoader, PlatformKernelConfig, PlatformResourcesConfig,
 };
-
-pub struct BootSetup<I: BootImageLoader, P: BootSetupPlatform> {
-    pub call: XenCall,
-    pub domid: u32,
-    pub platform: P,
-    pub image_loader: I,
-    pub dtb: Option<Vec<u8>>,
-}
 
 #[derive(Debug, Default, Clone)]
 pub struct DomainSegment {
@@ -42,7 +35,7 @@ pub struct BootDomain {
     pub phys: PhysicalPages,
     pub store_evtchn: u32,
     pub store_mfn: u64,
-    pub initrd_segment: DomainSegment,
+    pub initrd_segment: Option<DomainSegment>,
     pub console_evtchn: u32,
     pub console_mfn: u64,
     pub cmdline: String,
@@ -142,129 +135,8 @@ impl BootDomain {
     }
 }
 
-impl<I: BootImageLoader, P: BootSetupPlatform> BootSetup<I, P> {
-    pub fn new(
-        call: XenCall,
-        domid: u32,
-        platform: P,
-        image_loader: I,
-        dtb: Option<Vec<u8>>,
-    ) -> BootSetup<I, P> {
-        BootSetup {
-            call,
-            domid,
-            platform,
-            image_loader,
-            dtb,
-        }
-    }
-
-    pub async fn initialize(
-        &mut self,
-        initrd: &[u8],
-        target_mem_mb: u64,
-        max_mem_mb: u64,
-        max_vcpus: u32,
-        cmdline: &str,
-    ) -> Result<BootDomain> {
-        let target_pages = target_mem_mb << (20 - self.platform.page_shift());
-        let total_pages = max_mem_mb << (20 - self.platform.page_shift());
-        let image_info = self.image_loader.parse(self.platform.hvm()).await?;
-        let mut domain = BootDomain {
-            domid: self.domid,
-            call: self.call.clone(),
-            virt_alloc_end: 0,
-            virt_pgtab_end: 0,
-            pfn_alloc_end: 0,
-            total_pages,
-            target_pages,
-            page_size: self.platform.page_size(),
-            image_info,
-            console_evtchn: 0,
-            console_mfn: 0,
-            max_vcpus,
-            phys: PhysicalPages::new(self.call.clone(), self.domid, self.platform.page_shift()),
-            initrd_segment: DomainSegment::default(),
-            store_evtchn: 0,
-            store_mfn: 0,
-            cmdline: cmdline.to_string(),
-        };
-
-        self.platform.initialize_early(&mut domain).await?;
-
-        let mut initrd_segment = if !domain.image_info.unmapped_initrd {
-            Some(domain.alloc_module(initrd).await?)
-        } else {
-            None
-        };
-
-        let mut kernel_segment = if self.platform.needs_early_kernel() {
-            Some(self.load_kernel_segment(&mut domain).await?)
-        } else {
-            None
-        };
-
-        self.platform.initialize_memory(&mut domain).await?;
-        domain.virt_alloc_end = domain.image_info.virt_base;
-
-        if kernel_segment.is_none() {
-            kernel_segment = Some(self.load_kernel_segment(&mut domain).await?);
-        }
-
-        if domain.image_info.unmapped_initrd {
-            initrd_segment = Some(domain.alloc_module(initrd).await?);
-        }
-
-        domain.initrd_segment =
-            initrd_segment.ok_or(Error::MemorySetupFailed("initrd_segment missing"))?;
-
-        self.platform.alloc_magic_pages(&mut domain).await?;
-
-        domain.store_evtchn = self.call.evtchn_alloc_unbound(self.domid, 0).await?;
-
-        let _kernel_segment =
-            kernel_segment.ok_or(Error::MemorySetupFailed("kernel_segment missing"))?;
-
-        Ok(domain)
-    }
-
-    pub async fn boot(&mut self, domain: &mut BootDomain) -> Result<()> {
-        let domain_info = self.call.get_domain_info(self.domid).await?;
-        let shared_info_frame = domain_info.shared_info_frame;
-        self.platform.setup_page_tables(domain).await?;
-        self.platform
-            .setup_start_info(domain, shared_info_frame)
-            .await?;
-        self.platform.setup_hypercall_page(domain).await?;
-        self.platform.bootlate(domain).await?;
-        self.platform
-            .setup_shared_info(domain, shared_info_frame)
-            .await?;
-        self.platform.vcpu(domain).await?;
-        domain.phys.unmap_all()?;
-        self.platform.gnttab_seed(domain).await?;
-        Ok(())
-    }
-
-    async fn load_kernel_segment(&mut self, domain: &mut BootDomain) -> Result<DomainSegment> {
-        let kernel_segment = domain
-            .alloc_segment(
-                domain.image_info.virt_kstart,
-                domain.image_info.virt_kend - domain.image_info.virt_kstart,
-            )
-            .await?;
-        let kernel_segment_ptr = kernel_segment.addr as *mut u8;
-        let kernel_segment_slice =
-            unsafe { slice::from_raw_parts_mut(kernel_segment_ptr, kernel_segment.size as usize) };
-        self.image_loader
-            .load(&domain.image_info, kernel_segment_slice)
-            .await?;
-        Ok(kernel_segment)
-    }
-}
-
 #[async_trait::async_trait]
-pub trait BootSetupPlatform: Clone {
+pub trait BootSetupPlatform {
     fn create_domain(&self, enable_iommu: bool) -> CreateDomain;
     fn page_size(&self) -> u64;
     fn page_shift(&self) -> u64;
@@ -304,6 +176,135 @@ pub trait BootSetupPlatform: Clone {
     async fn vcpu(&mut self, domain: &mut BootDomain) -> Result<()>;
 
     async fn setup_hypercall_page(&mut self, domain: &mut BootDomain) -> Result<()>;
+
+    async fn initialize_internal(
+        &mut self,
+        domid: u32,
+        call: XenCall,
+        image_loader: &ImageLoader,
+        domain: &mut BootDomain,
+        kernel: &PlatformKernelConfig,
+    ) -> Result<()> {
+        self.initialize_early(domain).await?;
+
+        let mut initrd_segment = if !domain.image_info.unmapped_initrd && kernel.initrd.is_some() {
+            Some(domain.alloc_module(kernel.initrd.as_ref().unwrap()).await?)
+        } else {
+            None
+        };
+
+        let mut kernel_segment = if self.needs_early_kernel() {
+            Some(self.load_kernel_segment(image_loader, domain).await?)
+        } else {
+            None
+        };
+
+        self.initialize_memory(domain).await?;
+        domain.virt_alloc_end = domain.image_info.virt_base;
+
+        if kernel_segment.is_none() {
+            kernel_segment = Some(self.load_kernel_segment(image_loader, domain).await?);
+        }
+
+        if domain.image_info.unmapped_initrd && kernel.initrd.is_some() {
+            initrd_segment = Some(domain.alloc_module(kernel.initrd.as_ref().unwrap()).await?);
+        }
+
+        domain.initrd_segment = initrd_segment;
+        self.alloc_magic_pages(domain).await?;
+        domain.store_evtchn = call.evtchn_alloc_unbound(domid, 0).await?;
+        let _kernel_segment =
+            kernel_segment.ok_or(Error::MemorySetupFailed("kernel_segment missing"))?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn initialize(
+        &mut self,
+        domid: u32,
+        call: XenCall,
+        image_loader: &ImageLoader,
+        kernel: &PlatformKernelConfig,
+        resources: &PlatformResourcesConfig,
+    ) -> Result<BootDomain> {
+        let target_pages = resources.assigned_memory_mb << (20 - self.page_shift());
+        let total_pages = resources.max_memory_mb << (20 - self.page_shift());
+        let image_info = image_loader.parse(self.hvm()).await?;
+        let mut domain = BootDomain {
+            domid,
+            call: call.clone(),
+            virt_alloc_end: 0,
+            virt_pgtab_end: 0,
+            pfn_alloc_end: 0,
+            total_pages,
+            target_pages,
+            page_size: self.page_size(),
+            image_info,
+            console_evtchn: 0,
+            console_mfn: 0,
+            max_vcpus: resources.max_vcpus,
+            phys: PhysicalPages::new(call.clone(), domid, self.page_shift()),
+            initrd_segment: None,
+            store_evtchn: 0,
+            store_mfn: 0,
+            cmdline: kernel.cmdline.clone(),
+        };
+        match self
+            .initialize_internal(domid, call, image_loader, &mut domain, kernel)
+            .await
+        {
+            Ok(_) => Ok(domain),
+            Err(error) => {
+                domain.phys.unmap_all()?;
+                Err(error)
+            }
+        }
+    }
+
+    async fn boot_internal(
+        &mut self,
+        call: XenCall,
+        domid: u32,
+        domain: &mut BootDomain,
+    ) -> Result<()> {
+        let domain_info = call.get_domain_info(domid).await?;
+        let shared_info_frame = domain_info.shared_info_frame;
+        self.setup_page_tables(domain).await?;
+        self.setup_start_info(domain, shared_info_frame).await?;
+        self.setup_hypercall_page(domain).await?;
+        self.bootlate(domain).await?;
+        self.setup_shared_info(domain, shared_info_frame).await?;
+        self.vcpu(domain).await?;
+        self.gnttab_seed(domain).await?;
+        domain.phys.unmap_all()?;
+        Ok(())
+    }
+
+    async fn boot(&mut self, domid: u32, call: XenCall, domain: &mut BootDomain) -> Result<()> {
+        let result = self.boot_internal(call, domid, domain).await;
+        domain.phys.unmap_all()?;
+        result
+    }
+
+    async fn load_kernel_segment(
+        &mut self,
+        image_loader: &ImageLoader,
+        domain: &mut BootDomain,
+    ) -> Result<DomainSegment> {
+        let kernel_segment = domain
+            .alloc_segment(
+                domain.image_info.virt_kstart,
+                domain.image_info.virt_kend - domain.image_info.virt_kstart,
+            )
+            .await?;
+        let kernel_segment_ptr = kernel_segment.addr as *mut u8;
+        let kernel_segment_slice =
+            unsafe { slice::from_raw_parts_mut(kernel_segment_ptr, kernel_segment.size as usize) };
+        image_loader
+            .load(&domain.image_info, kernel_segment_slice)
+            .await?;
+        Ok(kernel_segment)
+    }
 }
 
 #[async_trait::async_trait]
