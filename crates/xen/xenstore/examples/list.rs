@@ -10,11 +10,12 @@ async fn list_recursive(client: &XsdClient, path: &str) -> Result<()> {
         let children = client.list(path).await?;
         for child in children {
             let full = format!("{}/{}", if path == "/" { "" } else { path }, child);
-            let value = client
-                .read_string(full.as_str())
-                .await?
-                .expect("expected value");
-            println!("{} = {:?}", full, value,);
+            let value = client.read(full.as_str()).await?.expect("expected value");
+            let stringified = match String::from_utf8(value) {
+                Ok(string) => format!("\"{}\"", string),
+                Err(error) => format!("{:?}", error.into_bytes()),
+            };
+            println!("{} = {}", full, stringified);
             pending.push(full);
         }
     }
