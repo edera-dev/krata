@@ -1,5 +1,7 @@
 use std::io;
 
+use tokio::task::JoinError;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("version of xen is not supported")]
@@ -16,6 +18,8 @@ pub enum Error {
     MmapBatchFailed(nix::errno::Errno),
     #[error("specified value is too long")]
     ValueTooLong,
+    #[error("failed to join async task: {0}")]
+    JoinError(JoinError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
