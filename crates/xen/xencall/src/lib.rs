@@ -35,7 +35,6 @@ use sys::{
     XEN_SYSCTL_PHYSINFO, XEN_SYSCTL_PM_OP, XEN_SYSCTL_PM_OP_DISABLE_TURBO,
     XEN_SYSCTL_PM_OP_ENABLE_TURBO, XEN_SYSCTL_PM_OP_SET_CPUFREQ_GOV, XEN_SYSCTL_READCONSOLE,
 };
-use tokio::sync::Semaphore;
 use tokio::time::sleep;
 
 use std::fs::{File, OpenOptions};
@@ -46,7 +45,6 @@ use std::slice;
 #[derive(Clone)]
 pub struct XenCall {
     pub handle: Arc<File>,
-    semaphore: Arc<Semaphore>,
     domctl_interface_version: u32,
     sysctl_interface_version: u32,
 }
@@ -62,7 +60,6 @@ impl XenCall {
         let sysctl_interface_version = XenCall::detect_sysctl_interface_version(&handle)?;
         Ok(XenCall {
             handle: Arc::new(handle),
-            semaphore: Arc::new(Semaphore::new(1)),
             domctl_interface_version,
             sysctl_interface_version,
         })
@@ -119,7 +116,6 @@ impl XenCall {
     }
 
     pub async fn mmap(&self, addr: u64, len: u64) -> Option<u64> {
-        let _permit = self.semaphore.acquire().await.ok()?;
         trace!(
             "call fd={} mmap addr={:#x} len={}",
             self.handle.as_raw_fd(),
@@ -127,14 +123,20 @@ impl XenCall {
             len
         );
         unsafe {
-            let ptr = mmap(
-                addr as *mut c_void,
-                len as usize,
-                PROT_READ | PROT_WRITE,
-                MAP_SHARED,
-                self.handle.as_raw_fd(),
-                0,
-            );
+            let handle = self.handle.clone();
+            let ptr = tokio::task::spawn_blocking(move || {
+                mmap(
+                    addr as *mut c_void,
+                    len as usize,
+                    PROT_READ | PROT_WRITE,
+                    MAP_SHARED,
+                    handle.as_raw_fd(),
+                    0,
+                ) as u64
+            })
+            .await
+            .map_err(Error::JoinError)
+            .ok()? as *mut c_void;
             if ptr == MAP_FAILED {
                 None
             } else {
@@ -151,18 +153,22 @@ impl XenCall {
     }
 
     pub async fn hypercall(&self, op: c_ulong, arg: [c_ulong; 5]) -> Result<c_long> {
-        let _permit = self.semaphore.acquire().await?;
         trace!(
             "call fd={} hypercall op={:#x} arg={:?}",
             self.handle.as_raw_fd(),
             op,
             arg
         );
-        unsafe {
+
+        let handle = self.handle.clone();
+        tokio::task::spawn_blocking(move || unsafe {
             let mut call = Hypercall { op, arg };
-            let result = sys::hypercall(self.handle.as_raw_fd(), &mut call)?;
-            Ok(result as c_long)
-        }
+            sys::hypercall(handle.as_raw_fd(), &mut call)
+                .map(|x| x as c_long)
+                .map_err(|e| e.into())
+        })
+        .await
+        .map_err(Error::JoinError)?
     }
 
     pub async fn hypercall0(&self, op: c_ulong) -> Result<c_long> {
@@ -234,18 +240,21 @@ impl XenCall {
         num: u64,
         addr: u64,
     ) -> Result<()> {
-        let _permit = self.semaphore.acquire().await?;
-        let mut resource = MmapResource {
-            dom: domid as u16,
-            typ,
-            id,
-            idx,
-            num,
-            addr,
-        };
-        unsafe {
-            sys::mmap_resource(self.handle.as_raw_fd(), &mut resource)?;
-        }
+        let handle = self.handle.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut resource = MmapResource {
+                dom: domid as u16,
+                typ,
+                id,
+                idx,
+                num,
+                addr,
+            };
+
+            unsafe { sys::mmap_resource(handle.as_raw_fd(), &mut resource) }
+        })
+        .await
+        .map_err(Error::JoinError)??;
         Ok(())
     }
 
@@ -256,7 +265,6 @@ impl XenCall {
         addr: u64,
         mfns: Vec<u64>,
     ) -> Result<c_long> {
-        let _permit = self.semaphore.acquire().await?;
         trace!(
             "call fd={} mmap_batch domid={} num={} addr={:#x} mfns={:?}",
             self.handle.as_raw_fd(),
@@ -322,7 +330,7 @@ impl XenCall {
                         break;
                     }
 
-                    let count = result.unwrap();
+                    let count = result?;
                     if count <= 0 {
                         break;
                     }
@@ -330,7 +338,7 @@ impl XenCall {
 
                 return Ok(paged as c_long);
             }
-            Ok(result.unwrap() as c_long)
+            Ok(result? as c_long)
         }
     }
 
@@ -618,6 +626,11 @@ impl XenCall {
     }
 
     pub async fn get_memory_map(&self, max_entries: u32) -> Result<Vec<E820Entry>> {
+        trace!(
+            "fd={} get_memory_map max_entries={}",
+            self.handle.as_raw_fd(),
+            max_entries,
+        );
         let mut memory_map = MemoryMap {
             count: max_entries,
             buffer: 0,

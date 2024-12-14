@@ -48,6 +48,13 @@ impl Error {
             _ => false,
         }
     }
+
+    pub fn is_again_response(&self) -> bool {
+        match self {
+            Error::ResponseError(message) => message == "EAGAIN",
+            _ => false,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

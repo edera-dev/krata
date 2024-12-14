@@ -205,6 +205,16 @@ pub const XEN_DOMCTL_GDBSX_PAUSEVCPU: u32 = 1001;
 pub const XEN_DOMCTL_GDBSX_UNPAUSEVCPU: u32 = 1002;
 pub const XEN_DOMCTL_GDBSX_DOMSTATUS: u32 = 1003;
 
+pub const XEN_DOMINF_DYING: u32 = 1u32 << 0;
+pub const XEN_DOMINF_HVM_GUEST: u32 = 1u32 << 1;
+pub const XEN_DOMINF_SHUTDOWN: u32 = 1u32 << 2;
+pub const XEN_DOMINF_PAUSED: u32 = 1u32 << 3;
+pub const XEN_DOMINF_BLOCKED: u32 = 1u32 << 4;
+pub const XEN_DOMINF_RUNNING: u32 = 1u32 << 5;
+pub const XEN_DOMINF_DEBUGGED: u32 = 1u32 << 6;
+pub const XEN_DOMINF_XS_DOMAIN: u32 = 1u32 << 7;
+pub const XEN_DOMINF_HAP: u32 = 1u32 << 8;
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct DomCtl {

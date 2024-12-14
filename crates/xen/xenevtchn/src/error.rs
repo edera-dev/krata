@@ -12,6 +12,8 @@ pub enum Error {
     LockAcquireFailed,
     #[error("event port already in use")]
     PortInUse,
+    #[error("failed to join blocking task")]
+    BlockingTaskJoin,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
