@@ -3,7 +3,10 @@ pub mod raw;
 pub mod sys;
 
 use crate::error::{Error, Result};
-use crate::sys::{BindInterdomain, BindUnboundPort, BindVirq, Notify, UnbindPort};
+use crate::sys::{
+    BindInterdomainRequest, BindUnboundPortRequest, BindVirqRequest, NotifyRequest,
+    UnbindPortRequest,
+};
 
 use crate::raw::EVENT_CHANNEL_DEVICE;
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -16,12 +19,9 @@ use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::fs::{File, OpenOptions};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, Notify};
 
-const CHANNEL_QUEUE_LEN: usize = 30;
-
-type WakeMap = Arc<RwLock<HashMap<u32, Sender<u32>>>>;
+type WakeMap = Arc<Mutex<HashMap<u32, Arc<Notify>>>>;
 
 #[derive(Clone)]
 pub struct EventChannelService {
@@ -32,7 +32,7 @@ pub struct EventChannelService {
 
 pub struct BoundEventChannel {
     pub local_port: u32,
-    pub receiver: Receiver<u32>,
+    pub receiver: Arc<Notify>,
     pub service: EventChannelService,
 }
 
@@ -59,7 +59,7 @@ impl EventChannelService {
             .write(true)
             .open(EVENT_CHANNEL_DEVICE)
             .await?;
-        let wakes = Arc::new(RwLock::new(HashMap::new()));
+        let wakes = Arc::new(Mutex::new(HashMap::new()));
         let flag = Arc::new(AtomicBool::new(false));
         let processor = EventChannelProcessor {
             flag: flag.clone(),
@@ -77,43 +77,52 @@ impl EventChannelService {
 
     pub async fn bind_virq(&self, virq: u32) -> Result<u32> {
         let handle = self.handle.lock().await;
-        unsafe {
-            let mut request = BindVirq { virq };
-            Ok(sys::bind_virq(handle.as_raw_fd(), &mut request)? as u32)
-        }
+        let fd = handle.as_raw_fd();
+        let mut request = BindVirqRequest { virq };
+        let result =
+            tokio::task::spawn_blocking(move || unsafe { sys::bind_virq(fd, &mut request) })
+                .await
+                .map_err(|_| Error::BlockingTaskJoin)?? as u32;
+        Ok(result)
     }
 
     pub async fn bind_interdomain(&self, domid: u32, port: u32) -> Result<u32> {
         let handle = self.handle.lock().await;
-        unsafe {
-            let mut request = BindInterdomain {
-                remote_domain: domid,
-                remote_port: port,
-            };
-            Ok(sys::bind_interdomain(handle.as_raw_fd(), &mut request)? as u32)
-        }
+        let fd = handle.as_raw_fd();
+        let mut request = BindInterdomainRequest {
+            remote_domain: domid,
+            remote_port: port,
+        };
+        let result =
+            tokio::task::spawn_blocking(move || unsafe { sys::bind_interdomain(fd, &mut request) })
+                .await
+                .map_err(|_| Error::BlockingTaskJoin)?? as u32;
+        Ok(result)
     }
 
     pub async fn bind_unbound_port(&self, domid: u32) -> Result<u32> {
         let handle = self.handle.lock().await;
-        unsafe {
-            let mut request = BindUnboundPort {
-                remote_domain: domid,
-            };
-            Ok(sys::bind_unbound_port(handle.as_raw_fd(), &mut request)? as u32)
-        }
+        let fd = handle.as_raw_fd();
+        let mut request = BindUnboundPortRequest {
+            remote_domain: domid,
+        };
+        let result = tokio::task::spawn_blocking(move || unsafe {
+            sys::bind_unbound_port(fd, &mut request)
+        })
+        .await
+        .map_err(|_| Error::BlockingTaskJoin)?? as u32;
+        Ok(result)
     }
 
     pub async fn unmask(&self, port: u32) -> Result<()> {
         let handle = self.handle.lock().await;
         let mut port = port;
-        let result = unsafe {
-            libc::write(
-                handle.as_raw_fd(),
-                &mut port as *mut u32 as *mut c_void,
-                size_of::<u32>(),
-            )
-        };
+        let fd = handle.as_raw_fd();
+        let result = tokio::task::spawn_blocking(move || unsafe {
+            libc::write(fd, &mut port as *mut u32 as *mut c_void, size_of::<u32>())
+        })
+        .await
+        .map_err(|_| Error::BlockingTaskJoin)?;
         if result != size_of::<u32>() as isize {
             return Err(Error::Io(std::io::Error::from_raw_os_error(result as i32)));
         }
@@ -122,25 +131,32 @@ impl EventChannelService {
 
     pub async fn unbind(&self, port: u32) -> Result<u32> {
         let handle = self.handle.lock().await;
-        unsafe {
-            let mut request = UnbindPort { port };
-            let result = sys::unbind(handle.as_raw_fd(), &mut request)? as u32;
-            self.wakes.write().await.remove(&port);
-            Ok(result)
-        }
+        let mut request = UnbindPortRequest { port };
+        let fd = handle.as_raw_fd();
+        let result = tokio::task::spawn_blocking(move || unsafe { sys::unbind(fd, &mut request) })
+            .await
+            .map_err(|_| Error::BlockingTaskJoin)?? as u32;
+        self.wakes.lock().await.remove(&port);
+        Ok(result)
     }
 
     pub async fn notify(&self, port: u32) -> Result<u32> {
         let handle = self.handle.lock().await;
-        unsafe {
-            let mut request = Notify { port };
-            Ok(sys::notify(handle.as_raw_fd(), &mut request)? as u32)
-        }
+        let mut request = NotifyRequest { port };
+        let fd = handle.as_raw_fd();
+        let result = tokio::task::spawn_blocking(move || unsafe { sys::notify(fd, &mut request) })
+            .await
+            .map_err(|_| Error::BlockingTaskJoin)?? as u32;
+        Ok(result)
     }
 
     pub async fn reset(&self) -> Result<u32> {
         let handle = self.handle.lock().await;
-        unsafe { Ok(sys::reset(handle.as_raw_fd())? as u32) }
+        let fd = handle.as_raw_fd();
+        let result = tokio::task::spawn_blocking(move || unsafe { sys::reset(fd) })
+            .await
+            .map_err(|_| Error::BlockingTaskJoin)?? as u32;
+        Ok(result)
     }
 
     pub async fn bind(&self, domid: u32, port: u32) -> Result<BoundEventChannel> {
@@ -154,17 +170,15 @@ impl EventChannelService {
         Ok(bound)
     }
 
-    pub async fn subscribe(&self, port: u32) -> Result<Receiver<u32>> {
-        let mut wakes = self.wakes.write().await;
+    pub async fn subscribe(&self, port: u32) -> Result<Arc<Notify>> {
+        let mut wakes = self.wakes.lock().await;
         let receiver = match wakes.entry(port) {
-            Entry::Occupied(_) => {
-                return Err(Error::PortInUse);
-            }
+            Entry::Occupied(entry) => entry.get().clone(),
 
             Entry::Vacant(entry) => {
-                let (sender, receiver) = channel::<u32>(CHANNEL_QUEUE_LEN);
-                entry.insert(sender);
-                receiver
+                let notify = Arc::new(Notify::new());
+                entry.insert(notify.clone());
+                notify
             }
         };
         Ok(receiver)
@@ -194,9 +208,16 @@ impl EventChannelProcessor {
     pub fn process(&mut self) -> Result<()> {
         loop {
             let port = self.handle.read_u32::<LittleEndian>()?;
-            if let Some(wake) = self.wakes.blocking_read().get(&port) {
-                let _ = wake.try_send(port);
-            }
+            let receiver = match self.wakes.blocking_lock().entry(port) {
+                Entry::Occupied(entry) => entry.get().clone(),
+
+                Entry::Vacant(entry) => {
+                    let notify = Arc::new(Notify::new());
+                    entry.insert(notify.clone());
+                    notify
+                }
+            };
+            receiver.notify_one();
         }
     }
 }
