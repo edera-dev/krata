@@ -37,7 +37,7 @@ jobs:
     - name: install linux dependencies
       run: ./hack/ci/install-linux-deps.sh
     - name: release-plz
-      uses: MarcoIeni/release-plz-action@476794ede164c5137bfc3a1dc6ed3675275690f9 # v0.5.99
+      uses: MarcoIeni/release-plz-action@4cd77ee4d22f0cdb1a461e6eb3591cddc5e1f665 # v0.5.100
       env:
         GITHUB_TOKEN: "${{ steps.generate-token.outputs.token }}"
         CARGO_REGISTRY_TOKEN: "${{ secrets.KRATA_RELEASE_CARGO_TOKEN }}"
