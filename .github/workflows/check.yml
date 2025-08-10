@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: harden runner
-      uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+      uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
       with:
         egress-policy: audit
     - name: checkout repository
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: harden runner
-      uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+      uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
       with:
         egress-policy: audit
     - name: checkout repository
@@ -58,7 +58,7 @@ jobs:
     name: full build linux-${{ matrix.arch }}
     steps:
     - name: harden runner
-      uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+      uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
       with:
         egress-policy: audit
     - name: checkout repository
@@ -86,7 +86,7 @@ jobs:
     name: full test linux-${{ matrix.arch }}
     steps:
     - name: harden runner
-      uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+      uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
       with:
         egress-policy: audit
     - name: checkout repository
@@ -113,7 +113,7 @@ jobs:
     name: full clippy linux-${{ matrix.arch }}
     steps:
     - name: harden runner
-      uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+      uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
       with:
         egress-policy: audit
     - name: checkout repository
