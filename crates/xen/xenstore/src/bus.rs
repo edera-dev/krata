@@ -32,18 +32,6 @@ const XEN_BUS_PATHS: &[&str] = &["/var/run/xenstored/socket", "/dev/xen/xenbus"]
 const XEN_BUS_MAX_PAYLOAD_SIZE: usize = 4096;
 const XEN_BUS_MAX_PACKET_SIZE: usize = XsdMessageHeader::SIZE + XEN_BUS_MAX_PAYLOAD_SIZE;
 
-async fn find_bus_path() -> Option<(&'static str, bool)> {
-    for path in XEN_BUS_PATHS {
-        match metadata(path).await {
-            Ok(metadata) => {
-                return Some((path, metadata.file_type().is_socket()));
-            }
-            Err(_) => continue,
-        }
-    }
-    None
-}
-
 struct WatchState {
     sender: Sender<String>,
 }
@@ -69,21 +57,48 @@ pub struct XsdSocket {
 
 impl XsdSocket {
     pub async fn open() -> Result<XsdSocket> {
-        let (path, socket) = match find_bus_path().await {
-            Some(path) => path,
-            None => return Err(Error::BusNotFound),
-        };
+        let mut saw_path = false;
+        let mut last_error = None;
 
-        let file = if socket {
-            let stream = UnixStream::connect(path).await?;
-            let stream = stream.into_std()?;
-            stream.set_nonblocking(false)?;
-            unsafe { File::from_raw_fd(stream.into_raw_fd()) }
+        for path in XEN_BUS_PATHS {
+            let metadata = match metadata(path).await {
+                Ok(metadata) => metadata,
+                Err(_) => continue,
+            };
+            saw_path = true;
+
+            let file = if metadata.file_type().is_socket() {
+                match UnixStream::connect(path).await {
+                    Ok(stream) => {
+                        let stream = stream.into_std()?;
+                        stream.set_nonblocking(false)?;
+                        unsafe { File::from_raw_fd(stream.into_raw_fd()) }
+                    }
+                    Err(error) => {
+                        warn!("failed to connect to xenstore socket at {path}: {error}");
+                        last_error = Some(Error::from(error));
+                        continue;
+                    }
+                }
+            } else {
+                match File::options().read(true).write(true).open(path).await {
+                    Ok(file) => file,
+                    Err(error) => {
+                        warn!("failed to open xenstore bus at {path}: {error}");
+                        last_error = Some(Error::from(error));
+                        continue;
+                    }
+                }
+            };
+
+            return XsdSocket::from_handle(file).await;
+        }
+
+        if saw_path {
+            Err(last_error.unwrap_or(Error::BusNotFound))
         } else {
-            File::options().read(true).write(true).open(path).await?
-        };
-
-        XsdSocket::from_handle(file).await
+            Err(Error::BusNotFound)
+        }
     }
 
     pub async fn from_handle(handle: File) -> Result<XsdSocket> {

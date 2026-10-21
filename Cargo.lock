@@ -341,6 +341,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "krata-xenvchan"
+version = "0.0.24"
+dependencies = [
+ "krata-xenvchan-sys",
+ "libc",
+ "thiserror",
+]
+
+[[package]]
+name = "krata-xenvchan-sys"
+version = "0.0.24"
+dependencies = [
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.169"
 source = "registry+https://github.com/rust-lang/crates.io-index"

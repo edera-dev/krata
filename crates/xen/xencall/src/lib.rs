@@ -27,13 +27,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use sys::{
     CpuId, E820Entry, ForeignMemoryMap, PhysdevMapPirq, SetDomainHandle, Sysctl, SysctlCputopo,
-    SysctlCputopoinfo, SysctlPhysinfo, SysctlPmOp, SysctlPmOpValue, SysctlReadconsole,
-    SysctlSetCpuFreqGov, SysctlValue, VcpuGuestContextAny, HYPERVISOR_PHYSDEV_OP,
-    HYPERVISOR_SYSCTL, PHYSDEVOP_MAP_PIRQ, XEN_DOMCTL_MAX_INTERFACE_VERSION,
+    SysctlCputopoinfo, SysctlGetdomaininfolist, SysctlPhysinfo, SysctlPmOp, SysctlPmOpValue,
+    SysctlReadconsole, SysctlSetCpuFreqGov, SysctlValue, VcpuGuestContextAny,
+    HYPERVISOR_PHYSDEV_OP, HYPERVISOR_SYSCTL, PHYSDEVOP_MAP_PIRQ, XEN_DOMCTL_MAX_INTERFACE_VERSION,
     XEN_DOMCTL_MIN_INTERFACE_VERSION, XEN_DOMCTL_SETDOMAINHANDLE, XEN_MEM_SET_MEMORY_MAP,
-    XEN_SYSCTL_CPUTOPOINFO, XEN_SYSCTL_MAX_INTERFACE_VERSION, XEN_SYSCTL_MIN_INTERFACE_VERSION,
-    XEN_SYSCTL_PHYSINFO, XEN_SYSCTL_PM_OP, XEN_SYSCTL_PM_OP_DISABLE_TURBO,
-    XEN_SYSCTL_PM_OP_ENABLE_TURBO, XEN_SYSCTL_PM_OP_SET_CPUFREQ_GOV, XEN_SYSCTL_READCONSOLE,
+    XEN_SYSCTL_CPUTOPOINFO, XEN_SYSCTL_GETDOMAININFOLIST, XEN_SYSCTL_MAX_INTERFACE_VERSION,
+    XEN_SYSCTL_MIN_INTERFACE_VERSION, XEN_SYSCTL_PHYSINFO, XEN_SYSCTL_PM_OP,
+    XEN_SYSCTL_PM_OP_DISABLE_TURBO, XEN_SYSCTL_PM_OP_ENABLE_TURBO,
+    XEN_SYSCTL_PM_OP_SET_CPUFREQ_GOV, XEN_SYSCTL_READCONSOLE,
 };
 use tokio::time::sleep;
 
@@ -415,6 +416,37 @@ impl XenCall {
         self.hypercall1(HYPERVISOR_DOMCTL, addr_of_mut!(domctl) as c_ulong)
             .await?;
         Ok(unsafe { domctl.value.get_domain_info })
+    }
+
+    /// Enumerate Xen domains starting from `first_domid`.
+    ///
+    /// Uses XEN_SYSCTL_getdomaininfolist which correctly enumerates domains
+    /// on all Xen versions (unlike XEN_DOMCTL_GETDOMAININFO which does
+    /// exact domid lookup on Xen 4.17+).
+    pub async fn get_domain_info_list(
+        &self,
+        first_domid: u16,
+        max_domains: u32,
+    ) -> Result<Vec<GetDomainInfo>> {
+        let mut buffer = vec![GetDomainInfo::default(); max_domains as usize];
+        let mut sysctl = Sysctl {
+            cmd: XEN_SYSCTL_GETDOMAININFOLIST,
+            interface_version: self.sysctl_interface_version,
+            value: SysctlValue {
+                getdomaininfolist: SysctlGetdomaininfolist {
+                    first_domain: first_domid,
+                    pad: 0,
+                    max_domains,
+                    buffer: buffer.as_mut_ptr() as u64,
+                    num_domains: 0,
+                },
+            },
+        };
+        self.hypercall1(HYPERVISOR_SYSCTL, addr_of_mut!(sysctl) as c_ulong)
+            .await?;
+        let count = unsafe { sysctl.value.getdomaininfolist.num_domains } as usize;
+        buffer.truncate(count);
+        Ok(buffer)
     }
 
     pub async fn create_domain(&self, create_domain: CreateDomain) -> Result<u32> {

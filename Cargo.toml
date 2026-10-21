@@ -4,6 +4,8 @@ members = [
     "crates/xen/xenclient",
     "crates/xen/xenevtchn",
     "crates/xen/xengnt",
+    "crates/xen/xenvchan",
+    "crates/xen/xenvchan-sys",
     "crates/xen/xenplatform",
     "crates/xen/xenstore",
 ]

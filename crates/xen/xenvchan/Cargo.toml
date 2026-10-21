@@ -1,0 +1,17 @@
+[package]
+name = "krata-xenvchan"
+description = "A safe libxenvchan wrapper for krata"
+license.workspace = true
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+thiserror = { workspace = true }
+libc = { workspace = true }
+krata-xenvchan-sys = { path = "../xenvchan-sys", version = "^0.0.24" }
+
+[lib]
+name = "xenvchan"

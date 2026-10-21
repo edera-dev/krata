@@ -807,10 +807,24 @@ pub struct SysctlCputopoinfo {
     pub handle: c_ulong,
 }
 
+/// Buffer-based domain enumeration via XEN_SYSCTL_getdomaininfolist.
+/// Returns info for domains with domid >= first_domain, up to max_domains.
+/// Layout matches xen/include/public/sysctl.h xen_sysctl_getdomaininfolist.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SysctlGetdomaininfolist {
+    pub first_domain: u16,
+    pub pad: u16,
+    pub max_domains: u32,
+    pub buffer: u64, // XEN_GUEST_HANDLE_64(xen_domctl_getdomaininfo_t)
+    pub num_domains: u32,
+}
+
 #[repr(C)]
 pub union SysctlValue {
     pub console: SysctlReadconsole,
     pub cputopoinfo: SysctlCputopoinfo,
+    pub getdomaininfolist: SysctlGetdomaininfolist,
     pub pm_op: SysctlPmOp,
     pub phys_info: SysctlPhysinfo,
     pub pad: [u8; 128],
@@ -825,6 +839,7 @@ pub struct Sysctl {
 
 pub const XEN_SYSCTL_READCONSOLE: u32 = 1;
 pub const XEN_SYSCTL_PHYSINFO: u32 = 3;
+pub const XEN_SYSCTL_GETDOMAININFOLIST: u32 = 6;
 pub const XEN_SYSCTL_PM_OP: u32 = 12;
 pub const XEN_SYSCTL_CPUTOPOINFO: u32 = 16;
 

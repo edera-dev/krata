@@ -1,0 +1,18 @@
+[package]
+name = "krata-xenvchan-sys"
+description = "Raw libxenvchan FFI bindings for krata"
+license.workspace = true
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+libc = { workspace = true }
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[lib]
+name = "xenvchan_sys"
