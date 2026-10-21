@@ -1,4 +1,4 @@
-use nix::{ioctl_none, ioctl_readwrite_bad};
+use nix::{ioctl_none_bad, ioctl_readwrite_bad};
 use std::ffi::c_uint;
 
 #[repr(C)]
@@ -29,7 +29,7 @@ pub struct NotifyRequest {
 
 ioctl_readwrite_bad!(bind_virq, 0x44500, BindVirqRequest);
 ioctl_readwrite_bad!(bind_interdomain, 0x84501, BindInterdomainRequest);
-ioctl_readwrite_bad!(bind_unbound_port, 0x44503, BindUnboundPortRequest);
-ioctl_readwrite_bad!(unbind, 0x44502, UnbindPortRequest);
+ioctl_readwrite_bad!(bind_unbound_port, 0x44502, BindUnboundPortRequest);
+ioctl_readwrite_bad!(unbind, 0x44503, UnbindPortRequest);
 ioctl_readwrite_bad!(notify, 0x44504, NotifyRequest);
-ioctl_none!(reset, 0x4505, 5);
+ioctl_none_bad!(reset, 0x4505);
