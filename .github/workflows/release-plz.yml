@@ -16,6 +16,7 @@ jobs:
     permissions:
       pull-requests: write
       contents: write
+      id-token: write
     steps:
     - name: harden runner
       uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
@@ -44,7 +45,6 @@ jobs:
     - name: install linux dependencies
       run: ./hack/ci/install-linux-deps.sh
     - name: release-plz
-      uses: MarcoIeni/release-plz-action@476794ede164c5137bfc3a1dc6ed3675275690f9 # v0.5.99
+      uses: release-plz/action@f36720ba01927d9927fba665fcdf802e12bc264b # v0.5.147
       env:
         GITHUB_TOKEN: "${{ steps.generate-token.outputs.token }}"
-        CARGO_REGISTRY_TOKEN: "${{ secrets.KRATA_RELEASE_CARGO_TOKEN }}"
