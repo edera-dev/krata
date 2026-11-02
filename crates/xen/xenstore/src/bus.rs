@@ -279,9 +279,9 @@ impl XsdSocketProcessor {
                             req
                         };
 
-                        let mut payload = id.to_string().as_bytes().to_vec();
+                        let mut payload = path.as_bytes().to_vec();
                         payload.push(0);
-                        payload.extend_from_slice(path.to_string().as_bytes());
+                        payload.extend_from_slice(id.to_string().as_bytes());
                         payload.push(0);
                         let header = XsdMessageHeader {
                             typ: XSD_UNWATCH,
@@ -340,5 +340,200 @@ impl Drop for XsdSocket {
         if Arc::strong_count(&self.processor_task) <= 1 {
             self.processor_task.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        sys::{XSD_READ, XSD_TRANSACTION_END, XSD_TRANSACTION_START, XSD_WATCH},
+        XsdClient, XsdInterface, XsdWatchHandle,
+    };
+    use std::{net::Shutdown, os::fd::OwnedFd, time::Duration};
+    use tokio::{io::AsyncReadExt, time::timeout};
+
+    /* Test transport helpers. */
+
+    struct PeerCleanup {
+        stream: std::os::unix::net::UnixStream,
+        processor: Arc<JoinHandle<()>>,
+    }
+
+    impl Drop for PeerCleanup {
+        fn drop(&mut self) {
+            // Unblock the real reader even when a test assertion or deadline fails.
+            let _ = self.stream.shutdown(Shutdown::Both);
+            self.processor.abort();
+        }
+    }
+
+    async fn receive(peer: &mut UnixStream) -> XsdMessage {
+        let mut bytes = [0; XsdMessageHeader::SIZE];
+        peer.read_exact(&mut bytes).await.unwrap();
+        let header = XsdMessageHeader::decode(&bytes).unwrap();
+        assert!(header.len as usize <= XEN_BUS_MAX_PAYLOAD_SIZE);
+        let mut payload = vec![0; header.len as usize];
+        peer.read_exact(&mut payload).await.unwrap();
+        XsdMessage { header, payload }
+    }
+
+    async fn send(peer: &mut UnixStream, header: XsdMessageHeader, payload: &[u8]) {
+        let header = XsdMessageHeader {
+            len: payload.len() as u32,
+            ..header
+        };
+        peer.write_all(&header.encode().unwrap()).await.unwrap();
+        peer.write_all(payload).await.unwrap();
+    }
+
+    async fn bind(peer: &mut UnixStream, client: &XsdClient, watch: &XsdWatchHandle) -> XsdMessage {
+        let (result, message) = tokio::join!(client.bind_watch(watch), async {
+            let message = receive(peer).await;
+            assert_eq!(message.header.typ, XSD_WATCH);
+            assert_eq!(message.header.tx, 0);
+            assert_eq!(
+                message.payload,
+                format!("{}\0{}\0", watch.path, watch.id).as_bytes()
+            );
+            send(peer, message.header, b"OK\0").await;
+            message
+        });
+        result.unwrap();
+        message
+    }
+
+    /* End test transport helpers. */
+
+    #[tokio::test]
+    async fn unwatch_preserves_watch_identity() {
+        let (connection, peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let file = std::fs::File::from(OwnedFd::from(connection));
+        let socket = XsdSocket::from_handle(File::from_std(file)).await.unwrap();
+        let reader = socket._rx_task.clone();
+        let cleanup = PeerCleanup {
+            stream: peer.try_clone().unwrap(),
+            processor: socket.processor_task.clone(),
+        };
+        peer.set_nonblocking(true).unwrap();
+        let mut peer = UnixStream::from_std(peer).unwrap();
+        let client = XsdClient { socket };
+
+        // Keep cleanup outside the scenario so panics and stalled replies also release the reader.
+        let mut scenario = tokio::spawn(async move {
+            let removed = client
+                .create_watch("/local/domain/42/device/vbd/0/state")
+                .await
+                .unwrap();
+            let mut surviving = client
+                .create_watch("/local/domain/42/device/vif/0/state")
+                .await
+                .unwrap();
+            let registered = bind(&mut peer, &client, &removed).await;
+            let other = bind(&mut peer, &client, &surviving).await;
+            assert_ne!(registered.payload, other.payload);
+            assert_eq!(registered.header.req, 0);
+            assert_eq!(other.header.req, 1);
+
+            drop(removed);
+            let unwatch = receive(&mut peer).await;
+            assert_eq!(unwatch.header.typ, XSD_UNWATCH);
+            assert_eq!(unwatch.header.req, 2);
+            assert_eq!(unwatch.header.tx, 0);
+            assert_eq!(unwatch.header.len, registered.header.len);
+            assert_eq!(unwatch.payload.last(), Some(&0));
+            assert_eq!(unwatch.payload.iter().filter(|&&byte| byte == 0).count(), 2);
+            send(&mut peer, unwatch.header, b"OK\0").await;
+
+            let (transaction, ()) = tokio::join!(client.transaction(), async {
+                let request = receive(&mut peer).await;
+                assert_eq!(request.header.typ, XSD_TRANSACTION_START);
+                assert_eq!(request.header.req, 3);
+                assert_eq!(request.header.tx, 0);
+                assert_eq!(request.payload, b"\0");
+                send(&mut peer, request.header, b"71\0").await;
+            });
+            let transaction = transaction.unwrap();
+            let path = surviving.path.clone();
+            let event_path = format!("{path}/child");
+            let event = format!("{event_path}\0{}\0", surviving.id);
+
+            let (ordinary, transactional, ()) = tokio::join!(
+                XsdInterface::read_string(&client, &path),
+                transaction.read_string(&path),
+                async {
+                    let first = receive(&mut peer).await;
+                    let second = receive(&mut peer).await;
+                    let mut identities = vec![first.header.req, second.header.req];
+                    identities.sort_unstable();
+                    assert_eq!(identities, [4, 5]);
+                    assert_ne!(first.header.tx, second.header.tx);
+                    // Reverse replies and interleave an unsolicited event to check routing.
+                    for request in [&second, &first] {
+                        assert_eq!(request.header.typ, XSD_READ);
+                        assert_eq!(request.payload, format!("{path}\0").as_bytes());
+                        let value: &[u8] = match request.header.tx {
+                            0 => b"ordinary",
+                            71 => b"transactional",
+                            tx => panic!("unexpected transaction {tx}"),
+                        };
+                        send(&mut peer, request.header, value).await;
+                        if request.header.req == second.header.req {
+                            send(
+                                &mut peer,
+                                XsdMessageHeader {
+                                    typ: XSD_WATCH_EVENT,
+                                    req: 0,
+                                    tx: 0,
+                                    len: 0,
+                                },
+                                event.as_bytes(),
+                            )
+                            .await;
+                        }
+                    }
+                }
+            );
+            assert_eq!(ordinary.unwrap().as_deref(), Some("ordinary"));
+            assert_eq!(transactional.unwrap().as_deref(), Some("transactional"));
+            assert_eq!(
+                surviving.receiver.recv().await.as_deref(),
+                Some(event_path.as_str())
+            );
+
+            let (committed, ()) = tokio::join!(transaction.commit(), async {
+                let request = receive(&mut peer).await;
+                assert_eq!(request.header.typ, XSD_TRANSACTION_END);
+                assert_eq!(request.header.req, 6);
+                assert_eq!(request.header.tx, 71);
+                assert_eq!(request.payload, b"T\0");
+                send(&mut peer, request.header, b"OK\0").await;
+            });
+            assert!(committed.unwrap());
+            (registered.payload, unwatch.payload)
+        });
+
+        let result = timeout(Duration::from_secs(5), &mut scenario).await;
+        scenario.abort();
+        drop(cleanup);
+        timeout(Duration::from_secs(5), async {
+            while !reader.is_finished() {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("xenstore reader did not stop after peer shutdown");
+        Arc::try_unwrap(reader)
+            .expect("reader still referenced")
+            .join()
+            .unwrap();
+
+        let (registered, unwatch) = result
+            .expect("wire scenario timed out")
+            .expect("wire scenario panicked");
+        assert_eq!(
+            unwatch, registered,
+            "UNWATCH must repeat WATCH path then token"
+        );
     }
 }
